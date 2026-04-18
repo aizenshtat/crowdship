@@ -188,6 +188,19 @@ async function ensureWorktree(repoPath, branchName, defaultBranch, worktreePath)
   });
 }
 
+async function prepareWorktreeDependencies(worktreePath) {
+  if (!existsSync(join(worktreePath, 'package.json'))) {
+    return null;
+  }
+
+  const installArgs = existsSync(join(worktreePath, 'package-lock.json')) ? ['ci'] : ['install'];
+  await runCommand('npm', installArgs, {
+    cwd: worktreePath,
+  });
+
+  return `npm ${installArgs.join(' ')}`;
+}
+
 async function commitContributionArtifact(worktreePath, contributionId, detail) {
   const artifactPath = join(worktreePath, 'docs', 'contributions', `${contributionId}.md`);
   mkdirSync(dirname(artifactPath), { recursive: true });
@@ -205,7 +218,7 @@ async function commitContributionArtifact(worktreePath, contributionId, detail) 
     return false;
   }
 
-  await runCommand('git', ['commit', '-m', buildPullRequestTitle(detail.contribution.title)], {
+  await runCommand('git', ['commit', '--no-verify', '-m', buildPullRequestTitle(detail.contribution.title)], {
     cwd: worktreePath,
   });
   return true;
@@ -358,6 +371,20 @@ async function processClaimedJob(pool, database, claimedJob) {
       branch_name: branchName,
       repository_full_name: repo.repositoryFullName,
     });
+
+    await emitProgress(database, detail.contribution.id, {
+      nextState: 'agent_running',
+      kind: 'agent_step',
+      message: 'Preparing repository dependencies.',
+      payload: {
+        contributionId: detail.contribution.id,
+        branchName,
+      },
+    });
+    const installCommand = await prepareWorktreeDependencies(worktreePath);
+    if (installCommand) {
+      verification.push(installCommand);
+    }
 
     await emitProgress(database, detail.contribution.id, {
       nextState: 'agent_running',
