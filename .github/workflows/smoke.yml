@@ -1,0 +1,18 @@
+name: Smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static-placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate placeholder files
+        run: |
+          test -f public/index.html
+          test -f public/health.txt
+          test -f infra/nginx/crowdship.aizenshtat.eu.conf
+          grep -q "crowdship.aizenshtat.eu" README.md
+          grep -q "Product implementation has not started yet" README.md
