@@ -8,17 +8,17 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #eff4f1;
+        --bg: #edf2ef;
         --panel: #ffffff;
         --panel-2: #f6f9f7;
-        --border: #cfd9d3;
+        --border: #d5ddd8;
         --text: #10211c;
         --muted: #5a6962;
         --accent: #17624f;
         --accent-strong: #0f4538;
         --danger: #9a3412;
         --warning: #8a4b08;
-        --shadow: 0 10px 24px rgba(18, 33, 28, 0.08);
+        --shadow: none;
         --radius: 8px;
       }
 
@@ -58,11 +58,11 @@
 
       .banner {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 14px 16px;
-        background: #f8faf8;
+        padding: 12px 16px;
+        background: var(--panel);
         border-bottom: 1px solid var(--border);
       }
 
@@ -139,7 +139,7 @@
       }
 
       .section {
-        padding: 14px 14px 16px;
+        padding: 12px 12px 14px;
       }
 
       .section + .section {
@@ -151,7 +151,7 @@
         justify-content: space-between;
         align-items: baseline;
         gap: 12px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
       }
 
       .section h2 {
@@ -170,7 +170,7 @@
 
       .lifecycle {
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 8px;
         margin: 0;
         padding: 0;
@@ -178,17 +178,47 @@
       }
 
       .lifecycle-step {
+        position: relative;
         min-width: 0;
-        min-height: 68px;
-        padding: 10px 10px 11px;
-        border: 1px solid transparent;
+        min-height: 64px;
+        padding: 10px 10px 9px;
+        border: 1px solid var(--border);
         border-radius: 8px;
-        background: transparent;
+        background: #fafcfa;
+        transition: border-color 160ms ease, background-color 160ms ease, opacity 160ms ease;
       }
 
-      .lifecycle-step[data-active="true"] {
-        border-color: rgba(23, 98, 79, 0.18);
-        background: var(--panel-2);
+      .lifecycle-step::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 10px;
+        right: 10px;
+        height: 2px;
+        border-radius: 999px;
+        background: var(--border);
+      }
+
+      .lifecycle-step[data-state="current"] {
+        border-color: rgba(23, 98, 79, 0.28);
+        background: #f0f7f3;
+      }
+
+      .lifecycle-step[data-state="current"]::before {
+        background: var(--accent);
+      }
+
+      .lifecycle-step[data-state="done"] {
+        border-color: rgba(23, 98, 79, 0.16);
+        background: #ffffff;
+      }
+
+      .lifecycle-step[data-state="done"]::before {
+        background: #1b7d59;
+      }
+
+      .lifecycle-step[data-state="upcoming"] {
+        opacity: 0.82;
       }
 
       .lifecycle-label {
@@ -198,6 +228,8 @@
         font-size: 13px;
         color: var(--text);
         font-weight: 600;
+        position: relative;
+        z-index: 1;
       }
 
       .lifecycle-dot {
@@ -208,7 +240,8 @@
         flex: 0 0 auto;
       }
 
-      .lifecycle-step[data-active="true"] .lifecycle-dot {
+      .lifecycle-step[data-state="current"] .lifecycle-dot,
+      .lifecycle-step[data-state="done"] .lifecycle-dot {
         background: var(--accent);
       }
 
@@ -217,6 +250,8 @@
         color: var(--muted);
         font-size: 12px;
         line-height: 1.35;
+        position: relative;
+        z-index: 1;
       }
 
       .summary-grid {
@@ -226,7 +261,7 @@
 
       .details {
         border-top: 1px solid var(--border);
-        padding-top: 12px;
+        padding-top: 10px;
       }
 
       .details:first-of-type {
@@ -269,7 +304,7 @@
 
       .summary-row {
         display: grid;
-        grid-template-columns: 104px minmax(0, 1fr);
+        grid-template-columns: 96px minmax(0, 1fr);
         gap: 10px;
         align-items: start;
       }
@@ -319,7 +354,7 @@
       .field {
         display: grid;
         gap: 6px;
-        margin-top: 12px;
+        margin-top: 10px;
       }
 
       .field:first-of-type {
@@ -342,7 +377,7 @@
       }
 
       .field textarea {
-        min-height: 180px;
+        min-height: 160px;
         resize: none;
       }
 
@@ -359,7 +394,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
       }
 
       .attachment-head p {
@@ -483,7 +518,7 @@
 
       .review-card {
         display: grid;
-        gap: 14px;
+        gap: 12px;
       }
 
       .review-head {
@@ -495,7 +530,7 @@
 
       .review-kicker {
         margin: 0 0 4px;
-        color: var(--accent);
+        color: var(--muted);
         font-size: 12px;
         font-weight: 600;
         text-transform: uppercase;
@@ -503,7 +538,7 @@
 
       .review-head h3 {
         margin: 0;
-        font-size: 18px;
+        font-size: 17px;
         line-height: 1.25;
       }
 
@@ -527,7 +562,7 @@
 
       .review-columns {
         display: grid;
-        gap: 12px;
+        gap: 10px;
       }
 
       .review-list,
@@ -544,7 +579,7 @@
         padding: 10px 12px;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: var(--panel-2);
+        background: #fbfcfb;
         overflow-wrap: anywhere;
       }
 
@@ -578,7 +613,7 @@
 
       .chat-card {
         display: grid;
-        gap: 12px;
+        gap: 10px;
       }
 
       .chat-head {
@@ -590,7 +625,7 @@
 
       .chat-kicker {
         margin: 0 0 4px;
-        color: var(--accent);
+        color: var(--muted);
         font-size: 12px;
         font-weight: 600;
         text-transform: uppercase;
@@ -598,7 +633,7 @@
 
       .chat-head h3 {
         margin: 0;
-        font-size: 18px;
+        font-size: 17px;
         line-height: 1.25;
       }
 
@@ -613,7 +648,7 @@
         padding: 10px 12px;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: var(--panel-2);
+        background: #fbfcfb;
       }
 
       .chat-summary-label {
@@ -631,7 +666,7 @@
 
       .chat-thread {
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
 
       .chat-message {
@@ -640,7 +675,7 @@
         padding: 12px;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: var(--panel-2);
+        background: #fbfcfb;
       }
 
       .chat-message[data-role="agent"] {
@@ -649,7 +684,7 @@
 
       .chat-message[data-role="requester"] {
         border-color: rgba(23, 98, 79, 0.16);
-        background: #edf7f3;
+        background: #eff8f4;
       }
 
       .chat-message-head {
@@ -700,8 +735,8 @@
         padding: 12px;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: rgba(246, 249, 247, 0.98);
-        backdrop-filter: blur(8px);
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(6px);
       }
 
       .chat-composer-top {
@@ -794,11 +829,11 @@
         }
 
         .lifecycle {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .lifecycle-step {
-          min-height: 52px;
+          min-height: 58px;
           padding: 10px;
         }
 
@@ -811,7 +846,7 @@
         }
 
         .summary-row {
-          grid-template-columns: 92px minmax(0, 1fr);
+          grid-template-columns: 88px minmax(0, 1fr);
         }
 
         .actions-row {
@@ -884,24 +919,24 @@
           <section class="section hidden" id="lifecycle-section" aria-labelledby="lifecycle-title">
             <div class="section-head">
               <h2 id="lifecycle-title">Lifecycle</h2>
-              <p id="lifecycle-copy">Move from request to a real spec decision.</p>
+              <p id="lifecycle-copy">Track request, questions, spec, and approval.</p>
             </div>
             <ol class="lifecycle" id="lifecycle-list">
-              <li class="lifecycle-step" data-step="compose" data-active="true" aria-current="step">
+              <li class="lifecycle-step" data-step="compose" data-state="current" aria-current="step">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Request</span></div>
-                <p class="lifecycle-copy">Describe the outcome and share attachment metadata.</p>
+                <p class="lifecycle-copy">Write the outcome and attach proof.</p>
               </li>
-              <li class="lifecycle-step" data-step="chat">
+              <li class="lifecycle-step" data-step="chat" data-state="upcoming">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Questions</span></div>
-                <p class="lifecycle-copy">Answer the agent's follow-up questions before the spec is drafted.</p>
+                <p class="lifecycle-copy">Answer the open questions.</p>
               </li>
-              <li class="lifecycle-step" data-step="spec">
+              <li class="lifecycle-step" data-step="spec" data-state="upcoming">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Spec</span></div>
-                <p class="lifecycle-copy">Review the generated scope and ask for changes if needed.</p>
+                <p class="lifecycle-copy">Review the drafted scope.</p>
               </li>
-              <li class="lifecycle-step" data-step="approved">
+              <li class="lifecycle-step" data-step="approved" data-state="upcoming">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Approved</span></div>
-                <p class="lifecycle-copy">The approved scope is stored for the next engineering step.</p>
+                <p class="lifecycle-copy">Hand off to implementation.</p>
               </li>
             </ol>
           </section>
@@ -960,7 +995,7 @@
           <section class="section hidden" id="chat-section" aria-labelledby="chat-title">
             <div class="section-head">
               <h2 id="chat-title">Clarification chat</h2>
-              <p id="chat-copy">Answer the agent's questions before the spec is drafted.</p>
+              <p id="chat-copy">Answer the open questions.</p>
             </div>
             <div class="chat-card">
               <div class="chat-head">
@@ -1014,7 +1049,7 @@
           <section class="section hidden" id="review-section" aria-labelledby="review-title">
             <div class="section-head">
               <h2 id="review-title">Spec review</h2>
-              <p id="review-copy">Approve the scope or ask for changes.</p>
+              <p id="review-copy">Approve the scope or refine it.</p>
             </div>
             <div class="review-card">
               <div class="review-head">
@@ -1224,12 +1259,25 @@
         function setPhase(phase) {
           var active = phase || 'compose';
           state.phase = active;
+          var phaseOrder = ['compose', 'chat', 'spec', 'approved'];
+          var activeIndex = phaseOrder.indexOf(active);
+          if (active === 'sending') {
+            activeIndex = 0;
+          }
           var steps = lifecycleList ? lifecycleList.querySelectorAll('.lifecycle-step') : [];
           Array.prototype.forEach.call(steps, function (step) {
             var stepName = step.getAttribute('data-step');
-            var isActive = stepName === active;
-            step.setAttribute('data-active', isActive ? 'true' : 'false');
-            if (isActive) {
+            var stepIndex = phaseOrder.indexOf(stepName);
+            var stateName = 'upcoming';
+            if (activeIndex >= 0) {
+              if (stepIndex < activeIndex) {
+                stateName = 'done';
+              } else if (stepIndex === activeIndex) {
+                stateName = 'current';
+              }
+            }
+            step.setAttribute('data-state', stateName);
+            if (stateName === 'current') {
               step.setAttribute('aria-current', 'step');
             } else {
               step.removeAttribute('aria-current');
