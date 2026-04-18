@@ -103,10 +103,12 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
 
   assert.match(admin, /Contribution intake/);
   assert.match(admin, /fetch\('\/api\/v1\/contributions'/);
-  assert.match(admin, /fetch\(`\/api\/v1\/contributions\/\$\{selectedContributionId\}`/);
+  assert.match(admin, /fetch\(`\/api\/v1\/contributions\/\$\{contributionId\}`/);
   assert.match(admin, /Loading live contribution intake/);
   assert.match(admin, /Open detail/);
   assert.match(admin, /Requester-facing records/);
+  assert.match(admin, /Queue implementation/);
+  assert.match(admin, /Open voting/);
   assert.match(admin, /Widget install snippet/);
   assert.match(widget, /window\.Crowdship = api/);
   assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
