@@ -38,16 +38,16 @@ For `example`, also read:
 - `../example/docs/ui-quality-contract.md`
 - `../example/.agents/skills/example-widget-integration/SKILL.md`
 
-## Phase 1: Reference Example App
+## Phase 1: Orbital Ops Reference App
 
-Goal: make `example.aizenshtat.eu` a real mobile-first external product surface with an obvious contribution opportunity.
+Goal: make `example.aizenshtat.eu` a real mobile-first Orbital Ops mission-control surface with an obvious anomaly replay opportunity.
 
 Deliverables:
 
 - Vite/React/TypeScript app.
-- Reports dashboard with filters and real table data.
-- Missing export workflow made obvious but not faked.
-- Safe page context prepared for the future widget.
+- Mission-control surface with real anomaly-focused demo data.
+- Missing anomaly replay workflow made obvious but not faked.
+- Safe page context prepared for anomaly selection and replay.
 - PWA foundations: manifest, icons, service worker registration.
 - Mobile-first layout at 390x844.
 - Quality checks: typecheck, build, contract tests, CI.

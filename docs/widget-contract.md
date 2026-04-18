@@ -60,15 +60,15 @@ window.Crowdship.identify({
 });
 
 window.Crowdship.setContext({
-  route: "/reports",
+  route: "/mission",
   appVersion: "2026.04.18",
-  selectedObjectType: "report",
-  selectedObjectId: "report-7"
+  selectedObjectType: "anomaly",
+  selectedObjectId: "signal-drop-17"
 });
 
 window.Crowdship.open({
   type: "feature_request",
-  title: "Export this report as CSV"
+  title: "Add anomaly replay for signal drops"
 });
 ```
 
@@ -89,10 +89,10 @@ window.Crowdship.open({
   "project": "example",
   "environment": "production",
   "type": "feature_request",
-  "title": "Export this report as CSV",
-  "body": "I need to send weekly report data to finance.",
-  "route": "/reports",
-  "url": "https://example.aizenshtat.eu/reports",
+  "title": "Add anomaly replay for signal drops",
+  "body": "I need to replay the selected signal drop anomaly from the mission screen.",
+  "route": "/mission",
+  "url": "https://example.aizenshtat.eu/mission",
   "appVersion": "2026.04.18",
   "user": {
     "id": "customer-123",
@@ -100,8 +100,8 @@ window.Crowdship.open({
     "role": "customer"
   },
   "context": {
-    "selectedObjectType": "report",
-    "selectedObjectId": "report-7"
+    "selectedObjectType": "anomaly",
+    "selectedObjectId": "signal-drop-17"
   },
   "client": {
     "timezone": "Europe/Vienna",
@@ -118,10 +118,10 @@ Attachments are uploaded before or during the chat. Each attachment is stored se
 {
   "contributionId": "ctrb_123",
   "kind": "screenshot",
-  "filename": "reports-filtered-view.png",
+  "filename": "mission-signal-drop-17.png",
   "contentType": "image/png",
   "sizeBytes": 381204,
-  "storageKey": "projects/example/contributions/ctrb_123/reports-filtered-view.png"
+  "storageKey": "projects/example/contributions/ctrb_123/mission-signal-drop-17.png"
 }
 ```
 
@@ -141,15 +141,15 @@ The chat agent should behave like a product-focused plan mode. It asks structure
 ```json
 {
   "messageType": "structured_question",
-  "question": "Should the export include all rows or only the currently filtered rows?",
+  "question": "Should the replay cover the full anomaly window or only the signal drop itself?",
   "choices": [
     {
-      "id": "filtered",
-      "label": "Only filtered rows"
+      "id": "drop_only",
+      "label": "Signal drop only"
     },
     {
-      "id": "all",
-      "label": "All rows"
+      "id": "full_window",
+      "label": "Full anomaly window"
     }
   ],
   "allowFreeform": true
@@ -164,20 +164,20 @@ The agent must present a short specification before any implementation job start
 
 ```json
 {
-  "title": "Export filtered reports as CSV",
-  "goal": "Let users download the currently filtered report table as a CSV file.",
-  "userProblem": "Users manually copy filtered report data into spreadsheets for finance workflows.",
+  "title": "Add anomaly replay for signal drops",
+  "goal": "Let users replay the selected signal drop anomaly from the mission screen.",
+  "userProblem": "Ops users need to review a signal drop without losing mission context.",
   "acceptanceCriteria": [
-    "Reports page has an Export CSV action.",
-    "Export respects currently applied filters.",
-    "CSV includes visible table columns.",
-    "Empty result exports include headers.",
-    "Export failures show a recoverable error."
+    "Mission screen has a replay action for the selected anomaly.",
+    "Replay stays scoped to the current mission context.",
+    "Replay includes the anomaly trail and selected object details.",
+    "Empty state explains how to open the selected signal drop.",
+    "Replay failures show a recoverable error."
   ],
   "nonGoals": [
-    "Scheduled exports.",
-    "XLSX support.",
-    "Permission changes."
+    "Live telemetry reconstruction.",
+    "New permission tiers.",
+    "Persistent replay storage."
   ]
 }
 ```

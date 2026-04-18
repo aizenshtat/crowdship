@@ -26,7 +26,7 @@ crowdship/<contribution-id>-<short-slug>
 Example:
 
 ```text
-crowdship/ctrb-123-export-filtered-reports
+crowdship/ctrb-123-anomaly-replay-for-signal-drops
 ```
 
 ## Required Steps
@@ -54,7 +54,7 @@ The worker emits events that the widget can display:
   "contributionId": "ctrb_123",
   "kind": "agent_step",
   "status": "running",
-  "message": "Adding CSV export action to the reports page.",
+  "message": "Adding anomaly replay flow to the mission screen.",
   "externalUrl": null
 }
 ```
@@ -78,7 +78,7 @@ Important event kinds:
 PR title:
 
 ```text
-Crowdship: <approved spec title>
+Crowdship: Add anomaly replay for signal drops
 ```
 
 PR body must include:
