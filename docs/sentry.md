@@ -5,6 +5,7 @@
 - Organization: `crowdship`
 - Organization URL: `https://crowdship.sentry.io`
 - Data storage location: European Union
+- Hackathon promo credit: `$270` applied with code `CODEXHACK`
 - Local CLI config is stored outside the repository on the deployment host.
 - Auth tokens must stay outside the repository.
 
