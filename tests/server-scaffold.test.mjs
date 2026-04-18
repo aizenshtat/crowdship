@@ -114,6 +114,10 @@ function createStubSpecService() {
             question: 'What should the operator be able to do immediately after selecting the anomaly?',
             why: 'This defines the user-facing outcome.',
             suggestedAnswerFormat: 'One short sentence',
+            choices: [
+              { id: 'launch-replay', label: 'Launch replay from the selected anomaly' },
+              { id: 'inspect-pressure', label: 'Inspect cabin pressure without leaving mission view' },
+            ],
           },
           {
             id: 'stay-unchanged',
@@ -326,6 +330,7 @@ test('connected contribution persistence opens clarification first and stores th
   assert.equal(response.body.attachments[0].filename, 'signal-drop-17.csv');
   assert.equal(response.body.conversation.length, 2);
   assert.equal(response.body.conversation[1].messageType, 'ask_user_questions');
+  assert.equal(response.body.conversation[1].choices[0].choices[0].label, 'Launch replay from the selected anomaly');
   assert.equal(response.body.spec.current, null);
   assert.equal(response.body.lifecycle.events.length, 2);
   assert.equal(response.body.lifecycle.currentState, 'draft_chat');

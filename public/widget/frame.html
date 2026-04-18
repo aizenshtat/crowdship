@@ -761,6 +761,10 @@
         font-size: 13px;
       }
 
+      .chat-question-suggestions {
+        margin-top: 10px;
+      }
+
       .chat-choice {
         min-height: 40px;
         padding: 8px 12px;
@@ -769,6 +773,11 @@
         background: #e4f1eb;
         color: var(--accent-strong);
         cursor: pointer;
+      }
+
+      .chat-choice[data-selected="true"] {
+        background: var(--accent);
+        color: #fff;
       }
 
       .chat-composer {
@@ -1074,7 +1083,7 @@
 
               <form class="chat-composer" id="chat-form" novalidate>
                 <div class="chat-composer-top">
-                  <p>Reply with the missing detail, or choose one of the agent's options.</p>
+                  <p>Tap suggested answers or write one combined reply before sending.</p>
                 </div>
                 <label class="sr-only" for="chat-reply">Reply to the agent</label>
                 <textarea
@@ -1188,6 +1197,7 @@
           contributionDetail: null,
           refineOpen: false,
           replyDraft: '',
+          selectedQuestionChoices: {},
         };
 
         var connectionChip = document.getElementById('connection-chip');
@@ -1547,6 +1557,65 @@
           return detail && detail.contribution ? detail.contribution.state : '';
         }
 
+        function hasSuggestedChoices(message) {
+          var questions = Array.isArray(message && message.choices) ? message.choices : [];
+          return questions.some(function (question) {
+            return Array.isArray(question && question.choices) && question.choices.length > 0;
+          });
+        }
+
+        function syncSuggestedChoiceSelection() {
+          var buttons = chatThread.querySelectorAll('[data-fill-reply="true"]');
+          Array.prototype.forEach.call(buttons, function (button) {
+            var questionId = button.getAttribute('data-question-id') || '';
+            var label = button.getAttribute('data-choice-label') || '';
+            button.setAttribute(
+              'data-selected',
+              state.selectedQuestionChoices[questionId] === label ? 'true' : 'false'
+            );
+          });
+        }
+
+        function applySuggestedReply(questionId, questionNumber, label) {
+          if (!label) return;
+
+          if (questionId) {
+            state.selectedQuestionChoices[questionId] = label;
+          }
+
+          var prefix = questionNumber ? questionNumber + '. ' : '';
+          var nextLine = prefix + label;
+          var lines = (chatReply.value || '')
+            .split('\n')
+            .map(function (line) {
+              return line.trim();
+            })
+            .filter(Boolean);
+          var nextLines = [];
+          var replaced = false;
+
+          lines.forEach(function (line) {
+            if (prefix && line.indexOf(prefix) === 0) {
+              if (!replaced) {
+                nextLines.push(nextLine);
+                replaced = true;
+              }
+              return;
+            }
+            nextLines.push(line);
+          });
+
+          if (!replaced) {
+            nextLines.push(nextLine);
+          }
+
+          chatReply.value = nextLines.join('\n');
+          state.replyDraft = chatReply.value;
+          hideChatStatus();
+          syncSuggestedChoiceSelection();
+          chatReply.focus();
+        }
+
         function renderChatSummary(detail) {
           var contribution = detail && detail.contribution ? detail.contribution : {};
           var attachments = detail ? detail.attachments || [] : [];
@@ -1577,6 +1646,7 @@
                 ? '<ol class="chat-question-list">' +
                   choices
                     .map(function (choice, choiceIndex) {
+                      var questionChoices = Array.isArray(choice.choices) ? choice.choices : [];
                       return (
                         '<li class="chat-question-item">' +
                         '<span class="chat-question-index">' + (choiceIndex + 1) + '</span>' +
@@ -1589,6 +1659,30 @@
                           : '') +
                         (choice.suggestedAnswerFormat
                           ? '<div class="chat-question-format">Answer format: ' + escapeHtml(choice.suggestedAnswerFormat) + '</div>'
+                          : '') +
+                        (questionChoices.length
+                          ? '<div class="chat-choices chat-question-suggestions">' +
+                            questionChoices
+                              .map(function (questionChoice) {
+                                var isSelected = state.selectedQuestionChoices[choice.id] === questionChoice.label;
+                                return (
+                                  '<button type="button" class="chat-choice" data-fill-reply="true" data-selected="' +
+                                  (isSelected ? 'true' : 'false') +
+                                  '" data-question-id="' +
+                                  escapeHtml(choice.id || '') +
+                                  '" data-question-number="' +
+                                  escapeHtml(String(choiceIndex + 1)) +
+                                  '" data-choice-id="' +
+                                  escapeHtml(questionChoice.id || '') +
+                                  '" data-choice-label="' +
+                                  escapeHtml(questionChoice.label || '') +
+                                  '">' +
+                                  escapeHtml(questionChoice.label || '') +
+                                  '</button>'
+                                );
+                              })
+                              .join('') +
+                            '</div>'
                           : '') +
                         '</div>' +
                         '</li>'
@@ -1647,14 +1741,17 @@
               ? 'Add more detail for ' + contribution.title + '.'
               : 'Add a bit more detail.';
           chatCopy.textContent = latestAgentQuestion && latestAgentQuestion.messageType === 'ask_user_questions'
-            ? 'Answer the questions below in one reply. Short bullets are fine.'
+            ? hasSuggestedChoices(latestAgentQuestion)
+              ? 'Tap suggested answers or write your own reply. Short bullets are fine.'
+              : 'Answer the questions below in one reply. Short bullets are fine.'
             : latestAgentQuestion
               ? "Choose one of the agent's options or answer in your own words."
-              : "Answer the agent's questions before the spec is drafted.";
+              : 'Answer the agent questions before the spec is drafted.';
           setChatChip(currentState === 'draft_chat' ? 'working' : 'ready', currentState === 'draft_chat' ? 'Questions open' : 'Clarification received');
           chatReply.disabled = state.submitting;
           chatSendButton.disabled = state.submitting;
           chatReply.value = state.replyDraft || chatReply.value || '';
+          syncSuggestedChoiceSelection();
           setPhase(currentState === 'draft_chat' ? 'chat' : 'spec');
           chatSection.classList.remove('hidden');
           composeForm.classList.add('hidden');
@@ -2011,6 +2108,7 @@
 
               hideChatStatus();
               state.replyDraft = '';
+              state.selectedQuestionChoices = {};
               chatReply.value = '';
               state.contributionDetail = getContributionDetail(parsed.payload) || parsed.payload || state.contributionDetail;
 
@@ -2174,9 +2272,21 @@
           submitReply();
         });
 
+        chatReply.addEventListener('input', function () {
+          state.replyDraft = chatReply.value;
+        });
+
         chatThread.addEventListener('click', function (event) {
           var target = event.target;
           if (!(target instanceof HTMLElement)) return;
+          if (target.getAttribute('data-fill-reply') === 'true') {
+            applySuggestedReply(
+              target.getAttribute('data-question-id') || '',
+              target.getAttribute('data-question-number') || '',
+              target.getAttribute('data-choice-label') || ''
+            );
+            return;
+          }
           var label = target.getAttribute('data-choice-label');
           var choiceId = target.getAttribute('data-choice-id');
           if (!label) return;

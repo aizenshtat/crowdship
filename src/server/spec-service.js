@@ -58,6 +58,7 @@ function cleanQuestionList(items, fallback) {
       question: cleanSentence(question, question),
       why: cleanSentence(item?.why, 'This helps narrow the scope.'),
       suggestedAnswerFormat: cleanText(item?.suggestedAnswerFormat, 'Short sentence or bullet list'),
+      choices: cleanQuestionChoices(item?.choices),
     });
 
     if (questions.length >= 3) {
@@ -66,6 +67,39 @@ function cleanQuestionList(items, fallback) {
   }
 
   return questions.length > 0 ? questions : fallback;
+}
+
+function cleanQuestionChoices(items) {
+  const choices = [];
+  const seen = new Set();
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const label = cleanText(item?.label, '');
+    if (!label) {
+      continue;
+    }
+
+    const normalizedLabel = label.slice(0, 80);
+    const key = normalizedLabel.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    choices.push({
+      id: cleanText(item?.id, normalizedLabel)
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, ''),
+      label: normalizedLabel,
+    });
+
+    if (choices.length >= 4) {
+      break;
+    }
+  }
+
+  return choices;
 }
 
 function buildFallbackQuestions(contribution) {
@@ -214,7 +248,7 @@ function getTurnFunctionDefinition() {
     function: {
       name: 'submit_intake_turn',
       description:
-        'Return the next user-facing intake step: either a compact set of clarification questions or a draft spec.',
+        'Return the next user-facing intake step: either a compact set of clarification questions with optional suggested choices or a draft spec.',
       parameters: {
         type: 'object',
         properties: {
@@ -235,6 +269,19 @@ function getTurnFunctionDefinition() {
                 question: { type: 'string' },
                 why: { type: 'string' },
                 suggestedAnswerFormat: { type: 'string' },
+                choices: {
+                  type: 'array',
+                  maxItems: 4,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      label: { type: 'string' },
+                    },
+                    required: ['label'],
+                    additionalProperties: false,
+                  },
+                },
               },
               required: ['id', 'question'],
               additionalProperties: false,
@@ -355,6 +402,8 @@ function buildTurnMessages(mode, payload) {
     'Use only the request, route, context, attachment metadata, and conversation that were provided.',
     'Do not invent APIs, hidden systems, credentials, code structure, or deployment details.',
     'When you ask questions, ask only the highest-leverage questions that will materially improve the spec.',
+    'When a question has a small, natural set of likely answers, include 2 to 4 short suggested choices so the requester can click one quickly.',
+    'Only omit suggested choices when the answer truly needs freeform detail.',
     'When you draft a spec, keep it crisp and approval-ready for a product owner.',
     'Assistant language must feel like a clean product conversation, not boilerplate.',
   ].join(' ');
