@@ -178,10 +178,22 @@ type ReviewFormsState = {
   comment: { authorRole: string; body: string; disposition: string };
 };
 
-const navItems: Array<{ id: AdminSection; label: string; blurb: string }> = [
-  { id: 'inbox', label: 'Inbox', blurb: 'Live contribution review' },
-  { id: 'settings', label: 'Settings', blurb: 'Project and widget config' },
-  { id: 'operations', label: 'Operations', blurb: 'Queue, worker, and runtime watch' },
+const navSections: Array<{
+  title: string;
+  items: Array<{ id: AdminSection; label: string; blurb: string }>;
+}> = [
+  {
+    title: 'Contribution',
+    items: [{ id: 'inbox', label: 'Inbox', blurb: 'All live requests in decision order' }],
+  },
+  {
+    title: 'Settings',
+    items: [{ id: 'settings', label: 'Project settings', blurb: 'Install contract and widget config' }],
+  },
+  {
+    title: 'Operations',
+    items: [{ id: 'operations', label: 'Runtime watch', blurb: 'Queue, worker, and preview evidence' }],
+  },
 ];
 
 const projectConfig = [
@@ -1802,16 +1814,21 @@ export function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Admin sections">
-          {navItems.map((item) => (
-            <button
-              className={`sidebar-link${activeSection === item.id ? ' sidebar-link-active' : ''}`}
-              key={item.id}
-              type="button"
-              onClick={() => setActiveSection(item.id)}
-            >
-              <span>{item.label}</span>
-              <small>{item.blurb}</small>
-            </button>
+          {navSections.map((section) => (
+            <div className="sidebar-nav-group" key={section.title}>
+              <div className="sidebar-nav-label">{section.title}</div>
+              {section.items.map((item) => (
+                <button
+                  className={`sidebar-link${activeSection === item.id ? ' sidebar-link-active' : ''}`}
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveSection(item.id)}
+                >
+                  <span>{item.label}</span>
+                  <small>{item.blurb}</small>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 
@@ -1835,21 +1852,7 @@ export function App() {
               <div>
                 <div className="page-kicker">Inbox</div>
                 <h2>Contribution review</h2>
-                <p>Newest work stays visible, but the list leads with what needs a decision.</p>
-              </div>
-              <div className="summary-strip">
-                <div className="summary-chip">
-                  <strong>{groupedContributions.attention.length}</strong>
-                  <span>needs action</span>
-                </div>
-                <div className="summary-chip">
-                  <strong>{groupedContributions.ready.length}</strong>
-                  <span>ready</span>
-                </div>
-                <div className="summary-chip">
-                  <strong>{groupedContributions.active.length}</strong>
-                  <span>in motion</span>
-                </div>
+                <p>Inbox stays first. Open any request without leaving the list.</p>
               </div>
             </>
           ) : activeSection === 'settings' ? (
@@ -1888,36 +1891,12 @@ export function App() {
         ) : (
           <section className="section-stack">
             <InboxSection
-              title="Needs action"
-              note="Failures and decision-ready requests stay at the top."
-              items={groupedContributions.attention.concat(groupedContributions.ready)}
+              title="Inbox"
+              note="The queue stays sorted by the next real decision or delivery state."
+              items={sortedContributions}
               selectedContributionId={selectedContributionId}
               onOpen={setSelectedContributionId}
-              emptyLabel="Nothing is waiting on a review decision."
-            />
-            <InboxSection
-              title="In motion"
-              note="These requests are already moving through the worker, pull request, or preview path."
-              items={groupedContributions.active}
-              selectedContributionId={selectedContributionId}
-              onOpen={setSelectedContributionId}
-              emptyLabel="No contribution is moving right now."
-            />
-            <InboxSection
-              title="Waiting"
-              note="These requests are still gathering requester input or are parked for later."
-              items={groupedContributions.waiting}
-              selectedContributionId={selectedContributionId}
-              onOpen={setSelectedContributionId}
-              emptyLabel="Nothing is parked."
-            />
-            <InboxSection
-              title="Closed"
-              note="Merged, completed, or rejected records."
-              items={groupedContributions.done}
-              selectedContributionId={selectedContributionId}
-              onOpen={setSelectedContributionId}
-              emptyLabel="No closed contribution yet."
+              emptyLabel="No contribution is in the inbox."
             />
           </section>
         )}

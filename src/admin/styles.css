@@ -111,7 +111,19 @@ a {
 
 .sidebar-nav {
   display: grid;
+  gap: 16px;
+}
+
+.sidebar-nav-group {
+  display: grid;
   gap: 8px;
+}
+
+.sidebar-nav-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .sidebar-link {
@@ -225,42 +237,20 @@ a {
   font-size: 13px;
 }
 
-.summary-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.summary-chip {
-  display: grid;
-  gap: 2px;
-  min-width: 110px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.summary-chip strong {
-  font-size: 16px;
-}
-
-.summary-chip span {
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .section-stack {
   display: grid;
-  gap: 16px;
+  gap: 20px;
 }
 
 .surface-section {
   min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  display: grid;
+  gap: 12px;
+}
+
+.surface-section + .surface-section {
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
 
 .section-heading,
@@ -438,7 +428,8 @@ a {
 
 .contribution-row-selected {
   border-color: var(--line-strong);
-  box-shadow: 0 8px 22px var(--shadow);
+  background: var(--surface-3);
+  box-shadow: none;
 }
 
 .contribution-row-main {
@@ -565,14 +556,17 @@ a {
 
 .drawer-content {
   display: grid;
-  gap: 16px;
+  gap: 20px;
 }
 
 .drawer-section {
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  display: grid;
+  gap: 12px;
+}
+
+.drawer-section + .drawer-section {
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
 
 .review-action-banner {
@@ -807,18 +801,21 @@ a {
   }
 
   .sidebar {
+    order: 2;
     position: static;
     min-height: auto;
     padding: 16px;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-top: 1px solid var(--line);
   }
 
   .sidebar-nav {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .content-shell {
+    order: 1;
     padding: 16px;
   }
 
@@ -834,6 +831,15 @@ a {
 }
 
 @media (max-width: 759px) {
+  .sidebar-brand h1 {
+    font-size: 24px;
+  }
+
+  .sidebar-brand p {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
   .sidebar-nav {
     grid-template-columns: 1fr;
   }
