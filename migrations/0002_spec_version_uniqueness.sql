@@ -1,0 +1,3 @@
+ALTER TABLE spec_versions
+ADD CONSTRAINT spec_versions_contribution_id_version_number_key
+UNIQUE (contribution_id, version_number);

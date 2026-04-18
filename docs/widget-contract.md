@@ -106,6 +106,35 @@ window.Crowdship.open({
   "client": {
     "timezone": "Europe/Vienna",
     "locale": "en-US"
+  },
+  "attachments": [
+    {
+      "filename": "signal-drop-17.csv",
+      "contentType": "text/csv",
+      "kind": "text/csv",
+      "sizeBytes": 1842
+    }
+  ]
+}
+```
+
+For the current production slice, selected files are captured as attachment metadata during contribution creation. Binary upload can follow later without changing the requester-facing review flow.
+
+## Contribution Detail Payload
+
+```json
+{
+  "contribution": {
+    "id": "ctrb_123",
+    "state": "spec_pending_approval"
+  },
+  "attachments": [],
+  "conversation": [],
+  "spec": {
+    "current": {
+      "versionNumber": 1
+    },
+    "versions": []
   }
 }
 ```
@@ -208,6 +237,7 @@ The user can approve the spec or continue chatting. Approval creates an immutabl
 ```text
 POST /api/v1/contributions
 GET  /api/v1/projects/:project/public-config
+GET  /api/v1/contributions/:id
 POST /api/v1/contributions/:id/votes
 POST /api/v1/contributions/:id/comments
 POST /api/v1/contributions/:id/attachments

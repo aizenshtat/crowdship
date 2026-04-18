@@ -27,6 +27,8 @@ const CONTRIBUTION_TYPE_LIST = [
   'comment',
 ];
 
+const SPEC_APPROVAL_DECISION_LIST = ['approve', 'refine'];
+
 const LOCALHOST_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:4173',
@@ -38,9 +40,15 @@ const LOCALHOST_ORIGINS = [
 
 export const CONTRIBUTION_STATES = Object.freeze(CONTRIBUTION_STATE_LIST.slice());
 export const CONTRIBUTION_TYPES = Object.freeze(CONTRIBUTION_TYPE_LIST.slice());
+export const SPEC_APPROVAL_DECISIONS = Object.freeze(SPEC_APPROVAL_DECISION_LIST.slice());
 export const LOCALHOST_DEVELOPMENT_ORIGINS = Object.freeze(LOCALHOST_ORIGINS.slice());
 export const INITIAL_CONTRIBUTION_STATE = CONTRIBUTION_STATE_LIST[0];
+export const SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE = 'spec_pending_approval';
+export const SPEC_APPROVED_CONTRIBUTION_STATE = 'spec_approved';
 export const CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'created';
+export const GENERATED_SPEC_PROGRESS_EVENT_KIND = 'spec_generated';
+export const APPROVED_SPEC_PROGRESS_EVENT_KIND = 'spec_approved';
+export const REFINED_SPEC_PROGRESS_EVENT_KIND = 'spec_refined';
 
 export const PROJECT_PUBLIC_CONFIGS = Object.freeze({
   example: Object.freeze({
@@ -63,6 +71,7 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({ method: 'GET', path: '/api/v1/contributions', handler: 'getContributions' }),
   Object.freeze({ method: 'POST', path: '/api/v1/contributions', handler: 'postContribution' }),
+  Object.freeze({ method: 'GET', path: '/api/v1/contributions/:id', handler: 'getContribution' }),
   Object.freeze({
     method: 'POST',
     path: '/api/v1/contributions/:id/attachments',
@@ -98,12 +107,30 @@ export function getProjectPublicConfig(projectSlug) {
   };
 }
 
+export function getProjectSeedRecord(projectSlug) {
+  const config = getProjectPublicConfig(projectSlug);
+  if (!config) {
+    return null;
+  }
+
+  return {
+    slug: config.project,
+    name: config.project === 'example' ? 'Orbital Ops' : config.project,
+    publicConfig: config,
+    allowedOrigins: config.allowedOrigins,
+  };
+}
+
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeOptionalString(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function validateStringField(value, fieldName, errors, { required = false } = {}) {
@@ -129,6 +156,32 @@ function validateOptionalObject(value, fieldName, errors) {
   }
 }
 
+function validateAttachmentMetadataList(value, fieldName, errors) {
+  if (value == null) {
+    return;
+  }
+
+  if (!Array.isArray(value)) {
+    errors.push(`${fieldName} must be an array when provided`);
+    return;
+  }
+
+  value.forEach((entry, index) => {
+    if (!isPlainObject(entry)) {
+      errors.push(`${fieldName}[${index}] must be an object`);
+      return;
+    }
+
+    validateStringField(entry.filename, `${fieldName}[${index}].filename`, errors, { required: true });
+    validateStringField(entry.contentType, `${fieldName}[${index}].contentType`, errors, { required: true });
+    validateStringField(entry.kind, `${fieldName}[${index}].kind`, errors, { required: true });
+
+    if (!Number.isFinite(entry.sizeBytes) || entry.sizeBytes < 0) {
+      errors.push(`${fieldName}[${index}].sizeBytes must be a non-negative number`);
+    }
+  });
+}
+
 export function validateContributionCreatePayload(payload) {
   const errors = [];
 
@@ -150,6 +203,7 @@ export function validateContributionCreatePayload(payload) {
   validateOptionalObject(payload.user, 'user', errors);
   validateOptionalObject(payload.context, 'context', errors);
   validateOptionalObject(payload.client, 'client', errors);
+  validateAttachmentMetadataList(payload.attachments, 'attachments', errors);
 
   if (isNonEmptyString(payload.project) && !PROJECT_PUBLIC_CONFIGS[payload.project]) {
     errors.push(`unknown project: ${payload.project}`);
@@ -175,6 +229,53 @@ export function validateContributionCreatePayload(payload) {
           environment: payload.environment.trim(),
           type: payload.type.trim(),
           title: payload.title.trim(),
+          body: normalizeOptionalString(payload.body) || null,
+          route: normalizeOptionalString(payload.route) || null,
+          url: normalizeOptionalString(payload.url) || null,
+          appVersion: normalizeOptionalString(payload.appVersion) || null,
+          attachments: Array.isArray(payload.attachments)
+            ? payload.attachments.map((attachment) => ({
+                filename: attachment.filename.trim(),
+                contentType: attachment.contentType.trim(),
+                kind: attachment.kind.trim(),
+                sizeBytes: Number(attachment.sizeBytes),
+              }))
+            : [],
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validateSpecApprovalPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.decision, 'decision', errors, { required: true });
+  validateStringField(payload.note, 'note', errors);
+
+  if (isNonEmptyString(payload.decision) && !SPEC_APPROVAL_DECISIONS.includes(payload.decision)) {
+    errors.push(`decision must be one of ${SPEC_APPROVAL_DECISIONS.join(', ')}`);
+  }
+
+  if (payload.decision === 'refine' && !isNonEmptyString(payload.note)) {
+    errors.push('note is required when requesting a spec refinement');
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          decision: payload.decision.trim(),
+          note: normalizeOptionalString(payload.note) || null,
         },
       }
     : {

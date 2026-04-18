@@ -2,7 +2,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
 import { API_ROUTE_DEFINITIONS } from '../shared/contracts.js';
-import { createInMemoryContributionPersistenceAdapter } from './persistence.js';
+import { createConfiguredContributionPersistenceAdapter } from './persistence.js';
 import { createRouteHandlers } from './routes.js';
 
 function jsonResponse(res, status, body, extraHeaders = {}) {
@@ -92,7 +92,7 @@ function matchRoute(method, pathname) {
 
 function createRequestHandler({ database } = {}) {
   const routeHandlers = createRouteHandlers({
-    database: database ?? createInMemoryContributionPersistenceAdapter(),
+    database: database ?? createConfiguredContributionPersistenceAdapter(),
   });
 
   return async (request, response) => {

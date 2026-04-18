@@ -22,5 +22,6 @@ The repo-side runtime contract is:
 
 - systemd unit source lives at `infra/systemd/crowdship-api.service`
 - the service listens on `127.0.0.1:3000`
+- the unit may read `/etc/crowdship/crowdship-api.env` for runtime configuration such as `DATABASE_URL`
 - nginx forwards `/api/` requests to that local service
 - `scripts/deploy-static.sh` may restart `crowdship-api.service` when it is already installed, and skips that step during bootstrap

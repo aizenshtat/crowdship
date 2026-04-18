@@ -8,6 +8,7 @@ Type=simple
 WorkingDirectory=/root/crowdship
 Environment=NODE_ENV=production
 Environment=PORT=3000
+EnvironmentFile=-/etc/crowdship/crowdship-api.env
 ExecStart=/usr/bin/node /root/crowdship/src/server/http.js
 Restart=on-failure
 RestartSec=2
