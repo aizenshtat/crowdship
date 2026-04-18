@@ -722,8 +722,20 @@ export function createPostgresContributionPersistenceAdapter({
 }
 
 export function createConfiguredContributionPersistenceAdapter(options = {}) {
-  if (options.connectionString || process.env.DATABASE_URL) {
-    return createPostgresContributionPersistenceAdapter(options);
+  const connectionString = options.connectionString ?? process.env.DATABASE_URL;
+  const requireDatabase =
+    options.requireDatabase ??
+    (process.env.REQUIRE_DATABASE === '1' || process.env.NODE_ENV === 'production');
+
+  if (connectionString) {
+    return createPostgresContributionPersistenceAdapter({
+      ...options,
+      connectionString,
+    });
+  }
+
+  if (requireDatabase) {
+    throw new Error('DATABASE_URL is required when database persistence is enforced.');
   }
 
   return createInMemoryContributionPersistenceAdapter(options);

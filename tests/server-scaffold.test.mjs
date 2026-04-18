@@ -16,7 +16,10 @@ import {
   createRouteHandlers,
   createSpecApprovalHandler,
 } from '../src/server/routes.js';
-import { createInMemoryContributionPersistenceAdapter } from '../src/server/persistence.js';
+import {
+  createConfiguredContributionPersistenceAdapter,
+  createInMemoryContributionPersistenceAdapter,
+} from '../src/server/persistence.js';
 import { createApiServer } from '../src/server/http.js';
 import { SCHEMA_TABLE_NAMES } from '../src/server/schema.js';
 
@@ -338,6 +341,13 @@ test('contribution progress fails safely without persistence', async () => {
   assert.equal(response.status, 501);
   assert.match(response.body.message, /not wired/i);
   assert.equal('events' in response.body, false);
+});
+
+test('configured persistence can require DATABASE_URL before falling back to memory', () => {
+  assert.throws(
+    () => createConfiguredContributionPersistenceAdapter({ requireDatabase: true }),
+    /DATABASE_URL is required when database persistence is enforced/i,
+  );
 });
 
 test('api server persists contributions and spec approval through the real http runtime', async () => {
