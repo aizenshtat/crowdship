@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+bash scripts/quality-check.sh --staged
+
+if git diff --cached --name-only | grep -E '(^|/)public/|(^|/)src/|(^|/)app/|(^|/)components/|\\.css$|\\.tsx$|\\.jsx$' >/dev/null 2>&1; then
+  echo "UI-facing files changed. Run Playwright desktop/mobile checks before pushing." >&2
+fi

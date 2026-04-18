@@ -21,9 +21,25 @@ This repository intentionally contains only bootstrap infrastructure:
 - Security model at `docs/security-model.md`
 - Sentry project notes at `docs/sentry.md`
 - GitHub Actions configuration at `docs/github-configuration.md`
-- Smoke CI that validates the static placeholder and deployment files
+- Agent tooling at `docs/agent-tooling.md`
+- UI quality contract at `docs/ui-quality-contract.md`
+- Framework-neutral quality CI, tests, linting, and pre-commit guardrails
 
 Product implementation has not started yet.
+
+## Quality Checks
+
+```bash
+npm run quality
+npm test
+npm run lint
+```
+
+Install local hooks:
+
+```bash
+git config core.hooksPath .githooks
+```
 
 ## Public Domain
 

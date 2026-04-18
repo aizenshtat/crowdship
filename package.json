@@ -1,0 +1,11 @@
+{
+  "name": "crowdship",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "quality": "bash scripts/quality-check.sh",
+    "test": "node --test tests/*.test.mjs",
+    "lint": "bash -n scripts/*.sh .githooks/pre-commit"
+  }
+}
