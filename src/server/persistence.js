@@ -18,6 +18,10 @@ function sortSpecVersions(list) {
   return list.slice().sort((left, right) => left.versionNumber - right.versionNumber);
 }
 
+function sortByUpdatedAt(list) {
+  return list.slice().sort((left, right) => String(left.updatedAt ?? left.createdAt).localeCompare(String(right.updatedAt ?? right.createdAt)));
+}
+
 function toIsoTimestamp(clock) {
   const value = typeof clock === 'function' ? clock() : clock;
   const date = value instanceof Date ? value : new Date(value);
@@ -30,6 +34,11 @@ function buildContributionDetail({
   messages = [],
   specVersions = [],
   progressEvents = [],
+  implementationJobs = [],
+  pullRequests = [],
+  previewDeployments = [],
+  votes = [],
+  comments = [],
 }) {
   return {
     contribution: cloneRecord(contribution),
@@ -37,6 +46,11 @@ function buildContributionDetail({
     messages: sortByCreatedAt(messages).map(cloneRecord),
     specVersions: sortSpecVersions(specVersions).map(cloneRecord),
     progressEvents: sortByCreatedAt(progressEvents).map(cloneRecord),
+    implementationJobs: sortByCreatedAt(implementationJobs).map(cloneRecord),
+    pullRequests: sortByUpdatedAt(pullRequests).map(cloneRecord),
+    previewDeployments: sortByCreatedAt(previewDeployments).map(cloneRecord),
+    votes: sortByCreatedAt(votes).map(cloneRecord),
+    comments: sortByCreatedAt(comments).map(cloneRecord),
   };
 }
 
@@ -108,6 +122,81 @@ function mapProgressEventRow(row) {
     message: row.message,
     externalUrl: row.externalUrl ?? null,
     payload: row.payload ?? null,
+    createdAt: row.createdAt,
+  };
+}
+
+function mapImplementationJobRow(row) {
+  return {
+    id: row.id,
+    contributionId: row.contributionId,
+    status: row.status,
+    queueName: row.queueName,
+    branchName: row.branchName ?? null,
+    repositoryFullName: row.repositoryFullName ?? null,
+    githubRunId: row.githubRunId ?? null,
+    startedAt: row.startedAt ?? null,
+    finishedAt: row.finishedAt ?? null,
+    errorSummary: row.errorSummary ?? null,
+    metadata: row.metadata ?? null,
+    createdAt: row.createdAt,
+  };
+}
+
+function mapPullRequestRow(row) {
+  return {
+    id: row.id,
+    contributionId: row.contributionId,
+    repositoryFullName: row.repositoryFullName,
+    number: Number(row.number),
+    url: row.url,
+    branchName: row.branchName,
+    headSha: row.headSha ?? null,
+    status: row.status,
+    metadata: row.metadata ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapPreviewDeploymentRow(row) {
+  return {
+    id: row.id,
+    contributionId: row.contributionId,
+    pullRequestId: row.pullRequestId ?? null,
+    url: row.url,
+    status: row.status,
+    gitSha: row.gitSha ?? null,
+    deployKind: row.deployKind,
+    deployedAt: row.deployedAt ?? null,
+    checkedAt: row.checkedAt ?? null,
+    errorSummary: row.errorSummary ?? null,
+    metadata: row.metadata ?? null,
+    createdAt: row.createdAt,
+  };
+}
+
+function mapVoteRow(row) {
+  return {
+    id: row.id,
+    contributionId: row.contributionId,
+    voterUserId: row.voterUserId ?? null,
+    voterEmail: row.voterEmail ?? null,
+    voteType: row.voteType,
+    metadata: row.metadata ?? null,
+    createdAt: row.createdAt,
+  };
+}
+
+function mapCommentRow(row) {
+  return {
+    id: row.id,
+    contributionId: row.contributionId,
+    authorUserId: row.authorUserId ?? null,
+    authorRole: row.authorRole,
+    body: row.body,
+    disposition: row.disposition,
+    metadata: row.metadata ?? null,
     createdAt: row.createdAt,
   };
 }
@@ -186,7 +275,17 @@ async function readContributionDetailFromPostgres(queryable, contributionId) {
     return null;
   }
 
-  const [attachmentResult, messageResult, specResult, progressResult] = await Promise.all([
+  const [
+    attachmentResult,
+    messageResult,
+    specResult,
+    progressResult,
+    implementationJobResult,
+    pullRequestResult,
+    previewDeploymentResult,
+    voteResult,
+    commentResult,
+  ] = await Promise.all([
     queryable.query(
       `
         SELECT
@@ -256,6 +355,101 @@ async function readContributionDetailFromPostgres(queryable, contributionId) {
       `,
       [contributionId],
     ),
+    queryable.query(
+      `
+        SELECT
+          id,
+          contribution_id AS "contributionId",
+          status,
+          queue_name AS "queueName",
+          branch_name AS "branchName",
+          repository_full_name AS "repositoryFullName",
+          github_run_id AS "githubRunId",
+          started_at AS "startedAt",
+          finished_at AS "finishedAt",
+          error_summary AS "errorSummary",
+          metadata,
+          created_at AS "createdAt"
+        FROM implementation_jobs
+        WHERE contribution_id = $1
+        ORDER BY created_at ASC
+      `,
+      [contributionId],
+    ),
+    queryable.query(
+      `
+        SELECT
+          id,
+          contribution_id AS "contributionId",
+          repository_full_name AS "repositoryFullName",
+          number,
+          url,
+          branch_name AS "branchName",
+          head_sha AS "headSha",
+          status,
+          metadata,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM pull_requests
+        WHERE contribution_id = $1
+        ORDER BY updated_at ASC
+      `,
+      [contributionId],
+    ),
+    queryable.query(
+      `
+        SELECT
+          id,
+          contribution_id AS "contributionId",
+          pull_request_id AS "pullRequestId",
+          url,
+          status,
+          git_sha AS "gitSha",
+          deploy_kind AS "deployKind",
+          deployed_at AS "deployedAt",
+          checked_at AS "checkedAt",
+          error_summary AS "errorSummary",
+          metadata,
+          created_at AS "createdAt"
+        FROM preview_deployments
+        WHERE contribution_id = $1
+        ORDER BY created_at ASC
+      `,
+      [contributionId],
+    ),
+    queryable.query(
+      `
+        SELECT
+          id,
+          contribution_id AS "contributionId",
+          voter_user_id AS "voterUserId",
+          voter_email AS "voterEmail",
+          vote_type AS "voteType",
+          metadata,
+          created_at AS "createdAt"
+        FROM votes
+        WHERE contribution_id = $1
+        ORDER BY created_at ASC
+      `,
+      [contributionId],
+    ),
+    queryable.query(
+      `
+        SELECT
+          id,
+          contribution_id AS "contributionId",
+          author_user_id AS "authorUserId",
+          author_role AS "authorRole",
+          body,
+          disposition,
+          metadata,
+          created_at AS "createdAt"
+        FROM comments
+        WHERE contribution_id = $1
+        ORDER BY created_at ASC
+      `,
+      [contributionId],
+    ),
   ]);
 
   return buildContributionDetail({
@@ -264,6 +458,11 @@ async function readContributionDetailFromPostgres(queryable, contributionId) {
     messages: messageResult.rows.map(mapMessageRow),
     specVersions: specResult.rows.map(mapSpecVersionRow),
     progressEvents: progressResult.rows.map(mapProgressEventRow),
+    implementationJobs: implementationJobResult.rows.map(mapImplementationJobRow),
+    pullRequests: pullRequestResult.rows.map(mapPullRequestRow),
+    previewDeployments: previewDeploymentResult.rows.map(mapPreviewDeploymentRow),
+    votes: voteResult.rows.map(mapVoteRow),
+    comments: commentResult.rows.map(mapCommentRow),
   });
 }
 
@@ -275,6 +474,11 @@ export function createInMemoryContributionPersistenceAdapter({
   const messages = new Map();
   const specVersions = new Map();
   const progressEvents = new Map();
+  const implementationJobs = new Map();
+  const pullRequests = new Map();
+  const previewDeployments = new Map();
+  const votes = new Map();
+  const comments = new Map();
 
   function getStoredContribution(contributionId) {
     const contribution = contributions.get(contributionId);
@@ -303,6 +507,11 @@ export function createInMemoryContributionPersistenceAdapter({
       messages: getStoredList(messages, contributionId),
       specVersions: getStoredList(specVersions, contributionId, sortSpecVersions),
       progressEvents: getStoredList(progressEvents, contributionId),
+      implementationJobs: getStoredList(implementationJobs, contributionId),
+      pullRequests: getStoredList(pullRequests, contributionId, sortByUpdatedAt),
+      previewDeployments: getStoredList(previewDeployments, contributionId),
+      votes: getStoredList(votes, contributionId),
+      comments: getStoredList(comments, contributionId),
     });
   }
 
@@ -321,6 +530,11 @@ export function createInMemoryContributionPersistenceAdapter({
       setStoredList(messages, contributionId, nextMessages);
       setStoredList(specVersions, contributionId, nextSpecVersions);
       setStoredList(progressEvents, contributionId, nextProgressEvents);
+      setStoredList(implementationJobs, contributionId, []);
+      setStoredList(pullRequests, contributionId, []);
+      setStoredList(previewDeployments, contributionId, []);
+      setStoredList(votes, contributionId, []);
+      setStoredList(comments, contributionId, []);
       return getContributionDetail(contributionId);
     },
     async getContribution(contributionId) {
@@ -348,6 +562,11 @@ export function createInMemoryContributionPersistenceAdapter({
       messages: nextMessages = [],
       specVersions: nextSpecVersions = [],
       progressEvents: nextProgressEvents = [],
+      implementationJobs: nextImplementationJobs = [],
+      pullRequests: nextPullRequests = [],
+      previewDeployments: nextPreviewDeployments = [],
+      votes: nextVotes = [],
+      comments: nextComments = [],
       approvedSpecVersionId,
       approvedAt,
     }) {
@@ -375,6 +594,31 @@ export function createInMemoryContributionPersistenceAdapter({
       if (nextProgressEvents.length > 0) {
         const existingProgressEvents = progressEvents.get(contributionId) ?? [];
         setStoredList(progressEvents, contributionId, existingProgressEvents.concat(nextProgressEvents));
+      }
+
+      if (nextImplementationJobs.length > 0) {
+        const existingImplementationJobs = implementationJobs.get(contributionId) ?? [];
+        setStoredList(implementationJobs, contributionId, existingImplementationJobs.concat(nextImplementationJobs));
+      }
+
+      if (nextPullRequests.length > 0) {
+        const existingPullRequests = pullRequests.get(contributionId) ?? [];
+        setStoredList(pullRequests, contributionId, existingPullRequests.concat(nextPullRequests));
+      }
+
+      if (nextPreviewDeployments.length > 0) {
+        const existingPreviewDeployments = previewDeployments.get(contributionId) ?? [];
+        setStoredList(previewDeployments, contributionId, existingPreviewDeployments.concat(nextPreviewDeployments));
+      }
+
+      if (nextVotes.length > 0) {
+        const existingVotes = votes.get(contributionId) ?? [];
+        setStoredList(votes, contributionId, existingVotes.concat(nextVotes));
+      }
+
+      if (nextComments.length > 0) {
+        const existingComments = comments.get(contributionId) ?? [];
+        setStoredList(comments, contributionId, existingComments.concat(nextComments));
       }
 
       if (approvedSpecVersionId) {
@@ -594,6 +838,11 @@ export function createPostgresContributionPersistenceAdapter({
       messages = [],
       specVersions = [],
       progressEvents = [],
+      implementationJobs = [],
+      pullRequests = [],
+      previewDeployments = [],
+      votes = [],
+      comments = [],
       approvedSpecVersionId,
       approvedAt,
     }) {
@@ -708,6 +957,166 @@ export function createPostgresContributionPersistenceAdapter({
               progressEvent.externalUrl,
               progressEvent.payload == null ? null : JSON.stringify(progressEvent.payload),
               progressEvent.createdAt,
+            ],
+          );
+        }
+
+        for (const implementationJob of implementationJobs) {
+          await client.query(
+            `
+              INSERT INTO implementation_jobs (
+                id,
+                contribution_id,
+                status,
+                queue_name,
+                branch_name,
+                repository_full_name,
+                github_run_id,
+                started_at,
+                finished_at,
+                error_summary,
+                metadata,
+                created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10, $11::jsonb, $12::timestamptz)
+            `,
+            [
+              implementationJob.id,
+              implementationJob.contributionId,
+              implementationJob.status,
+              implementationJob.queueName,
+              implementationJob.branchName,
+              implementationJob.repositoryFullName,
+              implementationJob.githubRunId ?? null,
+              implementationJob.startedAt ?? null,
+              implementationJob.finishedAt ?? null,
+              implementationJob.errorSummary ?? null,
+              implementationJob.metadata == null ? null : JSON.stringify(implementationJob.metadata),
+              implementationJob.createdAt,
+            ],
+          );
+        }
+
+        for (const pullRequest of pullRequests) {
+          await client.query(
+            `
+              INSERT INTO pull_requests (
+                id,
+                contribution_id,
+                repository_full_name,
+                number,
+                url,
+                branch_name,
+                head_sha,
+                status,
+                metadata,
+                created_at,
+                updated_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::timestamptz, $11::timestamptz)
+            `,
+            [
+              pullRequest.id,
+              pullRequest.contributionId,
+              pullRequest.repositoryFullName,
+              pullRequest.number,
+              pullRequest.url,
+              pullRequest.branchName,
+              pullRequest.headSha ?? null,
+              pullRequest.status,
+              pullRequest.metadata == null ? null : JSON.stringify(pullRequest.metadata),
+              pullRequest.createdAt,
+              pullRequest.updatedAt,
+            ],
+          );
+        }
+
+        for (const previewDeployment of previewDeployments) {
+          await client.query(
+            `
+              INSERT INTO preview_deployments (
+                id,
+                contribution_id,
+                pull_request_id,
+                url,
+                status,
+                git_sha,
+                deploy_kind,
+                deployed_at,
+                checked_at,
+                error_summary,
+                metadata,
+                created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10, $11::jsonb, $12::timestamptz)
+            `,
+            [
+              previewDeployment.id,
+              previewDeployment.contributionId,
+              previewDeployment.pullRequestId ?? null,
+              previewDeployment.url,
+              previewDeployment.status,
+              previewDeployment.gitSha ?? null,
+              previewDeployment.deployKind,
+              previewDeployment.deployedAt ?? null,
+              previewDeployment.checkedAt ?? null,
+              previewDeployment.errorSummary ?? null,
+              previewDeployment.metadata == null ? null : JSON.stringify(previewDeployment.metadata),
+              previewDeployment.createdAt,
+            ],
+          );
+        }
+
+        for (const vote of votes) {
+          await client.query(
+            `
+              INSERT INTO votes (
+                id,
+                contribution_id,
+                voter_user_id,
+                voter_email,
+                vote_type,
+                metadata,
+                created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
+            `,
+            [
+              vote.id,
+              vote.contributionId,
+              vote.voterUserId ?? null,
+              vote.voterEmail ?? null,
+              vote.voteType,
+              vote.metadata == null ? null : JSON.stringify(vote.metadata),
+              vote.createdAt,
+            ],
+          );
+        }
+
+        for (const comment of comments) {
+          await client.query(
+            `
+              INSERT INTO comments (
+                id,
+                contribution_id,
+                author_user_id,
+                author_role,
+                body,
+                disposition,
+                metadata,
+                created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
+            `,
+            [
+              comment.id,
+              comment.contributionId,
+              comment.authorUserId ?? null,
+              comment.authorRole,
+              comment.body,
+              comment.disposition,
+              comment.metadata == null ? null : JSON.stringify(comment.metadata),
+              comment.createdAt,
             ],
           );
         }

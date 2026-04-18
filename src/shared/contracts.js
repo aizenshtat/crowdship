@@ -28,6 +28,12 @@ const CONTRIBUTION_TYPE_LIST = [
 ];
 
 const SPEC_APPROVAL_DECISION_LIST = ['approve', 'refine'];
+const IMPLEMENTATION_JOB_STATUS_LIST = ['queued', 'running', 'completed', 'failed'];
+const PULL_REQUEST_STATUS_LIST = ['open', 'merged', 'closed'];
+const PREVIEW_DEPLOYMENT_STATUS_LIST = ['deploying', 'ready', 'failed'];
+const PREVIEW_DEPLOYMENT_KIND_LIST = ['branch_preview', 'manual_preview'];
+const VOTE_TYPE_LIST = ['approve', 'block'];
+const COMMENT_DISPOSITION_LIST = ['note', 'action_required', 'resolved'];
 
 const LOCALHOST_ORIGINS = [
   'http://127.0.0.1:3000',
@@ -41,14 +47,31 @@ const LOCALHOST_ORIGINS = [
 export const CONTRIBUTION_STATES = Object.freeze(CONTRIBUTION_STATE_LIST.slice());
 export const CONTRIBUTION_TYPES = Object.freeze(CONTRIBUTION_TYPE_LIST.slice());
 export const SPEC_APPROVAL_DECISIONS = Object.freeze(SPEC_APPROVAL_DECISION_LIST.slice());
+export const IMPLEMENTATION_JOB_STATUSES = Object.freeze(IMPLEMENTATION_JOB_STATUS_LIST.slice());
+export const PULL_REQUEST_STATUSES = Object.freeze(PULL_REQUEST_STATUS_LIST.slice());
+export const PREVIEW_DEPLOYMENT_STATUSES = Object.freeze(PREVIEW_DEPLOYMENT_STATUS_LIST.slice());
+export const PREVIEW_DEPLOYMENT_KINDS = Object.freeze(PREVIEW_DEPLOYMENT_KIND_LIST.slice());
+export const VOTE_TYPES = Object.freeze(VOTE_TYPE_LIST.slice());
+export const COMMENT_DISPOSITIONS = Object.freeze(COMMENT_DISPOSITION_LIST.slice());
 export const LOCALHOST_DEVELOPMENT_ORIGINS = Object.freeze(LOCALHOST_ORIGINS.slice());
 export const INITIAL_CONTRIBUTION_STATE = CONTRIBUTION_STATE_LIST[0];
 export const SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE = 'spec_pending_approval';
 export const SPEC_APPROVED_CONTRIBUTION_STATE = 'spec_approved';
+export const AGENT_QUEUED_CONTRIBUTION_STATE = 'agent_queued';
+export const PR_OPENED_CONTRIBUTION_STATE = 'pr_opened';
+export const PREVIEW_DEPLOYING_CONTRIBUTION_STATE = 'preview_deploying';
+export const PREVIEW_READY_CONTRIBUTION_STATE = 'preview_ready';
+export const VOTING_OPEN_CONTRIBUTION_STATE = 'voting_open';
+export const MERGED_CONTRIBUTION_STATE = 'merged';
 export const CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'created';
 export const GENERATED_SPEC_PROGRESS_EVENT_KIND = 'spec_generated';
 export const APPROVED_SPEC_PROGRESS_EVENT_KIND = 'spec_approved';
 export const REFINED_SPEC_PROGRESS_EVENT_KIND = 'spec_refined';
+export const QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND = 'implementation_queued';
+export const RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND = 'pull_request_recorded';
+export const RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND = 'preview_recorded';
+export const OPENED_VOTING_PROGRESS_EVENT_KIND = 'voting_opened';
+export const MARKED_MERGED_PROGRESS_EVENT_KIND = 'merged_recorded';
 
 export const PROJECT_PUBLIC_CONFIGS = Object.freeze({
   example: Object.freeze({
@@ -86,6 +109,41 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     method: 'GET',
     path: '/api/v1/contributions/:id/progress',
     handler: 'getContributionProgress',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/queue-implementation',
+    handler: 'postQueueImplementation',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/pull-requests',
+    handler: 'postPullRequest',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/preview-deployments',
+    handler: 'postPreviewDeployment',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/open-voting',
+    handler: 'postOpenVoting',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/votes',
+    handler: 'postVote',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/comments',
+    handler: 'postComment',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/mark-merged',
+    handler: 'postMarkMerged',
   }),
 ]);
 
@@ -276,6 +334,190 @@ export function validateSpecApprovalPayload(payload) {
         value: {
           decision: payload.decision.trim(),
           note: normalizeOptionalString(payload.note) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validateQueueImplementationPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.queueName, 'queueName', errors);
+  validateStringField(payload.branchName, 'branchName', errors);
+  validateStringField(payload.repositoryFullName, 'repositoryFullName', errors);
+  validateStringField(payload.note, 'note', errors);
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          queueName: normalizeOptionalString(payload.queueName) || 'default',
+          branchName: normalizeOptionalString(payload.branchName) || null,
+          repositoryFullName: normalizeOptionalString(payload.repositoryFullName) || null,
+          note: normalizeOptionalString(payload.note) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validatePullRequestPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.repositoryFullName, 'repositoryFullName', errors, { required: true });
+  validateStringField(payload.url, 'url', errors, { required: true });
+  validateStringField(payload.branchName, 'branchName', errors, { required: true });
+  validateStringField(payload.status, 'status', errors, { required: true });
+  validateStringField(payload.headSha, 'headSha', errors);
+
+  if (!Number.isInteger(payload.number) || payload.number <= 0) {
+    errors.push('number must be a positive integer');
+  }
+
+  if (isNonEmptyString(payload.status) && !PULL_REQUEST_STATUSES.includes(payload.status)) {
+    errors.push(`status must be one of ${PULL_REQUEST_STATUSES.join(', ')}`);
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          repositoryFullName: payload.repositoryFullName.trim(),
+          number: payload.number,
+          url: payload.url.trim(),
+          branchName: payload.branchName.trim(),
+          headSha: normalizeOptionalString(payload.headSha) || null,
+          status: payload.status.trim(),
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validatePreviewDeploymentPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.url, 'url', errors, { required: true });
+  validateStringField(payload.status, 'status', errors, { required: true });
+  validateStringField(payload.deployKind, 'deployKind', errors, { required: true });
+  validateStringField(payload.gitSha, 'gitSha', errors);
+  validateStringField(payload.pullRequestId, 'pullRequestId', errors);
+  validateStringField(payload.errorSummary, 'errorSummary', errors);
+
+  if (isNonEmptyString(payload.status) && !PREVIEW_DEPLOYMENT_STATUSES.includes(payload.status)) {
+    errors.push(`status must be one of ${PREVIEW_DEPLOYMENT_STATUSES.join(', ')}`);
+  }
+
+  if (isNonEmptyString(payload.deployKind) && !PREVIEW_DEPLOYMENT_KINDS.includes(payload.deployKind)) {
+    errors.push(`deployKind must be one of ${PREVIEW_DEPLOYMENT_KINDS.join(', ')}`);
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          url: payload.url.trim(),
+          status: payload.status.trim(),
+          deployKind: payload.deployKind.trim(),
+          gitSha: normalizeOptionalString(payload.gitSha) || null,
+          pullRequestId: normalizeOptionalString(payload.pullRequestId) || null,
+          errorSummary: normalizeOptionalString(payload.errorSummary) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validateVotePayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.voteType, 'voteType', errors, { required: true });
+  validateStringField(payload.voterUserId, 'voterUserId', errors);
+  validateStringField(payload.voterEmail, 'voterEmail', errors);
+
+  if (isNonEmptyString(payload.voteType) && !VOTE_TYPES.includes(payload.voteType)) {
+    errors.push(`voteType must be one of ${VOTE_TYPES.join(', ')}`);
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          voteType: payload.voteType.trim(),
+          voterUserId: normalizeOptionalString(payload.voterUserId) || null,
+          voterEmail: normalizeOptionalString(payload.voterEmail) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validateCommentPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.authorRole, 'authorRole', errors, { required: true });
+  validateStringField(payload.body, 'body', errors, { required: true });
+  validateStringField(payload.disposition, 'disposition', errors, { required: true });
+  validateStringField(payload.authorUserId, 'authorUserId', errors);
+
+  if (isNonEmptyString(payload.disposition) && !COMMENT_DISPOSITIONS.includes(payload.disposition)) {
+    errors.push(`disposition must be one of ${COMMENT_DISPOSITIONS.join(', ')}`);
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          authorRole: payload.authorRole.trim(),
+          body: payload.body.trim(),
+          disposition: payload.disposition.trim(),
+          authorUserId: normalizeOptionalString(payload.authorUserId) || null,
         },
       }
     : {

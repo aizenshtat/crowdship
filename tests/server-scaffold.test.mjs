@@ -146,6 +146,13 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/attachments',
       'POST /api/v1/contributions/:id/spec-approval',
       'GET /api/v1/contributions/:id/progress',
+      'POST /api/v1/contributions/:id/queue-implementation',
+      'POST /api/v1/contributions/:id/pull-requests',
+      'POST /api/v1/contributions/:id/preview-deployments',
+      'POST /api/v1/contributions/:id/open-voting',
+      'POST /api/v1/contributions/:id/votes',
+      'POST /api/v1/contributions/:id/comments',
+      'POST /api/v1/contributions/:id/mark-merged',
     ],
   );
 });
@@ -406,6 +413,155 @@ test('api server persists contributions and spec approval through the real http 
     assert.equal(progress.body.contribution.id, contribution.body.contribution.id);
     assert.equal(progress.body.lifecycle.currentState, SPEC_APPROVED_CONTRIBUTION_STATE);
     assert.equal(progress.body.lifecycle.events.at(-1).kind, 'spec_approved');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('api server supports delivery evidence, voting, and merged state through the real http runtime', async () => {
+  const server = createApiServer();
+
+  await new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    assert.equal(typeof address, 'object');
+    assert.ok(address);
+
+    const contribution = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    const contributionId = contribution.body.contribution.id;
+
+    const approval = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/spec-approval`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    assert.equal(approval.status, 200);
+    assert.equal(approval.body.contribution.state, SPEC_APPROVED_CONTRIBUTION_STATE);
+
+    const queued = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/queue-implementation`,
+      body: {
+        queueName: 'default',
+        repositoryFullName: 'aizenshtat/example',
+        branchName: 'crowdship/contribution-123',
+      },
+    });
+
+    assert.equal(queued.status, 200);
+    assert.equal(queued.body.contribution.state, 'agent_queued');
+    assert.equal(queued.body.review.implementation.jobs.length, 1);
+
+    const pullRequest = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/pull-requests`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        number: 42,
+        url: 'https://github.com/aizenshtat/example/pull/42',
+        branchName: 'crowdship/contribution-123',
+        status: 'open',
+      },
+    });
+
+    assert.equal(pullRequest.status, 200);
+    assert.equal(pullRequest.body.contribution.state, 'pr_opened');
+    assert.equal(pullRequest.body.review.pullRequests.length, 1);
+
+    const preview = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/preview-deployments`,
+      body: {
+        url: 'https://example.aizenshtat.eu/previews/contribution-123/',
+        status: 'ready',
+        deployKind: 'manual_preview',
+      },
+    });
+
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.contribution.state, 'preview_ready');
+    assert.equal(preview.body.review.previewDeployments.length, 1);
+
+    const voting = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/open-voting`,
+      body: {},
+    });
+
+    assert.equal(voting.status, 200);
+    assert.equal(voting.body.contribution.state, 'voting_open');
+
+    const vote = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/votes`,
+      body: {
+        voteType: 'approve',
+        voterUserId: 'jury-1',
+      },
+    });
+
+    assert.equal(vote.status, 201);
+    assert.equal(vote.body.review.votes.summary.approve, 1);
+    assert.equal(vote.body.review.votes.summary.total, 1);
+
+    const comment = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/comments`,
+      body: {
+        authorRole: 'core_team',
+        body: 'Ready to merge after review.',
+        disposition: 'note',
+      },
+    });
+
+    assert.equal(comment.status, 201);
+    assert.equal(comment.body.review.comments.length, 1);
+
+    const mergedPullRequest = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/pull-requests`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        number: 42,
+        url: 'https://github.com/aizenshtat/example/pull/42',
+        branchName: 'crowdship/contribution-123',
+        status: 'merged',
+      },
+    });
+
+    assert.equal(mergedPullRequest.status, 200);
+
+    const merged = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/mark-merged`,
+      body: {},
+    });
+
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.contribution.state, 'merged');
+    assert.equal(merged.body.review.pullRequests.length, 2);
+    assert.equal(merged.body.lifecycle.events.at(-1).kind, 'merged_recorded');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

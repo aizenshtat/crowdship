@@ -1,17 +1,34 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  AGENT_QUEUED_CONTRIBUTION_STATE,
   API_ROUTE_DEFINITIONS,
   APPROVED_SPEC_PROGRESS_EVENT_KIND,
   CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND,
+  CONTRIBUTION_STATES,
   GENERATED_SPEC_PROGRESS_EVENT_KIND,
   INITIAL_CONTRIBUTION_STATE,
+  MARKED_MERGED_PROGRESS_EVENT_KIND,
+  MERGED_CONTRIBUTION_STATE,
+  OPENED_VOTING_PROGRESS_EVENT_KIND,
+  PREVIEW_DEPLOYING_CONTRIBUTION_STATE,
+  PREVIEW_READY_CONTRIBUTION_STATE,
+  PR_OPENED_CONTRIBUTION_STATE,
+  QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND,
+  RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND,
+  RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND,
   REFINED_SPEC_PROGRESS_EVENT_KIND,
   SPEC_APPROVED_CONTRIBUTION_STATE,
   SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+  VOTING_OPEN_CONTRIBUTION_STATE,
   getProjectPublicConfig,
+  validateCommentPayload,
   validateContributionCreatePayload,
+  validatePreviewDeploymentPayload,
+  validatePullRequestPayload,
+  validateQueueImplementationPayload,
   validateSpecApprovalPayload,
+  validateVotePayload,
 } from '../shared/contracts.js';
 
 export { API_ROUTE_DEFINITIONS };
@@ -275,12 +292,133 @@ function getLatestSpecVersion(specVersions) {
     .sort((left, right) => right.versionNumber - left.versionNumber)[0] ?? null;
 }
 
+function getLatestByCreatedAt(records) {
+  return asArray(records)
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0] ?? null;
+}
+
+function getContributionStateIndex(state) {
+  return CONTRIBUTION_STATES.indexOf(state);
+}
+
+function advanceContributionState(currentState, candidateState) {
+  if (!candidateState) {
+    return currentState;
+  }
+
+  const currentIndex = getContributionStateIndex(currentState);
+  const candidateIndex = getContributionStateIndex(candidateState);
+
+  if (currentIndex === -1 || candidateIndex === -1) {
+    return candidateState;
+  }
+
+  return candidateIndex > currentIndex ? candidateState : currentState;
+}
+
+function serializeImplementationJob(job) {
+  return {
+    id: job.id,
+    contributionId: job.contributionId,
+    status: job.status,
+    queueName: job.queueName,
+    branchName: job.branchName ?? null,
+    repositoryFullName: job.repositoryFullName ?? null,
+    githubRunId: job.githubRunId ?? null,
+    startedAt: job.startedAt ?? null,
+    finishedAt: job.finishedAt ?? null,
+    errorSummary: job.errorSummary ?? null,
+    metadata: job.metadata ?? null,
+    createdAt: job.createdAt,
+  };
+}
+
+function serializePullRequest(record) {
+  return {
+    id: record.id,
+    contributionId: record.contributionId,
+    repositoryFullName: record.repositoryFullName,
+    number: record.number,
+    url: record.url,
+    branchName: record.branchName,
+    headSha: record.headSha ?? null,
+    status: record.status,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function serializePreviewDeployment(record) {
+  return {
+    id: record.id,
+    contributionId: record.contributionId,
+    pullRequestId: record.pullRequestId ?? null,
+    url: record.url,
+    status: record.status,
+    gitSha: record.gitSha ?? null,
+    deployKind: record.deployKind,
+    deployedAt: record.deployedAt ?? null,
+    checkedAt: record.checkedAt ?? null,
+    errorSummary: record.errorSummary ?? null,
+    createdAt: record.createdAt,
+  };
+}
+
+function serializeVote(record) {
+  return {
+    id: record.id,
+    contributionId: record.contributionId,
+    voterUserId: record.voterUserId ?? null,
+    voterEmail: record.voterEmail ?? null,
+    voteType: record.voteType,
+    createdAt: record.createdAt,
+  };
+}
+
+function serializeComment(record) {
+  return {
+    id: record.id,
+    contributionId: record.contributionId,
+    authorUserId: record.authorUserId ?? null,
+    authorRole: record.authorRole,
+    body: record.body,
+    disposition: record.disposition,
+    createdAt: record.createdAt,
+  };
+}
+
+function summarizeVotes(votes) {
+  const summary = {
+    approve: 0,
+    block: 0,
+    total: 0,
+  };
+
+  for (const vote of asArray(votes)) {
+    if (vote.voteType === 'approve') {
+      summary.approve += 1;
+    } else if (vote.voteType === 'block') {
+      summary.block += 1;
+    }
+    summary.total += 1;
+  }
+
+  return summary;
+}
+
 function buildContributionSnapshot(detail) {
   const attachments = asArray(detail.attachments);
   const messages = asArray(detail.messages);
   const specVersions = asArray(detail.specVersions);
   const progressEvents = asArray(detail.progressEvents);
+  const implementationJobs = asArray(detail.implementationJobs);
+  const pullRequests = asArray(detail.pullRequests);
+  const previewDeployments = asArray(detail.previewDeployments);
+  const votes = asArray(detail.votes);
+  const comments = asArray(detail.comments);
   const latestSpec = getLatestSpecVersion(specVersions);
+  const currentImplementationJob = getLatestByCreatedAt(implementationJobs);
 
   return {
     contribution: serializeContribution(detail.contribution),
@@ -293,6 +431,19 @@ function buildContributionSnapshot(detail) {
     lifecycle: {
       currentState: detail.contribution.state,
       events: progressEvents.map(serializeProgressEvent),
+    },
+    review: {
+      implementation: {
+        current: currentImplementationJob ? serializeImplementationJob(currentImplementationJob) : null,
+        jobs: implementationJobs.map(serializeImplementationJob),
+      },
+      pullRequests: pullRequests.map(serializePullRequest),
+      previewDeployments: previewDeployments.map(serializePreviewDeployment),
+      votes: {
+        summary: summarizeVotes(votes),
+        items: votes.map(serializeVote),
+      },
+      comments: comments.map(serializeComment),
     },
   };
 }
@@ -661,6 +812,561 @@ export function createContributionProgressHandler({ database } = {}) {
   };
 }
 
+export function createQueueImplementationHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validateQueueImplementationPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_queue_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Implementation queue persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (detail.contribution.state !== SPEC_APPROVED_CONTRIBUTION_STATE) {
+      return buildResponse(409, {
+        error: 'contribution_not_ready_for_implementation',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    if (asArray(detail.implementationJobs).some((job) => job.status === 'queued' || job.status === 'running')) {
+      return buildResponse(409, {
+        error: 'implementation_already_queued',
+        contributionId,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const implementationJob = {
+      id: idFactory(),
+      contributionId,
+      status: 'queued',
+      queueName: validation.value.queueName,
+      branchName: validation.value.branchName,
+      repositoryFullName: validation.value.repositoryFullName,
+      githubRunId: null,
+      startedAt: null,
+      finishedAt: null,
+      errorSummary: null,
+      metadata: validation.value.note ? { note: validation.value.note } : null,
+      createdAt,
+    };
+    const nextState = advanceContributionState(detail.contribution.state, AGENT_QUEUED_CONTRIBUTION_STATE);
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: 'Implementation queued.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+        implementationJobId: implementationJob.id,
+        queueName: implementationJob.queueName,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      implementationJobs: [implementationJob],
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createPullRequestHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validatePullRequestPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_pull_request_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Pull request persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (getContributionStateIndex(detail.contribution.state) < getContributionStateIndex(SPEC_APPROVED_CONTRIBUTION_STATE)) {
+      return buildResponse(409, {
+        error: 'contribution_not_ready_for_pull_request',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const pullRequest = {
+      id: idFactory(),
+      contributionId,
+      repositoryFullName: validation.value.repositoryFullName,
+      number: validation.value.number,
+      url: validation.value.url,
+      branchName: validation.value.branchName,
+      headSha: validation.value.headSha,
+      status: validation.value.status,
+      metadata: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const nextState = advanceContributionState(detail.contribution.state, PR_OPENED_CONTRIBUTION_STATE);
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: `PR #${pullRequest.number} recorded.`,
+      externalUrl: pullRequest.url,
+      payload: {
+        contributionId,
+        pullRequestId: pullRequest.id,
+        repositoryFullName: pullRequest.repositoryFullName,
+        number: pullRequest.number,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      pullRequests: [pullRequest],
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createPreviewDeploymentHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validatePreviewDeploymentPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_preview_deployment_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Preview deployment persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (
+      validation.value.pullRequestId &&
+      !asArray(detail.pullRequests).some((pullRequest) => pullRequest.id === validation.value.pullRequestId)
+    ) {
+      return buildResponse(400, {
+        error: 'pull_request_not_found',
+        contributionId,
+        pullRequestId: validation.value.pullRequestId,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const previewDeployment = {
+      id: idFactory(),
+      contributionId,
+      pullRequestId: validation.value.pullRequestId,
+      url: validation.value.url,
+      status: validation.value.status,
+      gitSha: validation.value.gitSha,
+      deployKind: validation.value.deployKind,
+      deployedAt: validation.value.status === 'ready' ? createdAt : null,
+      checkedAt: createdAt,
+      errorSummary: validation.value.errorSummary,
+      metadata: null,
+      createdAt,
+    };
+    const candidateState =
+      validation.value.status === 'ready'
+        ? PREVIEW_READY_CONTRIBUTION_STATE
+        : validation.value.status === 'deploying'
+          ? PREVIEW_DEPLOYING_CONTRIBUTION_STATE
+          : detail.contribution.state;
+    const nextState = advanceContributionState(detail.contribution.state, candidateState);
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message:
+        validation.value.status === 'ready'
+          ? 'Preview is ready for review.'
+          : validation.value.status === 'deploying'
+            ? 'Preview deployment recorded.'
+            : 'Preview deployment failed.',
+      externalUrl: previewDeployment.url,
+      payload: {
+        contributionId,
+        previewDeploymentId: previewDeployment.id,
+        status: previewDeployment.status,
+        deployKind: previewDeployment.deployKind,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      previewDeployments: [previewDeployment],
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createOpenVotingHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Voting persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (!asArray(detail.previewDeployments).some((preview) => preview.status === 'ready')) {
+      return buildResponse(409, {
+        error: 'preview_not_ready',
+        contributionId,
+      });
+    }
+
+    if (detail.contribution.state === VOTING_OPEN_CONTRIBUTION_STATE) {
+      return buildResponse(409, {
+        error: 'voting_already_open',
+        contributionId,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const nextState = advanceContributionState(detail.contribution.state, VOTING_OPEN_CONTRIBUTION_STATE);
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: OPENED_VOTING_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: 'Voting opened.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createVoteHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validateVotePayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_vote_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Vote persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (detail.contribution.state !== VOTING_OPEN_CONTRIBUTION_STATE) {
+      return buildResponse(409, {
+        error: 'voting_not_open',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const vote = {
+      id: idFactory(),
+      contributionId,
+      voterUserId: validation.value.voterUserId,
+      voterEmail: validation.value.voterEmail,
+      voteType: validation.value.voteType,
+      metadata: null,
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: detail.contribution.state,
+      updatedAt: createdAt,
+      votes: [vote],
+    });
+
+    return buildResponse(201, buildContributionSnapshot(updated));
+  };
+}
+
+export function createCommentHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validateCommentPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_comment_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Comment persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (getContributionStateIndex(detail.contribution.state) < getContributionStateIndex(SPEC_APPROVED_CONTRIBUTION_STATE)) {
+      return buildResponse(409, {
+        error: 'comments_not_open',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const comment = {
+      id: idFactory(),
+      contributionId,
+      authorUserId: validation.value.authorUserId,
+      authorRole: validation.value.authorRole,
+      body: validation.value.body,
+      disposition: validation.value.disposition,
+      metadata: null,
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: detail.contribution.state,
+      updatedAt: createdAt,
+      comments: [comment],
+    });
+
+    return buildResponse(201, buildContributionSnapshot(updated));
+  };
+}
+
+export function createMarkMergedHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Merge persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const mergedPullRequest = asArray(detail.pullRequests).find((pullRequest) => pullRequest.status === 'merged');
+
+    if (!mergedPullRequest) {
+      return buildResponse(409, {
+        error: 'merged_pull_request_required',
+        contributionId,
+      });
+    }
+
+    if (detail.contribution.state === MERGED_CONTRIBUTION_STATE) {
+      return buildResponse(409, {
+        error: 'contribution_already_merged',
+        contributionId,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const nextState = advanceContributionState(detail.contribution.state, MERGED_CONTRIBUTION_STATE);
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: MARKED_MERGED_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: `Merged from PR #${mergedPullRequest.number}.`,
+      externalUrl: mergedPullRequest.url,
+      payload: {
+        contributionId,
+        pullRequestId: mergedPullRequest.id,
+        repositoryFullName: mergedPullRequest.repositoryFullName,
+        number: mergedPullRequest.number,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
 export function createRouteHandlers(options = {}) {
   return {
     getHealth: createHealthHandler(options),
@@ -671,5 +1377,12 @@ export function createRouteHandlers(options = {}) {
     postContributionAttachment: createContributionAttachmentHandler(options),
     postSpecApproval: createSpecApprovalHandler(options),
     getContributionProgress: createContributionProgressHandler(options),
+    postQueueImplementation: createQueueImplementationHandler(options),
+    postPullRequest: createPullRequestHandler(options),
+    postPreviewDeployment: createPreviewDeploymentHandler(options),
+    postOpenVoting: createOpenVotingHandler(options),
+    postVote: createVoteHandler(options),
+    postComment: createCommentHandler(options),
+    postMarkMerged: createMarkMergedHandler(options),
   };
 }
