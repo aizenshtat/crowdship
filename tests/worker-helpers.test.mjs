@@ -9,6 +9,7 @@ import {
   buildPullRequestBody,
   buildPullRequestTitle,
 } from '../src/worker/helpers.js';
+import { sanitizeImplementationEdits } from '../src/worker/implementation-service.js';
 import { isDirectWorkerRun } from '../src/worker/runtime.js';
 
 test('worker builds branch names with contribution id and slugged title', () => {
@@ -74,4 +75,36 @@ test('worker only treats the runtime file as a direct entry point', () => {
   assert.equal(isDirectWorkerRun(runtimePath, runtimeUrl), true);
   assert.equal(isDirectWorkerRun(runtimePath, 'file:///tmp/other.js'), false);
   assert.equal(isDirectWorkerRun(null, runtimeUrl), false);
+});
+
+test('implementation edits stay inside the allowed example repo surface', () => {
+  const edits = sanitizeImplementationEdits('/tmp/example', [
+    {
+      path: 'src/App.tsx',
+      reason: 'Add the replay gauge panel.',
+      content: 'export function App() { return null; }\n',
+    },
+    {
+      path: 'tests/contracts.test.mjs',
+      content: 'import test from "node:test";\n',
+    },
+  ]);
+
+  assert.deepEqual(
+    edits.map((edit) => edit.path),
+    ['src/App.tsx', 'tests/contracts.test.mjs'],
+  );
+});
+
+test('implementation edits reject paths outside the allowed example repo surface', () => {
+  assert.throws(
+    () =>
+      sanitizeImplementationEdits('/tmp/example', [
+        {
+          path: 'docs/contributions/ctrb-123.md',
+          content: '# artifact\n',
+        },
+      ]),
+    /outside the allowed repo surface/,
+  );
 });
