@@ -1224,11 +1224,31 @@
 
               <div class="status-block hidden" id="delivery-status" aria-live="polite"></div>
 
-              <div class="review-links hidden" id="delivery-links"></div>
+	              <div class="review-links hidden" id="delivery-links"></div>
 
-              <div class="review-metrics hidden" id="delivery-summary"></div>
+	              <div class="review-metrics hidden" id="delivery-summary"></div>
 
-              <div class="review-section hidden" id="vote-summary-section">
+              <div class="review-section hidden" id="preview-review-section">
+                <div class="review-label">Preview review</div>
+                <div class="review-actions" id="preview-review-actions">
+                  <button type="button" class="primary-button" id="preview-approve-button">Approve preview</button>
+                  <button type="button" class="secondary-button" id="preview-request-changes-button">Request changes</button>
+                </div>
+                <form class="review-form hidden" id="preview-request-form" novalidate>
+                  <label class="sr-only" for="preview-request-note">Request changes</label>
+                  <textarea
+                    id="preview-request-note"
+                    maxlength="2000"
+                    placeholder="Describe what still needs to change."
+                  ></textarea>
+                  <div class="review-actions">
+                    <button type="submit" class="primary-button" id="preview-request-submit-button">Send change request</button>
+                    <button type="button" class="secondary-button" id="preview-request-cancel-button">Keep current preview</button>
+                  </div>
+                </form>
+              </div>
+
+	              <div class="review-section hidden" id="vote-summary-section">
                 <div class="review-label">Vote status</div>
                 <div class="vote-summary-grid" id="vote-summary"></div>
               </div>
@@ -1343,6 +1363,8 @@
           refineOpen: false,
           replyDraft: '',
           commentDraft: '',
+          previewRequestOpen: false,
+          previewRequestNote: '',
           selectedQuestionChoices: {},
           pollTimer: 0,
           pollInFlight: false,
@@ -1368,6 +1390,14 @@
         var deliveryStatus = document.getElementById('delivery-status');
         var deliveryLinks = document.getElementById('delivery-links');
         var deliverySummary = document.getElementById('delivery-summary');
+        var previewReviewSection = document.getElementById('preview-review-section');
+        var previewReviewActions = document.getElementById('preview-review-actions');
+        var previewApproveButton = document.getElementById('preview-approve-button');
+        var previewRequestChangesButton = document.getElementById('preview-request-changes-button');
+        var previewRequestForm = document.getElementById('preview-request-form');
+        var previewRequestNote = document.getElementById('preview-request-note');
+        var previewRequestSubmitButton = document.getElementById('preview-request-submit-button');
+        var previewRequestCancelButton = document.getElementById('preview-request-cancel-button');
         var voteSummarySection = document.getElementById('vote-summary-section');
         var voteSummary = document.getElementById('vote-summary');
         var voteActions = document.getElementById('vote-actions');
@@ -1704,6 +1734,10 @@
           return isDeliveryState(stateName) && stateName !== 'merged' && stateName !== 'completed' && stateName !== 'rejected';
         }
 
+        function canReviewPreview(stateName) {
+          return stateName === 'preview_ready' || stateName === 'requester_review';
+        }
+
         function normalizeReviewPhase(detail) {
           var stateName = getContributionState(detail);
           return isDeliveryState(stateName) ? 'delivery' : 'spec';
@@ -1981,6 +2015,8 @@
           reviewSection.classList.add('hidden');
           lifecycleSection.classList.remove('hidden');
           stopContributionPolling();
+          state.previewRequestOpen = false;
+          state.previewRequestNote = '';
         }
 
         function hideChatStatus() {
@@ -2070,19 +2106,19 @@
               return {
                 tone: 'ready',
                 title: 'Preview ready',
-                copy: 'Open the preview and leave comments while the branch is under review.',
+                copy: 'Open the preview, then approve it or request changes.',
               };
             case 'revision_requested':
               return {
                 tone: 'working',
-                title: 'Revision requested',
+                title: 'Changes requested',
                 copy: latestMessage,
               };
             case 'ready_for_voting':
               return {
                 tone: 'ready',
-                title: 'Ready for voting',
-                copy: 'The preview is available and the contribution can move into voting.',
+                title: 'Preview approved',
+                copy: 'Waiting for voting to open.',
               };
             case 'voting_open':
               return {
@@ -2207,6 +2243,7 @@
         function renderDelivery(detail) {
           var model = buildDeliveryModel(detail);
           var statusMeta = getDeliveryStatusMeta(model);
+          var previewReviewOpen = canReviewPreview(model.state);
           var verification = model.currentJob && model.currentJob.metadata && Array.isArray(model.currentJob.metadata.verification)
             ? model.currentJob.metadata.verification.join(', ')
             : 'Not recorded yet';
@@ -2245,6 +2282,19 @@
           renderDeliveryLinks(model);
           renderMetricGrid(deliverySummary, metrics, 'No delivery metadata recorded yet.');
           toggleHidden(deliverySummary, false);
+          if (!previewReviewOpen) {
+            state.previewRequestOpen = false;
+            state.previewRequestNote = '';
+          }
+          toggleHidden(previewReviewSection, !previewReviewOpen);
+          toggleHidden(previewReviewActions, !previewReviewOpen);
+          toggleHidden(previewRequestForm, !previewReviewOpen || !state.previewRequestOpen);
+          previewApproveButton.disabled = state.submitting;
+          previewRequestChangesButton.disabled = state.submitting;
+          previewRequestNote.disabled = state.submitting;
+          previewRequestSubmitButton.disabled = state.submitting;
+          previewRequestCancelButton.disabled = state.submitting;
+          previewRequestNote.value = state.previewRequestNote || '';
           renderVoteSummary(model.voteSummary, model.state === 'voting_open');
           toggleHidden(voteActions, model.state !== 'voting_open');
           voteApproveButton.disabled = state.submitting;
@@ -2337,12 +2387,15 @@
 
           toggleHidden(deliveryStatus, !showDelivery);
           toggleHidden(deliverySummary, !showDelivery);
+          toggleHidden(previewReviewSection, !showDelivery);
           toggleHidden(commentListSection, !showDelivery);
           toggleHidden(commentForm, !showDelivery);
           toggleHidden(timelineDetails, !showDelivery);
           toggleHidden(voteActions, true);
           toggleHidden(voteSummarySection, true);
           toggleHidden(deliveryLinks, true);
+          toggleHidden(previewReviewActions, true);
+          toggleHidden(previewRequestForm, true);
           hideCommentStatus();
 
           if (showDelivery) {
@@ -2358,16 +2411,21 @@
           reviewSection.classList.add('hidden');
           composeForm.classList.remove('hidden');
           stopContributionPolling();
+          state.previewRequestOpen = false;
+          state.previewRequestNote = '';
           renderContext();
           renderAttachments();
           toggleHidden(deliveryStatus, true);
           toggleHidden(deliverySummary, true);
+          toggleHidden(previewReviewSection, true);
           toggleHidden(commentListSection, true);
           toggleHidden(commentForm, true);
           toggleHidden(timelineDetails, true);
           toggleHidden(voteActions, true);
           toggleHidden(voteSummarySection, true);
           toggleHidden(deliveryLinks, true);
+          toggleHidden(previewReviewActions, true);
+          toggleHidden(previewRequestForm, true);
           setPhase(state.submitting ? 'sending' : 'compose');
         }
 
@@ -2670,6 +2728,68 @@
             .finally(function () {
               state.pollInFlight = false;
               syncContributionPolling();
+            });
+        }
+
+        function submitPreviewReview(decision, note) {
+          if (state.submitting || !state.contributionDetail || !state.contributionDetail.contribution) return;
+
+          var trimmedNote = typeof note === 'string' ? note.trim() : '';
+          if (decision === 'request_changes' && !trimmedNote) {
+            setReviewChip('error', 'Change note required');
+            reviewCopy.textContent = 'Describe what still needs to change before sending the request.';
+            return;
+          }
+
+          state.submitting = true;
+          if (decision === 'request_changes') {
+            state.previewRequestNote = trimmedNote;
+          }
+          renderReview();
+          setReviewChip('working', decision === 'approve' ? 'Approving preview' : 'Sending change request');
+          reviewCopy.textContent = decision === 'approve'
+            ? 'Saving the preview approval.'
+            : 'Saving the change request.';
+
+          fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id) + '/preview-review', {
+            method: 'POST',
+            body: JSON.stringify({
+              decision: decision,
+              note: trimmedNote || null,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              state.submitting = false;
+              var parsed = parseDetailResponse(result);
+
+              if (parsed.error === 'invalid-json' || !parsed.response.ok) {
+                renderReview();
+                setReviewChip('error', 'Preview review failed');
+                reviewCopy.textContent = parsed.error === 'invalid-json'
+                  ? 'The server returned invalid JSON.'
+                  : 'Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + '.';
+                return;
+              }
+
+              state.previewRequestOpen = false;
+              state.previewRequestNote = '';
+              state.contributionDetail = getContributionDetail(parsed.payload) || parsed.payload || state.contributionDetail;
+              renderReview();
+            })
+            .catch(function (error) {
+              state.submitting = false;
+              renderReview();
+              setReviewChip('error', 'Preview review failed');
+              reviewCopy.textContent = error && error.message ? error.message : 'The browser could not reach the server.';
             });
         }
 
@@ -3034,6 +3154,31 @@
 
         voteBlockButton.addEventListener('click', function () {
           submitVote('block');
+        });
+
+        previewApproveButton.addEventListener('click', function () {
+          submitPreviewReview('approve', null);
+        });
+
+        previewRequestChangesButton.addEventListener('click', function () {
+          state.previewRequestOpen = true;
+          renderReview();
+          previewRequestNote.focus();
+        });
+
+        previewRequestForm.addEventListener('submit', function (event) {
+          event.preventDefault();
+          submitPreviewReview('request_changes', previewRequestNote.value);
+        });
+
+        previewRequestNote.addEventListener('input', function () {
+          state.previewRequestNote = previewRequestNote.value;
+        });
+
+        previewRequestCancelButton.addEventListener('click', function () {
+          state.previewRequestOpen = false;
+          state.previewRequestNote = '';
+          renderReview();
         });
 
         commentForm.addEventListener('submit', submitComment);

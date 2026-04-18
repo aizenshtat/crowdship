@@ -441,6 +441,7 @@ function getContributionBucket(item: ContributionSummary): AdminBucket {
 
   if (
     item.state === 'implementation_failed' ||
+    item.state === 'revision_requested' ||
     item.state === 'preview_failed' ||
     item.latestImplementationJob?.status === 'failed' ||
     item.latestPreviewDeployment?.status === 'failed'
@@ -507,11 +508,11 @@ function getLatestPreviewDeployment(review?: ContributionReview | null) {
 }
 
 function canQueueImplementation(detail: ContributionDetail) {
-  return detail.contribution.state === 'spec_approved';
+  return ['spec_approved', 'revision_requested', 'implementation_failed', 'preview_failed'].includes(detail.contribution.state);
 }
 
 function canOpenVoting(detail: ContributionDetail) {
-  return ['preview_ready', 'requester_review', 'ready_for_voting', 'core_team_flagged', 'core_review'].includes(detail.contribution.state);
+  return detail.contribution.state === 'ready_for_voting';
 }
 
 function canMarkMerged(detail: ContributionDetail) {

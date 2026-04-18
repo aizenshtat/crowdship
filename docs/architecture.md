@@ -34,6 +34,30 @@ Example GitHub Repo
 example.aizenshtat.eu
 ```
 
+## Deployment Models
+
+### Default Product Model
+
+Crowdship is hosted separately from the customer app.
+
+- The customer owns their app UI and app host.
+- The customer owns their repository, CI/CD, preview environment, and production deploy.
+- Crowdship hosts the widget, admin surface, API, and contribution state.
+- Repository automation happens through owner-authorized integrations, not direct shell access by the Crowdship operator.
+
+### Optional Self-Hosted Execution Model
+
+Some customers may want implementation execution to happen inside their own infrastructure.
+
+In that case:
+
+- Crowdship still owns intake, specs, review state, and orchestration.
+- A customer-run worker handles repository checkout, branch creation, PR updates, and CI interaction.
+
+### Reference Demo Model
+
+The current `example` deployment is a reference environment where one operator owns both sides for speed. That is a demo convenience, not the durable product assumption.
+
 ## Runtime Services
 
 ### Crowdship Web
@@ -52,7 +76,7 @@ example.aizenshtat.eu
 ### Implementation Worker
 
 - Consumes approved implementation jobs.
-- Checks out the target repository.
+- Checks out the target repository through an owner-authorized integration or a customer-run worker.
 - Creates a branch.
 - Applies code/docs/tests.
 - Runs local verification.
@@ -67,7 +91,7 @@ example.aizenshtat.eu
 - Provides safe context.
 - Hosts real product screens.
 - Receives real PRs.
-- Deploys previews for branches and production on merge.
+- Deploys previews for branches and production on merge through customer-owned CI/CD.
 
 ## Data Ownership
 

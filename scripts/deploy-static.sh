@@ -5,6 +5,7 @@ APP_DOMAIN="crowdship.aizenshtat.eu"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="/var/www/${APP_DOMAIN}/html"
 BUILD_DIR="${REPO_ROOT}/dist"
+DEMO_VIDEO_STORAGE_DIR="${DEMO_VIDEO_STORAGE_DIR:-/var/lib/crowdship/demo-video}"
 API_SERVICE="crowdship-api.service"
 WORKER_SERVICE="crowdship-worker.service"
 API_ENV_FILE="${API_ENV_FILE:-/etc/crowdship/crowdship-api.env}"
@@ -22,6 +23,8 @@ load_api_env() {
 npm run build
 
 install -d -m 755 "$TARGET"
+install -d -m 755 "${DEMO_VIDEO_STORAGE_DIR}"
+install -d -m 755 "${DEMO_VIDEO_STORAGE_DIR}/public"
 rsync -a --delete "${BUILD_DIR}/" "$TARGET/"
 find "$TARGET" -type d -exec chmod 755 {} \;
 find "$TARGET" -type f -exec chmod 644 {} \;

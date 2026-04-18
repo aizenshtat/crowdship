@@ -11,7 +11,7 @@ function jsonResponse(res, status, body, extraHeaders = {}) {
     'cache-control': 'no-store',
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': 'content-type, x-demo-video-token, x-demo-video-filename',
     ...extraHeaders,
   };
 
@@ -116,7 +116,9 @@ function createRequestHandler(options = {}) {
     }
 
     let body = null;
-    if (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH') {
+    const expectsJsonBody = matchedRoute.definition.bodyMode !== 'stream';
+
+    if (expectsJsonBody && (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH')) {
       try {
         body = await readRequestBody(request);
       } catch {

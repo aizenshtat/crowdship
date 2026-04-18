@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { request } from 'node:http';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 
 import {
@@ -60,6 +63,39 @@ function requestJson({ port, method, path, body }) {
       req.write(payload);
     }
 
+    req.end();
+  });
+}
+
+function requestBinary({ port, method, path, body, headers = {} }) {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: '127.0.0.1',
+        port,
+        method,
+        path,
+        headers: {
+          'content-length': body.length,
+          ...headers,
+        },
+      },
+      (res) => {
+        const chunks = [];
+
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            status: res.statusCode,
+            body: raw ? JSON.parse(raw) : null,
+          });
+        });
+      },
+    );
+
+    req.on('error', reject);
+    req.write(body);
     req.end();
   });
 }
@@ -242,6 +278,8 @@ test('api route structure includes the required public endpoints', () => {
     API_ROUTE_DEFINITIONS.map(({ method, path }) => `${method} ${path}`),
     [
       'GET /api/v1/health',
+      'GET /api/v1/demo-video',
+      'POST /api/v1/demo-video/upload',
       'GET /api/v1/projects/:project/public-config',
       'GET /api/v1/contributions',
       'POST /api/v1/contributions',
@@ -253,12 +291,87 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/queue-implementation',
       'POST /api/v1/contributions/:id/pull-requests',
       'POST /api/v1/contributions/:id/preview-deployments',
+      'POST /api/v1/contributions/:id/preview-review',
       'POST /api/v1/contributions/:id/open-voting',
       'POST /api/v1/contributions/:id/votes',
       'POST /api/v1/contributions/:id/comments',
       'POST /api/v1/contributions/:id/mark-merged',
     ],
   );
+});
+
+test('api server exposes demo video status and accepts authenticated binary uploads', async () => {
+  const previousStorageDir = process.env.DEMO_VIDEO_STORAGE_DIR;
+  const previousUploadToken = process.env.DEMO_VIDEO_UPLOAD_TOKEN;
+  const storageDir = mkdtempSync(join(tmpdir(), 'crowdship-demo-video-test-'));
+
+  process.env.DEMO_VIDEO_STORAGE_DIR = storageDir;
+  process.env.DEMO_VIDEO_UPLOAD_TOKEN = 'demo-token';
+
+  const server = createApiServer({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const port = address.port;
+
+    const initial = await requestJson({
+      port,
+      method: 'GET',
+      path: '/api/v1/demo-video',
+    });
+
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.hasVideo, false);
+    assert.equal(initial.body.uploadEnabled, true);
+
+    const uploaded = await requestBinary({
+      port,
+      method: 'POST',
+      path: '/api/v1/demo-video/upload',
+      body: Buffer.from('not-a-real-video-but-good-enough-for-storage'),
+      headers: {
+        'content-type': 'video/mp4',
+        'x-demo-video-token': 'demo-token',
+        'x-demo-video-filename': 'crowdship-demo.mp4',
+      },
+    });
+
+    assert.equal(uploaded.status, 201);
+    assert.equal(uploaded.body.hasVideo, true);
+    assert.equal(uploaded.body.video.filename, 'crowdship-demo.mp4');
+    assert.equal(uploaded.body.video.contentType, 'video/mp4');
+    assert.match(uploaded.body.videoPath, /\/demo-video\/assets\/current-.*\.mp4$/);
+    assert.ok(existsSync(join(storageDir, 'public', uploaded.body.videoPath.split('/').pop())));
+
+    const detail = await requestJson({
+      port,
+      method: 'GET',
+      path: '/api/v1/demo-video',
+    });
+
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.hasVideo, true);
+    assert.equal(detail.body.video.filename, 'crowdship-demo.mp4');
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+
+    if (previousStorageDir == null) {
+      delete process.env.DEMO_VIDEO_STORAGE_DIR;
+    } else {
+      process.env.DEMO_VIDEO_STORAGE_DIR = previousStorageDir;
+    }
+
+    if (previousUploadToken == null) {
+      delete process.env.DEMO_VIDEO_UPLOAD_TOKEN;
+    } else {
+      process.env.DEMO_VIDEO_UPLOAD_TOKEN = previousUploadToken;
+    }
+  }
 });
 
 test('drizzle schema exposes the expected table names', () => {
@@ -812,8 +925,31 @@ test('api server supports delivery evidence, voting, and merged state through th
       body: {},
     });
 
-    assert.equal(voting.status, 200);
-    assert.equal(voting.body.contribution.state, 'voting_open');
+    assert.equal(voting.status, 409);
+    assert.equal(voting.body.error, 'requester_preview_approval_required');
+
+    const previewApproval = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/preview-review`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    assert.equal(previewApproval.status, 200);
+    assert.equal(previewApproval.body.contribution.state, 'ready_for_voting');
+    assert.equal(previewApproval.body.lifecycle.events.at(-1).kind, 'preview_approved');
+
+    const votingAfterApproval = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/open-voting`,
+      body: {},
+    });
+
+    assert.equal(votingAfterApproval.status, 200);
+    assert.equal(votingAfterApproval.body.contribution.state, 'voting_open');
 
     const vote = await requestJson({
       port: address.port,
@@ -869,6 +1005,108 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(merged.body.contribution.state, 'merged');
     assert.equal(merged.body.review.pullRequests.length, 2);
     assert.equal(merged.body.lifecycle.events.at(-1).kind, 'merged_recorded');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('requesting preview changes creates a revision state and allows implementation to be re-queued', async () => {
+  const server = createApiServer({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const contribution = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: {
+        project: 'example',
+        environment: 'production',
+        type: 'feature_request',
+        title: 'Add inline anomaly replay',
+        body: 'Replay the selected signal drop without leaving the mission view.',
+        route: '/mission',
+      },
+    });
+
+    const contributionId = contribution.body.contribution.id;
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/spec-approval`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/queue-implementation`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        branchName: 'crowdship/contribution-456',
+      },
+    });
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/pull-requests`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        number: 56,
+        url: 'https://github.com/aizenshtat/example/pull/56',
+        branchName: 'crowdship/contribution-456',
+        status: 'open',
+      },
+    });
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/preview-deployments`,
+      body: {
+        url: 'https://example.aizenshtat.eu/previews/contribution-456/',
+        status: 'ready',
+        deployKind: 'manual_preview',
+      },
+    });
+
+    const revisionRequest = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/preview-review`,
+      body: {
+        decision: 'request_changes',
+        note: 'Keep the replay scrubber pinned above the fold.',
+      },
+    });
+
+    assert.equal(revisionRequest.status, 200);
+    assert.equal(revisionRequest.body.contribution.state, 'revision_requested');
+    assert.equal(revisionRequest.body.review.comments.at(-1).disposition, 'action_required');
+    assert.equal(revisionRequest.body.lifecycle.events.at(-1).kind, 'preview_changes_requested');
+
+    const requeue = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/queue-implementation`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        branchName: 'crowdship/contribution-456-v2',
+      },
+    });
+
+    assert.equal(requeue.status, 200);
+    assert.equal(requeue.body.contribution.state, 'agent_queued');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

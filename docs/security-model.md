@@ -69,6 +69,13 @@ For a project to run implementation jobs, the project owner must configure:
 - Maximum job runtime.
 - Allowed agent capabilities.
 
+Preferred setup:
+
+- owner-installed GitHub App or equivalent scoped repository integration for hosted Crowdship automation, or
+- customer-run worker execution inside customer infrastructure.
+
+Crowdship must not assume direct filesystem access to the customer's repository checkout or deploy host.
+
 The implementation worker uses owner-controlled credentials. It must write only to a feature branch and open a pull request. Production deployment remains controlled by the repository's merge and CI/CD rules.
 
 ## Public Preview Boundary

@@ -23,6 +23,7 @@ Before starting a phase, read the linked contracts.
 | Phase | Primary Docs |
 | --- | --- |
 | Product scope | `docs/product-brief.md`, `docs/roadmap-lite.md` |
+| Customer onboarding | `docs/customer-onboarding.md`, `docs/security-model.md` |
 | Widget behavior | `docs/widget-contract.md`, `docs/security-model.md`, `docs/ui-quality-contract.md` |
 | Contribution state | `docs/contribution-lifecycle.md`, `docs/architecture.md` |
 | Agent implementation | `docs/implementation-agent.md`, `docs/contribution-lifecycle.md` |
@@ -179,6 +180,14 @@ Do not parallelize:
 - Widget payload contract and backend validation.
 - Implementation worker behavior before preview CI/CD contract is stable.
 - Notification semantics before lifecycle states are durable.
+
+## Current Deployment Note
+
+The hackathon reference deployment may use a shared operator-owned host for both `crowdship` and `example`. That is acceptable for proving the loop quickly, but the durable product target is documented in `docs/customer-onboarding.md`: customer-owned UI, customer-owned repository, customer-owned CI/CD, and either a scoped hosted integration or a customer-run worker.
+
+## Hackathon Demo Video Note
+
+`public/demo-video/` and related upload helpers are hackathon submission assets only. They are not part of the core Crowdship product scope unless explicitly promoted later.
 
 ## Done Criteria For Every Phase
 

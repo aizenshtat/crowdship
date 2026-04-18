@@ -4,6 +4,7 @@ import {
   AGENT_QUEUED_CONTRIBUTION_STATE,
   API_ROUTE_DEFINITIONS,
   APPROVED_SPEC_PROGRESS_EVENT_KIND,
+  APPROVED_PREVIEW_PROGRESS_EVENT_KIND,
   CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND,
   CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND,
   CONTRIBUTION_STATES,
@@ -18,9 +19,12 @@ import {
   PREVIEW_READY_CONTRIBUTION_STATE,
   PR_OPENED_CONTRIBUTION_STATE,
   QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND,
+  READY_FOR_VOTING_CONTRIBUTION_STATE,
   RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND,
   RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND,
   REFINED_SPEC_PROGRESS_EVENT_KIND,
+  REQUESTED_PREVIEW_CHANGES_PROGRESS_EVENT_KIND,
+  REVISION_REQUESTED_CONTRIBUTION_STATE,
   SPEC_APPROVED_CONTRIBUTION_STATE,
   SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
   VOTING_OPEN_CONTRIBUTION_STATE,
@@ -28,12 +32,18 @@ import {
   validateCommentPayload,
   validateContributionCreatePayload,
   validateContributionMessagePayload,
+  validatePreviewReviewPayload,
   validatePreviewDeploymentPayload,
   validatePullRequestPayload,
   validateQueueImplementationPayload,
   validateSpecApprovalPayload,
   validateVotePayload,
 } from '../shared/contracts.js';
+import {
+  DemoVideoError,
+  getDemoVideoStatus,
+  storeDemoVideoUpload,
+} from './demo-video.js';
 import { createConfiguredSpecService, isSpecServiceError } from './spec-service.js';
 
 export { API_ROUTE_DEFINITIONS };
@@ -366,6 +376,28 @@ function advanceContributionState(currentState, candidateState) {
   return candidateIndex > currentIndex ? candidateState : currentState;
 }
 
+const RETRYABLE_DELIVERY_STATES = new Set([
+  IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
+  PREVIEW_FAILED_CONTRIBUTION_STATE,
+  REVISION_REQUESTED_CONTRIBUTION_STATE,
+]);
+
+const DELIVERY_REENTRY_STATES = new Set([
+  AGENT_QUEUED_CONTRIBUTION_STATE,
+  PR_OPENED_CONTRIBUTION_STATE,
+  PREVIEW_DEPLOYING_CONTRIBUTION_STATE,
+  PREVIEW_FAILED_CONTRIBUTION_STATE,
+  PREVIEW_READY_CONTRIBUTION_STATE,
+]);
+
+function resolveContributionState(currentState, candidateState) {
+  if (RETRYABLE_DELIVERY_STATES.has(currentState) && DELIVERY_REENTRY_STATES.has(candidateState)) {
+    return candidateState;
+  }
+
+  return advanceContributionState(currentState, candidateState);
+}
+
 function serializeImplementationJob(job) {
   return {
     id: job.id,
@@ -462,6 +494,7 @@ function deriveContributionAdminBucket(contribution, implementationJobs = [], pr
 
   if (
     contribution.state === IMPLEMENTATION_FAILED_CONTRIBUTION_STATE ||
+    contribution.state === REVISION_REQUESTED_CONTRIBUTION_STATE ||
     contribution.state === PREVIEW_FAILED_CONTRIBUTION_STATE ||
     latestImplementationJob?.status === 'failed' ||
     latestPreviewDeployment?.status === 'failed'
@@ -541,6 +574,15 @@ function buildContributionSnapshot(detail) {
   };
 }
 
+function canQueueImplementationFromState(state) {
+  return [
+    SPEC_APPROVED_CONTRIBUTION_STATE,
+    REVISION_REQUESTED_CONTRIBUTION_STATE,
+    IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
+    PREVIEW_FAILED_CONTRIBUTION_STATE,
+  ].includes(state);
+}
+
 function serializeContributionSummary(
   contribution,
   specVersions = [],
@@ -571,6 +613,30 @@ export function createHealthHandler() {
       service: 'crowdship-api',
       version: 'v1',
     });
+}
+
+export function createDemoVideoStatusHandler() {
+  return () => buildResponse(200, getDemoVideoStatus());
+}
+
+export function createDemoVideoUploadHandler() {
+  return async ({ request } = {}) => {
+    try {
+      return buildResponse(201, await storeDemoVideoUpload(request));
+    } catch (error) {
+      if (error instanceof DemoVideoError) {
+        return buildResponse(error.statusCode, {
+          error: error.code,
+          message: error.message,
+        });
+      }
+
+      return buildResponse(500, {
+        error: 'demo_video_upload_failed',
+        message: error instanceof Error ? error.message : 'Demo video upload failed.',
+      });
+    }
+  };
 }
 
 export function createProjectPublicConfigHandler() {
@@ -1230,7 +1296,7 @@ export function createQueueImplementationHandler({
       });
     }
 
-    if (detail.contribution.state !== SPEC_APPROVED_CONTRIBUTION_STATE) {
+    if (!canQueueImplementationFromState(detail.contribution.state)) {
       return buildResponse(409, {
         error: 'contribution_not_ready_for_implementation',
         contributionId,
@@ -1260,7 +1326,7 @@ export function createQueueImplementationHandler({
       metadata: validation.value.note ? { note: validation.value.note } : null,
       createdAt,
     };
-    const nextState = advanceContributionState(detail.contribution.state, AGENT_QUEUED_CONTRIBUTION_STATE);
+    const nextState = resolveContributionState(detail.contribution.state, AGENT_QUEUED_CONTRIBUTION_STATE);
     const progressEvent = {
       id: idFactory(),
       contributionId,
@@ -1346,7 +1412,7 @@ export function createPullRequestHandler({
       createdAt,
       updatedAt: createdAt,
     };
-    const nextState = advanceContributionState(detail.contribution.state, PR_OPENED_CONTRIBUTION_STATE);
+    const nextState = resolveContributionState(detail.contribution.state, PR_OPENED_CONTRIBUTION_STATE);
     const progressEvent = {
       id: idFactory(),
       contributionId,
@@ -1443,7 +1509,7 @@ export function createPreviewDeploymentHandler({
       : validation.value.status === 'deploying'
           ? PREVIEW_DEPLOYING_CONTRIBUTION_STATE
           : PREVIEW_FAILED_CONTRIBUTION_STATE;
-    const nextState = advanceContributionState(detail.contribution.state, candidateState);
+    const nextState = resolveContributionState(detail.contribution.state, candidateState);
     const progressEvent = {
       id: idFactory(),
       contributionId,
@@ -1518,6 +1584,14 @@ export function createOpenVotingHandler({
       });
     }
 
+    if (detail.contribution.state !== READY_FOR_VOTING_CONTRIBUTION_STATE) {
+      return buildResponse(409, {
+        error: 'requester_preview_approval_required',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
     const createdAt = clock().toISOString();
     const nextState = advanceContributionState(detail.contribution.state, VOTING_OPEN_CONTRIBUTION_STATE);
     const progressEvent = {
@@ -1536,6 +1610,155 @@ export function createOpenVotingHandler({
       contributionId,
       nextState,
       updatedAt: createdAt,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createPreviewReviewHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validatePreviewReviewPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_preview_review_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Preview review persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (!asArray(detail.previewDeployments).some((preview) => preview.status === 'ready')) {
+      return buildResponse(409, {
+        error: 'preview_not_ready',
+        contributionId,
+      });
+    }
+
+    if (
+      ![
+        PREVIEW_READY_CONTRIBUTION_STATE,
+        'requester_review',
+        REVISION_REQUESTED_CONTRIBUTION_STATE,
+      ].includes(detail.contribution.state)
+    ) {
+      return buildResponse(409, {
+        error: 'preview_review_not_open',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+
+    if (validation.value.decision === 'approve') {
+      const requesterMessage = createUserMessage({
+        id: idFactory(),
+        contributionId,
+        body: validation.value.note ? `Preview approved. Note: ${validation.value.note}` : 'Preview approved.',
+        createdAt,
+        messageType: 'preview_approval',
+      });
+      const progressEvent = {
+        id: idFactory(),
+        contributionId,
+        kind: APPROVED_PREVIEW_PROGRESS_EVENT_KIND,
+        status: READY_FOR_VOTING_CONTRIBUTION_STATE,
+        message: 'Requester approved the preview.',
+        externalUrl: null,
+        payload: {
+          contributionId,
+        },
+        createdAt,
+      };
+      const previewNote = validation.value.note
+        ? [
+            {
+              id: idFactory(),
+              contributionId,
+              authorUserId: null,
+              authorRole: 'requester',
+              body: validation.value.note,
+              disposition: 'note',
+              metadata: null,
+              createdAt,
+            },
+          ]
+        : [];
+      const updated = await database.applyContributionUpdate({
+        contributionId,
+        nextState: READY_FOR_VOTING_CONTRIBUTION_STATE,
+        updatedAt: createdAt,
+        messages: [requesterMessage],
+        comments: previewNote,
+        progressEvents: [progressEvent],
+      });
+
+      return buildResponse(200, buildContributionSnapshot(updated));
+    }
+
+    const revisionNote = validation.value.note ?? 'Please revise the preview.';
+    const requesterMessage = createUserMessage({
+      id: idFactory(),
+      contributionId,
+      body: revisionNote,
+      createdAt,
+      messageType: 'preview_change_request',
+    });
+    const comment = {
+      id: idFactory(),
+      contributionId,
+      authorUserId: null,
+      authorRole: 'requester',
+      body: revisionNote,
+      disposition: 'action_required',
+      metadata: null,
+      createdAt,
+    };
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: REQUESTED_PREVIEW_CHANGES_PROGRESS_EVENT_KIND,
+      status: REVISION_REQUESTED_CONTRIBUTION_STATE,
+      message: 'Requester requested changes to the preview.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: REVISION_REQUESTED_CONTRIBUTION_STATE,
+      updatedAt: createdAt,
+      messages: [requesterMessage],
+      comments: [comment],
       progressEvents: [progressEvent],
     });
 
@@ -1751,6 +1974,8 @@ export function createMarkMergedHandler({
 export function createRouteHandlers(options = {}) {
   return {
     getHealth: createHealthHandler(options),
+    getDemoVideo: createDemoVideoStatusHandler(options),
+    postDemoVideoUpload: createDemoVideoUploadHandler(options),
     getProjectPublicConfig: createProjectPublicConfigHandler(options),
     getContributions: createContributionListHandler(options),
     postContribution: createContributionHandler(options),
@@ -1762,6 +1987,7 @@ export function createRouteHandlers(options = {}) {
     postQueueImplementation: createQueueImplementationHandler(options),
     postPullRequest: createPullRequestHandler(options),
     postPreviewDeployment: createPreviewDeploymentHandler(options),
+    postPreviewReview: createPreviewReviewHandler(options),
     postOpenVoting: createOpenVotingHandler(options),
     postVote: createVoteHandler(options),
     postComment: createCommentHandler(options),

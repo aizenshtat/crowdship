@@ -30,6 +30,7 @@ const CONTRIBUTION_TYPE_LIST = [
 ];
 
 const SPEC_APPROVAL_DECISION_LIST = ['approve', 'refine'];
+const PREVIEW_REVIEW_DECISION_LIST = ['approve', 'request_changes'];
 const IMPLEMENTATION_JOB_STATUS_LIST = ['queued', 'running', 'completed', 'failed'];
 const PULL_REQUEST_STATUS_LIST = ['open', 'merged', 'closed'];
 const PREVIEW_DEPLOYMENT_STATUS_LIST = ['deploying', 'ready', 'failed'];
@@ -49,6 +50,7 @@ const LOCALHOST_ORIGINS = [
 export const CONTRIBUTION_STATES = Object.freeze(CONTRIBUTION_STATE_LIST.slice());
 export const CONTRIBUTION_TYPES = Object.freeze(CONTRIBUTION_TYPE_LIST.slice());
 export const SPEC_APPROVAL_DECISIONS = Object.freeze(SPEC_APPROVAL_DECISION_LIST.slice());
+export const PREVIEW_REVIEW_DECISIONS = Object.freeze(PREVIEW_REVIEW_DECISION_LIST.slice());
 export const IMPLEMENTATION_JOB_STATUSES = Object.freeze(IMPLEMENTATION_JOB_STATUS_LIST.slice());
 export const PULL_REQUEST_STATUSES = Object.freeze(PULL_REQUEST_STATUS_LIST.slice());
 export const PREVIEW_DEPLOYMENT_STATUSES = Object.freeze(PREVIEW_DEPLOYMENT_STATUS_LIST.slice());
@@ -65,6 +67,8 @@ export const PR_OPENED_CONTRIBUTION_STATE = 'pr_opened';
 export const PREVIEW_DEPLOYING_CONTRIBUTION_STATE = 'preview_deploying';
 export const PREVIEW_FAILED_CONTRIBUTION_STATE = 'preview_failed';
 export const PREVIEW_READY_CONTRIBUTION_STATE = 'preview_ready';
+export const READY_FOR_VOTING_CONTRIBUTION_STATE = 'ready_for_voting';
+export const REVISION_REQUESTED_CONTRIBUTION_STATE = 'revision_requested';
 export const VOTING_OPEN_CONTRIBUTION_STATE = 'voting_open';
 export const MERGED_CONTRIBUTION_STATE = 'merged';
 export const CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'created';
@@ -75,6 +79,8 @@ export const REFINED_SPEC_PROGRESS_EVENT_KIND = 'spec_refined';
 export const QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND = 'implementation_queued';
 export const RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND = 'pull_request_recorded';
 export const RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND = 'preview_recorded';
+export const APPROVED_PREVIEW_PROGRESS_EVENT_KIND = 'preview_approved';
+export const REQUESTED_PREVIEW_CHANGES_PROGRESS_EVENT_KIND = 'preview_changes_requested';
 export const OPENED_VOTING_PROGRESS_EVENT_KIND = 'voting_opened';
 export const MARKED_MERGED_PROGRESS_EVENT_KIND = 'merged_recorded';
 
@@ -92,6 +98,13 @@ export const PROJECT_PUBLIC_CONFIGS = Object.freeze({
 
 export const API_ROUTE_DEFINITIONS = Object.freeze([
   Object.freeze({ method: 'GET', path: '/api/v1/health', handler: 'getHealth' }),
+  Object.freeze({ method: 'GET', path: '/api/v1/demo-video', handler: 'getDemoVideo' }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/demo-video/upload',
+    handler: 'postDemoVideoUpload',
+    bodyMode: 'stream',
+  }),
   Object.freeze({
     method: 'GET',
     path: '/api/v1/projects/:project/public-config',
@@ -134,6 +147,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     method: 'POST',
     path: '/api/v1/contributions/:id/preview-deployments',
     handler: 'postPreviewDeployment',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/preview-review',
+    handler: 'postPreviewReview',
   }),
   Object.freeze({
     method: 'POST',
@@ -336,6 +354,41 @@ export function validateSpecApprovalPayload(payload) {
 
   if (payload.decision === 'refine' && !isNonEmptyString(payload.note)) {
     errors.push('note is required when requesting a spec refinement');
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          decision: payload.decision.trim(),
+          note: normalizeOptionalString(payload.note) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validatePreviewReviewPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.decision, 'decision', errors, { required: true });
+  validateStringField(payload.note, 'note', errors);
+
+  if (isNonEmptyString(payload.decision) && !PREVIEW_REVIEW_DECISIONS.includes(payload.decision)) {
+    errors.push(`decision must be one of ${PREVIEW_REVIEW_DECISIONS.join(', ')}`);
+  }
+
+  if (payload.decision === 'request_changes' && !isNonEmptyString(payload.note)) {
+    errors.push('note is required when requesting preview changes');
   }
 
   return errors.length === 0
