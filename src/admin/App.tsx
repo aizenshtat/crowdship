@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 
+type AdminSection = 'inbox' | 'settings' | 'operations';
+type AdminBucket = 'attention' | 'ready' | 'active' | 'waiting' | 'done';
 type ReadinessState = 'ready' | 'pending' | 'empty';
 
 type ReadinessItem = {
@@ -15,17 +17,6 @@ type ContributionPayload = {
     selectedObjectId?: string;
     activeFilters?: Record<string, string>;
   };
-};
-
-type ContributionSummary = {
-  id: string;
-  title: string;
-  state: string;
-  createdAt: string;
-  updatedAt: string;
-  payload?: ContributionPayload;
-  latestSpecVersion?: number | null;
-  specApprovedAt?: string | null;
 };
 
 type AttachmentRecord = {
@@ -75,8 +66,8 @@ type ReviewImplementationJobRecord = {
   id: string;
   status: string;
   queueName: string;
-  branchName: string;
-  repositoryFullName: string;
+  branchName: string | null;
+  repositoryFullName: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -90,7 +81,7 @@ type ReviewPullRequestRecord = {
   number: number;
   url: string;
   branchName: string;
-  headSha: string;
+  headSha: string | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -100,7 +91,7 @@ type ReviewPreviewDeploymentRecord = {
   id: string;
   url: string;
   status: string;
-  gitSha: string;
+  gitSha: string | null;
   deployKind: string;
   deployedAt: string | null;
   checkedAt: string | null;
@@ -130,8 +121,24 @@ type ReviewCommentRecord = {
   createdAt: string;
 };
 
+type ContributionSummary = {
+  id: string;
+  title: string;
+  state: string;
+  createdAt: string;
+  updatedAt: string;
+  payload?: ContributionPayload;
+  latestSpecVersion?: number | null;
+  specApprovedAt?: string | null;
+  latestImplementationJob?: ReviewImplementationJobRecord | null;
+  latestPullRequest?: ReviewPullRequestRecord | null;
+  latestPreviewDeployment?: ReviewPreviewDeploymentRecord | null;
+  adminBucket?: AdminBucket;
+};
+
 type ContributionReview = {
   implementation: {
+    current?: ReviewImplementationJobRecord | null;
     jobs: ReviewImplementationJobRecord[];
   };
   pullRequests: ReviewPullRequestRecord[];
@@ -162,6 +169,20 @@ type ContributionDetail = {
     events: ProgressEventRecord[];
   };
 };
+
+type ReviewFormsState = {
+  implementation: { repositoryFullName: string; branchName: string; queueName: string };
+  pullRequest: { repositoryFullName: string; branchName: string; headSha: string };
+  previewDeployment: { url: string; gitSha: string; deployKind: string };
+  vote: { voteType: string; voterUserId: string; voterEmail: string };
+  comment: { authorRole: string; body: string; disposition: string };
+};
+
+const navItems: Array<{ id: AdminSection; label: string; blurb: string }> = [
+  { id: 'inbox', label: 'Inbox', blurb: 'Live contribution review' },
+  { id: 'settings', label: 'Settings', blurb: 'Project and widget config' },
+  { id: 'operations', label: 'Operations', blurb: 'Queue, worker, and runtime watch' },
+];
 
 const projectConfig = [
   { label: 'Project', value: 'example' },
@@ -200,6 +221,20 @@ function contributionStateLabel(state: string) {
       return 'Spec ready';
     case 'spec_approved':
       return 'Spec approved';
+    case 'agent_queued':
+      return 'Queued';
+    case 'agent_running':
+      return 'Running';
+    case 'implementation_failed':
+      return 'Implementation failed';
+    case 'preview_deploying':
+      return 'Preview deploying';
+    case 'preview_failed':
+      return 'Preview failed';
+    case 'preview_ready':
+      return 'Preview ready';
+    case 'voting_open':
+      return 'Voting open';
     default:
       return state.replace(/_/g, ' ');
   }
@@ -207,45 +242,50 @@ function contributionStateLabel(state: string) {
 
 function contributionStateClassName(state: string) {
   switch (state) {
+    case 'implementation_failed':
+    case 'preview_failed':
+      return 'pill-error';
+    case 'preview_ready':
+    case 'spec_approved':
+    case 'merged':
+      return 'pill-ready';
+    case 'agent_queued':
+    case 'agent_running':
+    case 'preview_deploying':
     case 'spec_pending_approval':
       return 'pill-pending';
-    case 'spec_approved':
-      return 'pill-ready';
     default:
-      return 'pill-empty';
+      return 'pill-neutral';
   }
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
-
-  return (
-    <button
-      className="copy-button"
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopyState('copied');
-          window.setTimeout(() => setCopyState('idle'), 1600);
-        } catch {
-          setCopyState('error');
-          window.setTimeout(() => setCopyState('idle'), 1600);
-        }
-      }}
-      aria-live="polite"
-    >
-      {copyState === 'copied' ? 'Snippet copied' : copyState === 'error' ? 'Copy failed' : 'Copy install snippet'}
-    </button>
-  );
+function bucketLabel(bucket: AdminBucket) {
+  switch (bucket) {
+    case 'attention':
+      return 'Needs action';
+    case 'ready':
+      return 'Ready';
+    case 'active':
+      return 'In motion';
+    case 'waiting':
+      return 'Waiting';
+    case 'done':
+      return 'Closed';
+  }
 }
 
-function ReadinessPill({ state }: { state: ReadinessState }) {
-  return <span className={`pill pill-${state}`}>{statusLabel(state)}</span>;
-}
-
-function StatePill({ state }: { state: string }) {
-  return <span className={`pill ${contributionStateClassName(state)}`}>{contributionStateLabel(state)}</span>;
+function bucketClassName(bucket: AdminBucket) {
+  switch (bucket) {
+    case 'attention':
+      return 'pill-error';
+    case 'ready':
+      return 'pill-ready';
+    case 'active':
+      return 'pill-pending';
+    case 'waiting':
+    case 'done':
+      return 'pill-neutral';
+  }
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -316,7 +356,9 @@ function reviewPillClassName(status: string) {
     normalized.includes('done') ||
     normalized.includes('approve') ||
     normalized.includes('deployed') ||
-    normalized.includes('open')
+    normalized.includes('open') ||
+    normalized.includes('ready') ||
+    normalized.includes('merged')
   ) {
     return 'pill-ready';
   }
@@ -326,7 +368,8 @@ function reviewPillClassName(status: string) {
     normalized.includes('pending') ||
     normalized.includes('running') ||
     normalized.includes('active') ||
-    normalized.includes('review')
+    normalized.includes('review') ||
+    normalized.includes('deploying')
   ) {
     return 'pill-pending';
   }
@@ -369,12 +412,1067 @@ function describeContext(payload?: ContributionPayload) {
   };
 }
 
+function defaultRepositoryFullName(projectSlug: string) {
+  if (projectSlug === 'example') {
+    return 'aizenshtat/example';
+  }
+
+  return '';
+}
+
+function slugifySegment(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function buildDefaultBranchName(contributionId: string, title: string) {
+  const slug = slugifySegment(title) || 'contribution';
+  return `crowdship/${contributionId}-${slug}`.slice(0, 120);
+}
+
+function getContributionBucket(item: ContributionSummary): AdminBucket {
+  if (item.adminBucket) {
+    return item.adminBucket;
+  }
+
+  if (
+    item.state === 'implementation_failed' ||
+    item.state === 'preview_failed' ||
+    item.latestImplementationJob?.status === 'failed' ||
+    item.latestPreviewDeployment?.status === 'failed'
+  ) {
+    return 'attention';
+  }
+
+  if (item.state === 'merged' || item.state === 'completed' || item.state === 'rejected') {
+    return 'done';
+  }
+
+  if (
+    item.state === 'spec_approved' ||
+    item.state === 'preview_ready' ||
+    item.state === 'requester_review' ||
+    item.state === 'ready_for_voting' ||
+    item.state === 'voting_open' ||
+    item.state === 'core_team_flagged' ||
+    item.state === 'core_review'
+  ) {
+    return 'ready';
+  }
+
+  if (
+    item.state === 'agent_queued' ||
+    item.state === 'agent_running' ||
+    item.state === 'pr_opened' ||
+    item.state === 'preview_deploying' ||
+    item.latestImplementationJob?.status === 'queued' ||
+    item.latestImplementationJob?.status === 'running' ||
+    item.latestPreviewDeployment?.status === 'deploying'
+  ) {
+    return 'active';
+  }
+
+  return 'waiting';
+}
+
+function bucketPriority(bucket: AdminBucket) {
+  switch (bucket) {
+    case 'attention':
+      return 0;
+    case 'ready':
+      return 1;
+    case 'active':
+      return 2;
+    case 'waiting':
+      return 3;
+    case 'done':
+      return 4;
+  }
+}
+
+function getLatestImplementationJob(review?: ContributionReview | null) {
+  return review?.implementation.jobs.at(-1) ?? review?.implementation.current ?? null;
+}
+
+function getLatestPullRequest(review?: ContributionReview | null) {
+  return review?.pullRequests.at(-1) ?? null;
+}
+
+function getLatestPreviewDeployment(review?: ContributionReview | null) {
+  return review?.previewDeployments.at(-1) ?? null;
+}
+
+function canQueueImplementation(detail: ContributionDetail) {
+  return detail.contribution.state === 'spec_approved';
+}
+
+function canOpenVoting(detail: ContributionDetail) {
+  return ['preview_ready', 'requester_review', 'ready_for_voting', 'core_team_flagged', 'core_review'].includes(detail.contribution.state);
+}
+
+function canMarkMerged(detail: ContributionDetail) {
+  if (detail.contribution.state === 'merged') {
+    return false;
+  }
+
+  return detail.review?.pullRequests.some((pullRequest) => pullRequest.status === 'merged') ?? false;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+
+  return (
+    <button
+      className="copy-button"
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopyState('copied');
+          window.setTimeout(() => setCopyState('idle'), 1600);
+        } catch {
+          setCopyState('error');
+          window.setTimeout(() => setCopyState('idle'), 1600);
+        }
+      }}
+      aria-live="polite"
+    >
+      {copyState === 'copied' ? 'Snippet copied' : copyState === 'error' ? 'Copy failed' : 'Copy install snippet'}
+    </button>
+  );
+}
+
+function ReadinessPill({ state }: { state: ReadinessState }) {
+  return <span className={`pill pill-${state}`}>{statusLabel(state)}</span>;
+}
+
+function StatePill({ state }: { state: string }) {
+  return <span className={`pill ${contributionStateClassName(state)}`}>{contributionStateLabel(state)}</span>;
+}
+
+function BucketPill({ bucket }: { bucket: AdminBucket }) {
+  return <span className={`pill ${bucketClassName(bucket)}`}>{bucketLabel(bucket)}</span>;
+}
+
+function SettingsView({ readiness }: { readiness: ReadinessItem[] }) {
+  return (
+    <section className="section-stack">
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Project settings</h2>
+            <p>Owner-controlled install contract for the target app.</p>
+          </div>
+        </div>
+        <dl className="definition-list">
+          {projectConfig.map((item) => (
+            <div className="definition-row" key={item.label}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Origin allowlist</h2>
+            <p>Widget origins only.</p>
+          </div>
+        </div>
+        <ul className="origin-list">
+          {originAllowlist.map((origin) => (
+            <li className="origin-row" key={origin}>
+              <span className="origin-host">{origin}</span>
+              <span className="origin-state">Allowed</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Widget install snippet</h2>
+            <p>Paste into the host app.</p>
+          </div>
+          <ReadinessPill state={readiness.some((item) => item.label === 'Contribution intake' && item.state === 'ready') ? 'ready' : 'pending'} />
+        </div>
+        <div className="snippet-shell">
+          <div className="snippet-actions">
+            <CopyButton text={installSnippet} />
+          </div>
+          <pre className="snippet-code">
+            <code>{installSnippet}</code>
+          </pre>
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function ContributionRow({
+  item,
+  selected,
+  onOpen,
+}: {
+  item: ContributionSummary;
+  selected: boolean;
+  onOpen: (contributionId: string) => void;
+}) {
+  const bucket = getContributionBucket(item);
+  const { route, context } = describeContext(item.payload);
+  const latestFailure = item.latestPreviewDeployment?.errorSummary ?? item.latestImplementationJob?.errorSummary ?? '';
+  const latestSignal =
+    item.latestPreviewDeployment?.status
+      ? `Preview ${reviewStatusLabel(item.latestPreviewDeployment.status)}`
+      : item.latestImplementationJob?.status
+        ? `Worker ${reviewStatusLabel(item.latestImplementationJob.status)}`
+        : item.latestPullRequest?.status
+          ? `PR ${reviewStatusLabel(item.latestPullRequest.status)}`
+          : contributionStateLabel(item.state);
+
+  return (
+    <li className="row-item">
+      <button
+        className={`contribution-row${selected ? ' contribution-row-selected' : ''}`}
+        type="button"
+        onClick={() => onOpen(item.id)}
+      >
+        <div className="contribution-row-main">
+          <div className="contribution-row-heading">
+            <div>
+              <div className="row-kicker">Contribution</div>
+              <h3>{item.title}</h3>
+            </div>
+            <div className="row-pills">
+              <BucketPill bucket={bucket} />
+              <StatePill state={item.state} />
+            </div>
+          </div>
+          <div className="contribution-row-meta">
+            <span>Route {route}</span>
+            <span>Context {context}</span>
+            <span>{latestSignal}</span>
+            <span>Updated {formatTimestamp(item.updatedAt)}</span>
+          </div>
+          {latestFailure ? <div className="row-alert">{latestFailure}</div> : null}
+        </div>
+        <span className="row-open-label">{selected ? 'Open' : 'Review'}</span>
+      </button>
+    </li>
+  );
+}
+
+function InboxSection({
+  title,
+  note,
+  items,
+  selectedContributionId,
+  onOpen,
+  emptyLabel,
+}: {
+  title: string;
+  note: string;
+  items: ContributionSummary[];
+  selectedContributionId: string | null;
+  onOpen: (contributionId: string) => void;
+  emptyLabel: string;
+}) {
+  return (
+    <section className="surface-section">
+      <div className="section-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>{note}</p>
+        </div>
+        <span className="section-count">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty-state">{emptyLabel}</div>
+      ) : (
+        <ul className="row-list">
+          {items.map((item) => (
+            <ContributionRow
+              item={item}
+              key={item.id}
+              selected={item.id === selectedContributionId}
+              onOpen={onOpen}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function OperationsView({
+  readiness,
+  attentionItems,
+  activeItems,
+  onOpenContribution,
+  selectedContributionId,
+}: {
+  readiness: ReadinessItem[];
+  attentionItems: ContributionSummary[];
+  activeItems: ContributionSummary[];
+  onOpenContribution: (contributionId: string) => void;
+  selectedContributionId: string | null;
+}) {
+  return (
+    <section className="section-stack">
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Runtime readiness</h2>
+            <p>Real shell state only.</p>
+          </div>
+        </div>
+        <ul className="status-list">
+          {readiness.map((item) => (
+            <li className="status-row" key={item.label}>
+              <div className="status-copy">
+                <div className="status-label">{item.label}</div>
+                <div className="status-detail">{item.detail}</div>
+              </div>
+              <ReadinessPill state={item.state} />
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <InboxSection
+        title="Needs attention"
+        note="Failed worker or preview records stay here until a newer attempt supersedes them."
+        items={attentionItems}
+        selectedContributionId={selectedContributionId}
+        onOpen={onOpenContribution}
+        emptyLabel="No delivery issue is active."
+      />
+
+      <InboxSection
+        title="In motion"
+        note="Queue, worker, pull request, and preview activity."
+        items={activeItems}
+        selectedContributionId={selectedContributionId}
+        onOpen={onOpenContribution}
+        emptyLabel="No contribution is moving through delivery right now."
+      />
+    </section>
+  );
+}
+
+function ContributionDetailDrawer({
+  selectedSummary,
+  detail,
+  detailStatus,
+  detailError,
+  onClose,
+  onQueueImplementation,
+  onOpenVoting,
+  onMarkMerged,
+  reviewActionState,
+  reviewActionMessage,
+  reviewForms,
+  setReviewForms,
+  submitReviewAction,
+}: {
+  selectedSummary: ContributionSummary | null;
+  detail: ContributionDetail | null;
+  detailStatus: 'idle' | 'loading' | 'ready' | 'error';
+  detailError: string;
+  onClose: () => void;
+  onQueueImplementation: () => void;
+  onOpenVoting: () => void;
+  onMarkMerged: () => void;
+  reviewActionState: 'idle' | 'loading' | 'error' | 'success';
+  reviewActionMessage: string;
+  reviewForms: ReviewFormsState;
+  setReviewForms: Dispatch<SetStateAction<ReviewFormsState>>;
+  submitReviewAction: (path: string, body: Record<string, string>, successMessage: string) => Promise<void>;
+}) {
+  const selectedContext = selectedSummary ? describeContext(selectedSummary.payload) : null;
+  const detailContext = detail ? describeContext(detail.contribution.payload) : null;
+  const review = detail?.review ?? null;
+  const latestImplementationJob = getLatestImplementationJob(review);
+  const latestPullRequest = getLatestPullRequest(review);
+  const latestPreviewDeployment = getLatestPreviewDeployment(review);
+  const voteSummary = review?.votes.summary ?? { approve: 0, block: 0, total: 0 };
+
+  return (
+    <div className="drawer-layer" role="presentation">
+      <button className="drawer-backdrop" type="button" aria-label="Close contribution detail" onClick={onClose} />
+      <aside className="drawer-panel" aria-modal="true" aria-labelledby="drawer-title" role="dialog">
+        <div className="drawer-header">
+          <div>
+            <div className="drawer-kicker">Contribution review</div>
+            <h2 id="drawer-title">{detail?.contribution.title ?? selectedSummary?.title ?? 'Contribution detail'}</h2>
+            <p>{detail?.contribution.body ?? 'Loading the latest requester record.'}</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Close review
+          </button>
+        </div>
+
+        {detailStatus === 'loading' ? (
+          <div className="drawer-empty">Loading contribution detail.</div>
+        ) : detailStatus === 'error' ? (
+          <div className="drawer-empty">Could not load contribution detail: {detailError}</div>
+        ) : !detail ? (
+          <div className="drawer-empty">Select a contribution to review it.</div>
+        ) : (
+          <>
+            <div className="drawer-rail">
+              <div className="drawer-rail-pills">
+                <BucketPill bucket={getContributionBucket(detail.contribution)} />
+                <StatePill state={detail.contribution.state} />
+              </div>
+              <div className="drawer-rail-links">
+                {latestPullRequest ? (
+                  <a href={latestPullRequest.url} rel="noreferrer" target="_blank">
+                    Open PR #{latestPullRequest.number}
+                  </a>
+                ) : null}
+                {latestPreviewDeployment?.url ? (
+                  <a href={latestPreviewDeployment.url} rel="noreferrer" target="_blank">
+                    Open preview
+                  </a>
+                ) : null}
+              </div>
+              <div className="drawer-rail-actions">
+                {canQueueImplementation(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onQueueImplementation}
+                  >
+                    {reviewActionState === 'loading' ? 'Queueing…' : 'Queue implementation'}
+                  </button>
+                ) : null}
+                {canOpenVoting(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onOpenVoting}
+                  >
+                    {reviewActionState === 'loading' ? 'Opening…' : 'Open voting'}
+                  </button>
+                ) : null}
+                {canMarkMerged(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onMarkMerged}
+                  >
+                    {reviewActionState === 'loading' ? 'Recording…' : 'Mark merged'}
+                  </button>
+                ) : null}
+              </div>
+              <div className={`review-action-banner review-action-banner-${reviewActionState}`} aria-live="polite">
+                {reviewActionState === 'idle' ? 'Keep the delivery actions here. Everything else stays below.' : reviewActionMessage}
+              </div>
+            </div>
+
+            <div className="drawer-content">
+              <section className="drawer-section">
+                <div className="drawer-section-heading">
+                  <h3>Request context</h3>
+                  <span className="section-note">What the requester was looking at.</span>
+                </div>
+                <dl className="definition-list">
+                  <div className="definition-row">
+                    <dt>Project</dt>
+                    <dd>{detail.contribution.projectSlug}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Environment</dt>
+                    <dd>{detail.contribution.environment}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Route</dt>
+                    <dd>{detailContext?.route ?? selectedContext?.route ?? 'Not provided'}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Context</dt>
+                    <dd>{detailContext?.context ?? selectedContext?.context ?? 'No additional context'}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Created</dt>
+                    <dd>{formatTimestamp(detail.contribution.createdAt)}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="drawer-section">
+                <div className="drawer-section-heading">
+                  <h3>Spec</h3>
+                  <span className="section-note">
+                    {detail.spec.current?.approvedAt ? `Approved ${formatTimestamp(detail.spec.current.approvedAt)}` : 'Awaiting requester approval'}
+                  </span>
+                </div>
+                {detail.spec.current ? (
+                  <div className="spec-card">
+                    <div className="spec-header">
+                      <div>
+                        <div className="spec-version">Spec v{detail.spec.current.versionNumber}</div>
+                        <h4>{detail.spec.current.title}</h4>
+                      </div>
+                    </div>
+                    <div className="spec-block">
+                      <div className="detail-label">Goal</div>
+                      <p>{detail.spec.current.goal}</p>
+                    </div>
+                    <div className="spec-block">
+                      <div className="detail-label">User problem</div>
+                      <p>{detail.spec.current.userProblem}</p>
+                    </div>
+                    <div className="spec-columns">
+                      <div className="spec-block">
+                        <div className="detail-label">Acceptance criteria</div>
+                        <ul className="detail-list">
+                          {detail.spec.current.acceptanceCriteria.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="spec-block">
+                        <div className="detail-label">Non-goals</div>
+                        <ul className="detail-list">
+                          {detail.spec.current.nonGoals.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state compact">No spec has been generated yet.</div>
+                )}
+              </section>
+
+              <section className="drawer-section">
+                <div className="drawer-section-heading">
+                  <h3>Delivery</h3>
+                  <span className="section-note">The current engineering handoff and review evidence.</span>
+                </div>
+                <div className="review-summary-strip">
+                  <div className="review-summary-item">
+                    <span className="review-summary-label">Worker</span>
+                    <strong>{latestImplementationJob ? reviewStatusLabel(latestImplementationJob.status) : 'Not started'}</strong>
+                  </div>
+                  <div className="review-summary-item">
+                    <span className="review-summary-label">Pull request</span>
+                    <strong>{latestPullRequest ? reviewStatusLabel(latestPullRequest.status) : 'Not recorded'}</strong>
+                  </div>
+                  <div className="review-summary-item">
+                    <span className="review-summary-label">Preview</span>
+                    <strong>{latestPreviewDeployment ? reviewStatusLabel(latestPreviewDeployment.status) : 'Not recorded'}</strong>
+                  </div>
+                  <div className="review-summary-item">
+                    <span className="review-summary-label">Votes</span>
+                    <strong>
+                      {voteSummary.approve} approve / {voteSummary.block} block
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="record-grid">
+                  <div className="record-card">
+                    <div className="record-card-title">Latest worker run</div>
+                    {latestImplementationJob ? (
+                      <>
+                        <div className="stack-item-head">
+                          <span className="stack-item-title">{latestImplementationJob.branchName ?? 'Branch pending'}</span>
+                          <span className={`pill ${reviewPillClassName(latestImplementationJob.status)}`}>{reviewStatusLabel(latestImplementationJob.status)}</span>
+                        </div>
+                        <div className="stack-item-copy">
+                          {latestImplementationJob.repositoryFullName ?? 'Repository default'} / created {formatTimestamp(latestImplementationJob.createdAt)}
+                        </div>
+                        {latestImplementationJob.errorSummary ? <div className="row-alert">{latestImplementationJob.errorSummary}</div> : null}
+                      </>
+                    ) : (
+                      <div className="empty-state compact">No implementation job has been queued.</div>
+                    )}
+                  </div>
+
+                  <div className="record-card">
+                    <div className="record-card-title">Latest review links</div>
+                    {latestPullRequest ? (
+                      <div className="stack-item-copy">
+                        <a href={latestPullRequest.url} rel="noreferrer" target="_blank">
+                          PR #{latestPullRequest.number}
+                        </a>{' '}
+                        / {latestPullRequest.branchName}
+                      </div>
+                    ) : (
+                      <div className="stack-item-copy">No pull request has been recorded.</div>
+                    )}
+                    {latestPreviewDeployment ? (
+                      <div className="stack-item-copy">
+                        <a href={latestPreviewDeployment.url} rel="noreferrer" target="_blank">
+                          Preview link
+                        </a>{' '}
+                        / {reviewStatusLabel(latestPreviewDeployment.status)}
+                      </div>
+                    ) : (
+                      <div className="stack-item-copy">No preview deployment has been recorded.</div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <details className="drawer-collapsible">
+                <summary>Requester conversation</summary>
+                {detail.conversation.length === 0 ? (
+                  <div className="empty-state compact">No requester conversation is stored yet.</div>
+                ) : (
+                  <ul className="detail-stack-list">
+                    {detail.conversation.map((message) => (
+                      <li className="stack-item" key={message.id}>
+                        <div className="stack-item-head">
+                          <span className="stack-item-title">{message.authorRole}</span>
+                          <span className="stack-item-meta">{formatTimestamp(message.createdAt)}</span>
+                        </div>
+                        <div className="stack-item-copy">{message.body}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </details>
+
+              <details className="drawer-collapsible">
+                <summary>Attachments</summary>
+                {detail.attachments.length === 0 ? (
+                  <div className="empty-state compact">No attachment metadata was shared.</div>
+                ) : (
+                  <ul className="detail-stack-list">
+                    {detail.attachments.map((attachment) => (
+                      <li className="stack-item" key={attachment.id}>
+                        <div className="stack-item-title">{attachment.filename}</div>
+                        <div className="stack-item-copy">
+                          {attachment.contentType} / {formatBytes(attachment.sizeBytes)}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </details>
+
+              <details className="drawer-collapsible">
+                <summary>Manual overrides</summary>
+                <div className="review-action-grid">
+                  <form
+                    className="review-action-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitReviewAction(
+                        `/api/v1/contributions/${detail.contribution.id}/queue-implementation`,
+                        reviewForms.implementation,
+                        'Implementation queued.',
+                      );
+                    }}
+                  >
+                    <div className="review-form-title">Queue implementation</div>
+                    <div className="review-form-grid review-form-grid-three">
+                      <label className="review-field">
+                        <span>Repository</span>
+                        <input
+                          value={reviewForms.implementation.repositoryFullName}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              implementation: { ...current.implementation, repositoryFullName: event.target.value },
+                            }))
+                          }
+                          placeholder="owner/repo"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Branch</span>
+                        <input
+                          value={reviewForms.implementation.branchName}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              implementation: { ...current.implementation, branchName: event.target.value },
+                            }))
+                          }
+                          placeholder="feature/branch"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Queue</span>
+                        <input
+                          value={reviewForms.implementation.queueName}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              implementation: { ...current.implementation, queueName: event.target.value },
+                            }))
+                          }
+                          placeholder="default"
+                        />
+                      </label>
+                    </div>
+                    <div className="review-form-actions">
+                      <button className="primary-button" type="submit" disabled={reviewActionState === 'loading'}>
+                        {reviewActionState === 'loading' ? 'Queueing…' : 'Queue implementation'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <form
+                    className="review-action-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitReviewAction(
+                        `/api/v1/contributions/${detail.contribution.id}/pull-requests`,
+                        reviewForms.pullRequest,
+                        'Pull request recorded.',
+                      );
+                    }}
+                  >
+                    <div className="review-form-title">Record pull request</div>
+                    <div className="review-form-grid review-form-grid-three">
+                      <label className="review-field">
+                        <span>Repository</span>
+                        <input
+                          value={reviewForms.pullRequest.repositoryFullName}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              pullRequest: { ...current.pullRequest, repositoryFullName: event.target.value },
+                            }))
+                          }
+                          placeholder="owner/repo"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Branch</span>
+                        <input
+                          value={reviewForms.pullRequest.branchName}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              pullRequest: { ...current.pullRequest, branchName: event.target.value },
+                            }))
+                          }
+                          placeholder="feature/branch"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Head SHA</span>
+                        <input
+                          value={reviewForms.pullRequest.headSha}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              pullRequest: { ...current.pullRequest, headSha: event.target.value },
+                            }))
+                          }
+                          placeholder="commit sha"
+                        />
+                      </label>
+                    </div>
+                    <div className="review-form-actions">
+                      <button className="primary-button" type="submit" disabled={reviewActionState === 'loading'}>
+                        {reviewActionState === 'loading' ? 'Recording…' : 'Record pull request'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <form
+                    className="review-action-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitReviewAction(
+                        `/api/v1/contributions/${detail.contribution.id}/preview-deployments`,
+                        reviewForms.previewDeployment,
+                        'Preview deployment recorded.',
+                      );
+                    }}
+                  >
+                    <div className="review-form-title">Record preview deployment</div>
+                    <div className="review-form-grid review-form-grid-three">
+                      <label className="review-field">
+                        <span>URL</span>
+                        <input
+                          value={reviewForms.previewDeployment.url}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              previewDeployment: { ...current.previewDeployment, url: event.target.value },
+                            }))
+                          }
+                          placeholder="https://preview.example"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Git SHA</span>
+                        <input
+                          value={reviewForms.previewDeployment.gitSha}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              previewDeployment: { ...current.previewDeployment, gitSha: event.target.value },
+                            }))
+                          }
+                          placeholder="commit sha"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Kind</span>
+                        <input
+                          value={reviewForms.previewDeployment.deployKind}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              previewDeployment: { ...current.previewDeployment, deployKind: event.target.value },
+                            }))
+                          }
+                          placeholder="preview"
+                        />
+                      </label>
+                    </div>
+                    <div className="review-form-actions">
+                      <button className="primary-button" type="submit" disabled={reviewActionState === 'loading'}>
+                        {reviewActionState === 'loading' ? 'Recording…' : 'Record deployment'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <form
+                    className="review-action-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitReviewAction(
+                        `/api/v1/contributions/${detail.contribution.id}/votes`,
+                        reviewForms.vote,
+                        'Vote recorded.',
+                      );
+                    }}
+                  >
+                    <div className="review-form-title">Record vote</div>
+                    <div className="review-form-grid review-form-grid-three">
+                      <label className="review-field">
+                        <span>Vote</span>
+                        <select
+                          value={reviewForms.vote.voteType}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              vote: { ...current.vote, voteType: event.target.value },
+                            }))
+                          }
+                        >
+                          <option value="approve">approve</option>
+                          <option value="block">block</option>
+                        </select>
+                      </label>
+                      <label className="review-field">
+                        <span>User ID</span>
+                        <input
+                          value={reviewForms.vote.voterUserId}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              vote: { ...current.vote, voterUserId: event.target.value },
+                            }))
+                          }
+                          placeholder="voter user id"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Email</span>
+                        <input
+                          value={reviewForms.vote.voterEmail}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              vote: { ...current.vote, voterEmail: event.target.value },
+                            }))
+                          }
+                          placeholder="voter@example.com"
+                        />
+                      </label>
+                    </div>
+                    <div className="review-form-actions">
+                      <button className="primary-button" type="submit" disabled={reviewActionState === 'loading'}>
+                        {reviewActionState === 'loading' ? 'Recording…' : 'Record vote'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <form
+                    className="review-action-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitReviewAction(
+                        `/api/v1/contributions/${detail.contribution.id}/comments`,
+                        reviewForms.comment,
+                        'Comment recorded.',
+                      );
+                    }}
+                  >
+                    <div className="review-form-title">Add comment</div>
+                    <div className="review-form-grid review-form-grid-three">
+                      <label className="review-field">
+                        <span>Role</span>
+                        <input
+                          value={reviewForms.comment.authorRole}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              comment: { ...current.comment, authorRole: event.target.value },
+                            }))
+                          }
+                          placeholder="admin"
+                        />
+                      </label>
+                      <label className="review-field">
+                        <span>Disposition</span>
+                        <input
+                          value={reviewForms.comment.disposition}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              comment: { ...current.comment, disposition: event.target.value },
+                            }))
+                          }
+                          placeholder="note"
+                        />
+                      </label>
+                      <label className="review-field review-field-wide">
+                        <span>Body</span>
+                        <textarea
+                          rows={3}
+                          value={reviewForms.comment.body}
+                          onChange={(event) =>
+                            setReviewForms((current) => ({
+                              ...current,
+                              comment: { ...current.comment, body: event.target.value },
+                            }))
+                          }
+                          placeholder="Write the review note."
+                        />
+                      </label>
+                    </div>
+                    <div className="review-form-actions">
+                      <button className="primary-button" type="submit" disabled={reviewActionState === 'loading'}>
+                        {reviewActionState === 'loading' ? 'Recording…' : 'Add comment'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </details>
+
+              <details className="drawer-collapsible">
+                <summary>Technical timeline</summary>
+                <ul className="detail-stack-list">
+                  {detail.lifecycle.events.map((event) => (
+                    <li className="stack-item" key={event.id}>
+                      <div className="stack-item-head">
+                        <span className="stack-item-title">{event.message}</span>
+                        <span className="stack-item-meta">{formatTimestamp(event.createdAt)}</span>
+                      </div>
+                      <div className="stack-item-copy">
+                        {event.kind.replace(/_/g, ' ')} / {event.status.replace(/_/g, ' ')}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+
+                {review ? (
+                  <div className="technical-grid">
+                    <div>
+                      <div className="record-card-title">Worker history</div>
+                      {review.implementation.jobs.length === 0 ? (
+                        <div className="empty-state compact">No worker history yet.</div>
+                      ) : (
+                        <ul className="detail-stack-list">
+                          {review.implementation.jobs.map((job) => (
+                            <li className="stack-item" key={job.id}>
+                              <div className="stack-item-head">
+                                <span className="stack-item-title">{job.branchName ?? 'Branch pending'}</span>
+                                <span className={`pill ${reviewPillClassName(job.status)}`}>{reviewStatusLabel(job.status)}</span>
+                              </div>
+                              <div className="stack-item-copy">
+                                {job.repositoryFullName ?? 'Repository default'} / created {formatTimestamp(job.createdAt)}
+                              </div>
+                              {job.errorSummary ? <div className="stack-item-copy">{job.errorSummary}</div> : null}
+                              <div className="stack-item-copy">{formatJson(job.metadata)}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="record-card-title">Review records</div>
+                      <ul className="detail-stack-list">
+                        {review.pullRequests.map((pullRequest) => (
+                          <li className="stack-item" key={pullRequest.id}>
+                            <div className="stack-item-head">
+                              <span className="stack-item-title">
+                                <a href={pullRequest.url} rel="noreferrer" target="_blank">
+                                  #{pullRequest.number}
+                                </a>{' '}
+                                / {pullRequest.branchName}
+                              </span>
+                              <span className={`pill ${reviewPillClassName(pullRequest.status)}`}>{reviewStatusLabel(pullRequest.status)}</span>
+                            </div>
+                            <div className="stack-item-copy">
+                              {pullRequest.repositoryFullName} / head {formatShortSha(pullRequest.headSha)}
+                            </div>
+                          </li>
+                        ))}
+                        {review.previewDeployments.map((deployment) => (
+                          <li className="stack-item" key={deployment.id}>
+                            <div className="stack-item-head">
+                              <span className="stack-item-title">
+                                <a href={deployment.url} rel="noreferrer" target="_blank">
+                                  {deployment.deployKind}
+                                </a>
+                              </span>
+                              <span className={`pill ${reviewPillClassName(deployment.status)}`}>{reviewStatusLabel(deployment.status)}</span>
+                            </div>
+                            <div className="stack-item-copy">
+                              sha {formatShortSha(deployment.gitSha)} / checked {formatTimestamp(deployment.checkedAt)}
+                            </div>
+                            {deployment.errorSummary ? <div className="stack-item-copy">{deployment.errorSummary}</div> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : null}
+              </details>
+            </div>
+          </>
+        )}
+      </aside>
+    </div>
+  );
+}
+
 export function App() {
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim() ?? '';
+  const initialContributionId =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('contribution') : null;
+
+  const [activeSection, setActiveSection] = useState<AdminSection>('inbox');
   const [intakeQueue, setIntakeQueue] = useState<ContributionSummary[]>([]);
   const [intakeStatus, setIntakeStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [intakeError, setIntakeError] = useState('');
-  const [selectedContributionId, setSelectedContributionId] = useState<string | null>(null);
+  const [selectedContributionId, setSelectedContributionId] = useState<string | null>(initialContributionId);
   const [detailStatus, setDetailStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [detailError, setDetailError] = useState('');
   const [detail, setDetail] = useState<ContributionDetail | null>(null);
@@ -384,7 +1482,7 @@ export function App() {
     implementation: {
       repositoryFullName: '',
       branchName: '',
-      queueName: '',
+      queueName: 'default',
     },
     pullRequest: {
       repositoryFullName: '',
@@ -394,7 +1492,7 @@ export function App() {
     previewDeployment: {
       url: '',
       gitSha: '',
-      deployKind: '',
+      deployKind: 'branch_preview',
     },
     vote: {
       voteType: 'approve',
@@ -404,9 +1502,35 @@ export function App() {
     comment: {
       authorRole: 'admin',
       body: '',
-      disposition: '',
+      disposition: 'note',
     },
   });
+
+  const loadContributions = useCallback(async () => {
+    try {
+      const response = await fetch('/api/v1/contributions', {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Contribution intake returned ${response.status}`);
+      }
+
+      const payload = (await response.json()) as {
+        contributions?: ContributionSummary[];
+      };
+
+      const nextQueue = payload.contributions ?? [];
+      setIntakeQueue(nextQueue);
+      setIntakeStatus('ready');
+      setIntakeError('');
+      setSelectedContributionId((current) => (current && nextQueue.some((item) => item.id === current) ? current : null));
+    } catch (error) {
+      setIntakeStatus('error');
+      setIntakeError(error instanceof Error ? error.message : 'Could not load contribution intake.');
+    }
+  }, []);
 
   const refreshDetail = useCallback(
     async (contributionId: string | null = selectedContributionId) => {
@@ -428,7 +1552,6 @@ export function App() {
         }
 
         const payload = (await response.json()) as ContributionDetail;
-
         setDetail(payload);
         setDetailStatus('ready');
         return payload;
@@ -444,7 +1567,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadContributions() {
+    async function load() {
       try {
         const response = await fetch('/api/v1/contributions', {
           credentials: 'same-origin',
@@ -463,10 +1586,9 @@ export function App() {
           return;
         }
 
-        const nextQueue = payload.contributions ?? [];
-        setIntakeQueue(nextQueue);
-        setSelectedContributionId((current) => current ?? nextQueue[0]?.id ?? null);
+        setIntakeQueue(payload.contributions ?? []);
         setIntakeStatus('ready');
+        setIntakeError('');
       } catch (error) {
         if (cancelled) {
           return;
@@ -477,7 +1599,7 @@ export function App() {
       }
     }
 
-    void loadContributions();
+    void load();
 
     return () => {
       cancelled = true;
@@ -496,34 +1618,75 @@ export function App() {
   }, [refreshDetail, selectedContributionId]);
 
   useEffect(() => {
-    if (!detail?.review) {
+    if (!selectedContributionId || typeof window === 'undefined') {
       return;
     }
 
-    const implementationJob = detail.review.implementation.jobs[0];
-    const pullRequest = detail.review.pullRequests[0];
-    const previewDeployment = detail.review.previewDeployments[0];
+    const url = new URL(window.location.href);
+    url.searchParams.set('contribution', selectedContributionId);
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [selectedContributionId]);
 
-    setReviewForms((current) => ({
+  useEffect(() => {
+    if (selectedContributionId || typeof window === 'undefined') {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('contribution')) {
+      url.searchParams.delete('contribution');
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, [selectedContributionId]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSelectedContributionId(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!detail) {
+      return;
+    }
+
+    const latestJob = getLatestImplementationJob(detail.review);
+    const latestPullRequest = getLatestPullRequest(detail.review);
+    const latestPreviewDeployment = getLatestPreviewDeployment(detail.review);
+
+    setReviewForms({
       implementation: {
-        repositoryFullName: current.implementation.repositoryFullName || implementationJob?.repositoryFullName || '',
-        branchName: current.implementation.branchName || implementationJob?.branchName || '',
-        queueName: current.implementation.queueName || implementationJob?.queueName || '',
+        repositoryFullName: latestJob?.repositoryFullName ?? defaultRepositoryFullName(detail.contribution.projectSlug),
+        branchName: latestJob?.branchName ?? buildDefaultBranchName(detail.contribution.id, detail.contribution.title),
+        queueName: latestJob?.queueName ?? 'default',
       },
       pullRequest: {
-        repositoryFullName: current.pullRequest.repositoryFullName || pullRequest?.repositoryFullName || '',
-        branchName: current.pullRequest.branchName || pullRequest?.branchName || '',
-        headSha: current.pullRequest.headSha || pullRequest?.headSha || '',
+        repositoryFullName: latestPullRequest?.repositoryFullName ?? defaultRepositoryFullName(detail.contribution.projectSlug),
+        branchName: latestPullRequest?.branchName ?? buildDefaultBranchName(detail.contribution.id, detail.contribution.title),
+        headSha: latestPullRequest?.headSha ?? '',
       },
       previewDeployment: {
-        url: current.previewDeployment.url || previewDeployment?.url || '',
-        gitSha: current.previewDeployment.gitSha || previewDeployment?.gitSha || '',
-        deployKind: current.previewDeployment.deployKind || previewDeployment?.deployKind || '',
+        url: latestPreviewDeployment?.url ?? '',
+        gitSha: latestPreviewDeployment?.gitSha ?? '',
+        deployKind: latestPreviewDeployment?.deployKind ?? 'branch_preview',
       },
-      vote: current.vote,
-      comment: current.comment,
-    }));
-  }, [detail?.review]);
+      vote: {
+        voteType: 'approve',
+        voterUserId: '',
+        voterEmail: '',
+      },
+      comment: {
+        authorRole: 'admin',
+        body: '',
+        disposition: 'note',
+      },
+    });
+  }, [detail]);
 
   async function submitReviewAction(path: string, body: Record<string, string>, successMessage: string) {
     if (!selectedContributionId) {
@@ -551,7 +1714,7 @@ export function App() {
 
       setReviewActionState('success');
       setReviewActionMessage(successMessage);
-      await refreshDetail(selectedContributionId);
+      await Promise.all([refreshDetail(selectedContributionId), loadContributions()]);
     } catch (error) {
       setReviewActionState('error');
       setReviewActionMessage(error instanceof Error ? error.message : 'Could not complete review action.');
@@ -587,9 +1750,7 @@ export function App() {
             ? intakeQueue.length > 0
               ? 'ready'
               : 'empty'
-            : intakeStatus === 'error'
-              ? 'pending'
-              : 'pending',
+            : 'pending',
         detail:
           intakeStatus === 'ready'
             ? intakeQueue.length > 0
@@ -603,836 +1764,199 @@ export function App() {
     [intakeQueue.length, intakeStatus, sentryDsn],
   );
 
-  const selectedSummary = intakeQueue.find((item) => item.id === selectedContributionId) ?? null;
-  const selectedSummaryContext = selectedSummary ? describeContext(selectedSummary.payload) : null;
-  const selectedDetailContext = detail ? describeContext(detail.contribution.payload) : null;
-  const review = detail?.review ?? null;
-  const reviewSummary = review?.votes.summary ?? { approve: 0, block: 0, total: 0 };
-  const reviewJobCount = review?.implementation.jobs.length ?? 0;
-  const reviewPrCount = review?.pullRequests.length ?? 0;
-  const reviewDeploymentCount = review?.previewDeployments.length ?? 0;
-  const reviewVoteCount = review?.votes.items.length ?? 0;
-  const reviewCommentCount = review?.comments.length ?? 0;
+  const sortedContributions = useMemo(
+    () =>
+      intakeQueue
+        .slice()
+        .sort((left, right) => {
+          const bucketDiff = bucketPriority(getContributionBucket(left)) - bucketPriority(getContributionBucket(right));
+          if (bucketDiff !== 0) {
+            return bucketDiff;
+          }
+
+          return String(right.updatedAt).localeCompare(String(left.updatedAt));
+        }),
+    [intakeQueue],
+  );
+
+  const groupedContributions = useMemo(() => {
+    return {
+      attention: sortedContributions.filter((item) => getContributionBucket(item) === 'attention'),
+      ready: sortedContributions.filter((item) => getContributionBucket(item) === 'ready'),
+      active: sortedContributions.filter((item) => getContributionBucket(item) === 'active'),
+      waiting: sortedContributions.filter((item) => getContributionBucket(item) === 'waiting'),
+      done: sortedContributions.filter((item) => getContributionBucket(item) === 'done'),
+    };
+  }, [sortedContributions]);
+
+  const selectedSummary = sortedContributions.find((item) => item.id === selectedContributionId) ?? null;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="eyebrow">Crowdship admin / contribution review</div>
-        <h1>Crowdship owner cockpit</h1>
-        <p className="lede">Project install state, live contribution intake, and the requester-facing spec record backed by the API.</p>
-        <div className="chips" aria-label="Shell status">
+    <main className="admin-shell">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <div className="eyebrow">Crowdship admin</div>
+          <h1>Owner cockpit</h1>
+          <p>Keep review focused. Keep config and operations out of the request lane.</p>
+        </div>
+
+        <nav className="sidebar-nav" aria-label="Admin sections">
+          {navItems.map((item) => (
+            <button
+              className={`sidebar-link${activeSection === item.id ? ' sidebar-link-active' : ''}`}
+              key={item.id}
+              type="button"
+              onClick={() => setActiveSection(item.id)}
+            >
+              <span>{item.label}</span>
+              <small>{item.blurb}</small>
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-status" aria-label="Shell status">
           <span className="chip chip-ready">Shell ready</span>
           <span className="chip chip-neutral">{sentryDsn ? 'Sentry env present' : 'Sentry env missing'}</span>
           <span className="chip chip-neutral">
             {intakeStatus === 'loading'
-              ? 'Loading intake'
+              ? 'Loading inbox'
               : intakeStatus === 'error'
-                ? 'Intake unavailable'
-                : `${intakeQueue.length} intake${intakeQueue.length === 1 ? '' : 's'}`}
+                ? 'Inbox unavailable'
+                : `${intakeQueue.length} contribution${intakeQueue.length === 1 ? '' : 's'}`}
           </span>
         </div>
-      </header>
+      </aside>
 
-      <section className="band" aria-labelledby="project-config-title">
-        <div className="band-grid">
-          <div className="band-block">
-            <div className="band-title-row">
-              <h2 id="project-config-title">Project config</h2>
-              <span className="band-note">Owner-controlled project state.</span>
-            </div>
-            <dl className="definition-list">
-              {projectConfig.map((item) => (
-                <div className="definition-row" key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-
-          <div className="band-block">
-            <div className="band-title-row">
-              <h2 id="setup-readiness-title">Setup readiness</h2>
-              <span className="band-note">Real shell state only.</span>
-            </div>
-            <ul className="status-list" aria-labelledby="setup-readiness-title">
-              {readiness.map((item) => (
-                <li className="status-row" key={item.label}>
-                  <div className="status-copy">
-                    <div className="status-label">{item.label}</div>
-                    <div className="status-detail">{item.detail}</div>
-                  </div>
-                  <ReadinessPill state={item.state} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section className="band" aria-labelledby="allowlist-title">
-        <div className="band-grid">
-          <div className="band-block">
-            <div className="band-title-row">
-              <h2 id="allowlist-title">Origin allowlist</h2>
-              <span className="band-note">Widget origins only.</span>
-            </div>
-            <ul className="origin-list">
-              {originAllowlist.map((origin) => (
-                <li className="origin-row" key={origin}>
-                  <span className="origin-host">{origin}</span>
-                  <span className="origin-state">Allowed</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="band-block">
-            <div className="band-title-row">
-              <h2 id="snippet-title">Widget install snippet</h2>
-              <span className="band-note">Paste into the host app.</span>
-            </div>
-            <div className="snippet-shell" aria-labelledby="snippet-title">
-              <div className="snippet-actions">
-                <CopyButton text={installSnippet} />
+      <section className="content-shell">
+        <header className="content-header">
+          {activeSection === 'inbox' ? (
+            <>
+              <div>
+                <div className="page-kicker">Inbox</div>
+                <h2>Contribution review</h2>
+                <p>Newest work stays visible, but the list leads with what needs a decision.</p>
               </div>
-              <pre className="snippet-code">
-                <code>{installSnippet}</code>
-              </pre>
-            </div>
-          </div>
-        </div>
-      </section>
+              <div className="summary-strip">
+                <div className="summary-chip">
+                  <strong>{groupedContributions.attention.length}</strong>
+                  <span>needs action</span>
+                </div>
+                <div className="summary-chip">
+                  <strong>{groupedContributions.ready.length}</strong>
+                  <span>ready</span>
+                </div>
+                <div className="summary-chip">
+                  <strong>{groupedContributions.active.length}</strong>
+                  <span>in motion</span>
+                </div>
+              </div>
+            </>
+          ) : activeSection === 'settings' ? (
+            <>
+              <div>
+                <div className="page-kicker">Settings</div>
+                <h2>Project and widget config</h2>
+                <p>Everything install-related lives here instead of crowding review.</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <div className="page-kicker">Operations</div>
+                <h2>Queue and runtime watch</h2>
+                <p>Delivery failures and in-flight work stay separate from normal request review.</p>
+              </div>
+            </>
+          )}
+        </header>
 
-      <section className="band" aria-labelledby="contributions-title">
-        <div className="band-title-row">
-          <div>
-            <h2 id="contributions-title">Contribution intake</h2>
-            <span className="band-note">Requester-facing records with spec versions and lifecycle history.</span>
-          </div>
-          <span className="band-note">
-            {intakeStatus === 'ready' ? 'API connected' : intakeStatus === 'error' ? 'API error' : 'Loading API'}
-          </span>
-        </div>
         {intakeStatus === 'loading' ? (
-          <div className="contribution-empty">Loading live contribution intake.</div>
+          <div className="empty-state">Loading live contribution intake.</div>
         ) : intakeStatus === 'error' ? (
-          <div className="contribution-empty">Could not load live intake: {intakeError}</div>
-        ) : intakeQueue.length === 0 ? (
-          <div className="contribution-empty">No contribution has been posted yet.</div>
+          <div className="empty-state">Could not load live intake: {intakeError}</div>
+        ) : activeSection === 'settings' ? (
+          <SettingsView readiness={readiness} />
+        ) : activeSection === 'operations' ? (
+          <OperationsView
+            readiness={readiness}
+            attentionItems={groupedContributions.attention}
+            activeItems={groupedContributions.active}
+            onOpenContribution={setSelectedContributionId}
+            selectedContributionId={selectedContributionId}
+          />
         ) : (
-          <div className="review-layout">
-            <ul className="contribution-list" aria-label="Contribution intake list">
-              {intakeQueue.map((item) => {
-                const { route, context } = describeContext(item.payload);
-                const isSelected = item.id === selectedContributionId;
-
-                return (
-                  <li className={`contribution-item contribution-item-selectable${isSelected ? ' contribution-item-selected' : ''}`} key={item.id}>
-                    <div className="contribution-copy">
-                      <div className="contribution-heading">
-                        <div className="contribution-heading-copy">
-                          <span className="contribution-kicker">Live contribution</span>
-                          <h3>{item.title}</h3>
-                        </div>
-                        <StatePill state={item.state} />
-                      </div>
-                      <dl className="contribution-meta">
-                        <div>
-                          <dt>Route</dt>
-                          <dd>{route}</dd>
-                        </div>
-                        <div>
-                          <dt>Context</dt>
-                          <dd>{context}</dd>
-                        </div>
-                        <div>
-                          <dt>Spec</dt>
-                          <dd>
-                            {item.latestSpecVersion ? `v${item.latestSpecVersion}` : 'No spec yet'}
-                            {item.specApprovedAt ? ` / approved ${formatTimestamp(item.specApprovedAt)}` : ''}
-                          </dd>
-                        </div>
-                      </dl>
-                    </div>
-                    <div className="owner-panel">
-                      <div className="owner-panel-copy">
-                        <div className="owner-panel-label">Review record</div>
-                        <p>Open the full requester record, latest spec, attachments, and lifecycle evidence.</p>
-                      </div>
-                      <div className="owner-actions" aria-label="Review actions">
-                        <button
-                          className="action-button action-button-primary"
-                          type="button"
-                          onClick={() => setSelectedContributionId(item.id)}
-                        >
-                          {isSelected ? 'Viewing detail' : 'Open detail'}
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-
-            <section className="detail-shell" aria-live="polite">
-              {detailStatus === 'loading' && selectedSummary ? (
-                <div className="detail-empty">Loading {selectedSummary.title}.</div>
-              ) : detailStatus === 'error' ? (
-                <div className="detail-empty">Could not load contribution detail: {detailError}</div>
-              ) : !detail ? (
-                <div className="detail-empty">Select a contribution to review its request record.</div>
-              ) : (
-                <>
-                  <div className="detail-header">
-                    <div>
-                      <div className="detail-kicker">Requester record</div>
-                      <h3>{detail.contribution.title}</h3>
-                      <p>
-                        {detail.contribution.body ?? 'No body provided.'}
-                      </p>
-                    </div>
-                    <StatePill state={detail.contribution.state} />
-                  </div>
-
-                  <div className="detail-grid">
-                    <section className="detail-section">
-                      <div className="detail-section-title">Request context</div>
-                      <dl className="definition-list">
-                        <div className="definition-row">
-                          <dt>Project</dt>
-                          <dd>{detail.contribution.projectSlug}</dd>
-                        </div>
-                        <div className="definition-row">
-                          <dt>Environment</dt>
-                          <dd>{detail.contribution.environment}</dd>
-                        </div>
-                        <div className="definition-row">
-                          <dt>Route</dt>
-                          <dd>{selectedDetailContext?.route ?? selectedSummaryContext?.route ?? 'Not provided'}</dd>
-                        </div>
-                        <div className="definition-row">
-                          <dt>Context</dt>
-                          <dd>{selectedDetailContext?.context ?? selectedSummaryContext?.context ?? 'No additional context'}</dd>
-                        </div>
-                        <div className="definition-row">
-                          <dt>Created</dt>
-                          <dd>{formatTimestamp(detail.contribution.createdAt)}</dd>
-                        </div>
-                      </dl>
-                    </section>
-
-                    <section className="detail-section">
-                      <div className="detail-section-title">Latest spec</div>
-                      {detail.spec.current ? (
-                        <div className="spec-card">
-                          <div className="spec-header">
-                            <div>
-                              <div className="spec-version">Spec v{detail.spec.current.versionNumber}</div>
-                              <h4>{detail.spec.current.title}</h4>
-                            </div>
-                            <span className="band-note">
-                              {detail.spec.current.approvedAt
-                                ? `Approved ${formatTimestamp(detail.spec.current.approvedAt)}`
-                                : 'Waiting for requester approval'}
-                            </span>
-                          </div>
-                          <div className="spec-block">
-                            <div className="detail-label">Goal</div>
-                            <p>{detail.spec.current.goal}</p>
-                          </div>
-                          <div className="spec-block">
-                            <div className="detail-label">User problem</div>
-                            <p>{detail.spec.current.userProblem}</p>
-                          </div>
-                          <div className="spec-columns">
-                            <div className="spec-block">
-                              <div className="detail-label">Acceptance criteria</div>
-                              <ul className="detail-list">
-                                {detail.spec.current.acceptanceCriteria.map((item) => (
-                                  <li key={item}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div className="spec-block">
-                              <div className="detail-label">Non-goals</div>
-                              <ul className="detail-list">
-                                {detail.spec.current.nonGoals.map((item) => (
-                                  <li key={item}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="detail-empty detail-empty-compact">No spec has been generated yet.</div>
-                      )}
-                    </section>
-
-                    <section className="detail-section">
-                      <div className="detail-section-title">Delivery / review</div>
-                      {review ? (
-                        <div className="review-block">
-                          <div className="review-summary-strip" aria-label="Review summary">
-                            <div className="review-summary-item">
-                              <span className="review-summary-label">Implementation jobs</span>
-                              <strong>{reviewJobCount}</strong>
-                            </div>
-                            <div className="review-summary-item">
-                              <span className="review-summary-label">Pull requests</span>
-                              <strong>{reviewPrCount}</strong>
-                            </div>
-                            <div className="review-summary-item">
-                              <span className="review-summary-label">Preview deployments</span>
-                              <strong>{reviewDeploymentCount}</strong>
-                            </div>
-                            <div className="review-summary-item">
-                              <span className="review-summary-label">Votes</span>
-                              <strong>
-                                {reviewSummary.approve} approve / {reviewSummary.block} block
-                              </strong>
-                            </div>
-                            <div className="review-summary-item">
-                              <span className="review-summary-label">Vote records</span>
-                              <strong>{reviewVoteCount}</strong>
-                            </div>
-                            <div className="review-summary-item">
-                              <span className="review-summary-label">Comments</span>
-                              <strong>{reviewCommentCount}</strong>
-                            </div>
-                          </div>
-
-                          <div className={`review-action-banner review-action-banner-${reviewActionState}`} aria-live="polite">
-                            {reviewActionState === 'idle'
-                              ? 'Use the compact actions below to advance delivery.'
-                              : reviewActionMessage}
-                          </div>
-
-                          <div className="review-action-grid">
-                            <form
-                              className="review-action-form"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void submitReviewAction(
-                                  `/api/v1/contributions/${detail.contribution.id}/queue-implementation`,
-                                  reviewForms.implementation,
-                                  'Implementation queued.',
-                                );
-                              }}
-                            >
-                              <div className="review-form-title">Queue implementation</div>
-                              <div className="review-form-grid review-form-grid-three">
-                                <label className="review-field">
-                                  <span>Repository</span>
-                                  <input
-                                    value={reviewForms.implementation.repositoryFullName}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        implementation: { ...current.implementation, repositoryFullName: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="owner/repo"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Branch</span>
-                                  <input
-                                    value={reviewForms.implementation.branchName}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        implementation: { ...current.implementation, branchName: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="feature/branch"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Queue</span>
-                                  <input
-                                    value={reviewForms.implementation.queueName}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        implementation: { ...current.implementation, queueName: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="default"
-                                  />
-                                </label>
-                              </div>
-                              <div className="review-form-actions">
-                                <button className="action-button action-button-primary" type="submit" disabled={reviewActionState === 'loading'}>
-                                  {reviewActionState === 'loading' ? 'Queueing…' : 'Queue implementation'}
-                                </button>
-                              </div>
-                            </form>
-
-                            <form
-                              className="review-action-form"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void submitReviewAction(
-                                  `/api/v1/contributions/${detail.contribution.id}/pull-requests`,
-                                  reviewForms.pullRequest,
-                                  'Pull request recorded.',
-                                );
-                              }}
-                            >
-                              <div className="review-form-title">Record pull request</div>
-                              <div className="review-form-grid review-form-grid-three">
-                                <label className="review-field">
-                                  <span>Repository</span>
-                                  <input
-                                    value={reviewForms.pullRequest.repositoryFullName}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        pullRequest: { ...current.pullRequest, repositoryFullName: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="owner/repo"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Branch</span>
-                                  <input
-                                    value={reviewForms.pullRequest.branchName}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        pullRequest: { ...current.pullRequest, branchName: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="feature/branch"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Head SHA</span>
-                                  <input
-                                    value={reviewForms.pullRequest.headSha}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        pullRequest: { ...current.pullRequest, headSha: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="commit sha"
-                                  />
-                                </label>
-                              </div>
-                              <div className="review-form-actions">
-                                <button className="action-button action-button-primary" type="submit" disabled={reviewActionState === 'loading'}>
-                                  {reviewActionState === 'loading' ? 'Recording…' : 'Record pull request'}
-                                </button>
-                              </div>
-                            </form>
-
-                            <form
-                              className="review-action-form"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void submitReviewAction(
-                                  `/api/v1/contributions/${detail.contribution.id}/preview-deployments`,
-                                  reviewForms.previewDeployment,
-                                  'Preview deployment recorded.',
-                                );
-                              }}
-                            >
-                              <div className="review-form-title">Record preview deployment</div>
-                              <div className="review-form-grid review-form-grid-three">
-                                <label className="review-field">
-                                  <span>URL</span>
-                                  <input
-                                    value={reviewForms.previewDeployment.url}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        previewDeployment: { ...current.previewDeployment, url: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="https://preview.example"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Git SHA</span>
-                                  <input
-                                    value={reviewForms.previewDeployment.gitSha}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        previewDeployment: { ...current.previewDeployment, gitSha: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="commit sha"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Kind</span>
-                                  <input
-                                    value={reviewForms.previewDeployment.deployKind}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        previewDeployment: { ...current.previewDeployment, deployKind: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="preview"
-                                  />
-                                </label>
-                              </div>
-                              <div className="review-form-actions">
-                                <button className="action-button action-button-primary" type="submit" disabled={reviewActionState === 'loading'}>
-                                  {reviewActionState === 'loading' ? 'Recording…' : 'Record deployment'}
-                                </button>
-                              </div>
-                            </form>
-
-                            <div className="review-action-form review-action-form-inline">
-                              <div className="review-form-title">Open voting</div>
-                              <div className="review-form-copy">Marks the contribution ready for votes.</div>
-                              <div className="review-form-actions">
-                                <button
-                                  className="action-button action-button-primary"
-                                  type="button"
-                                  disabled={reviewActionState === 'loading'}
-                                  onClick={() =>
-                                    void submitReviewAction(
-                                      `/api/v1/contributions/${detail.contribution.id}/open-voting`,
-                                      {},
-                                      'Voting opened.',
-                                    )
-                                  }
-                                >
-                                  {reviewActionState === 'loading' ? 'Opening…' : 'Open voting'}
-                                </button>
-                              </div>
-                            </div>
-
-                            <form
-                              className="review-action-form"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void submitReviewAction(
-                                  `/api/v1/contributions/${detail.contribution.id}/votes`,
-                                  reviewForms.vote,
-                                  'Vote recorded.',
-                                );
-                              }}
-                            >
-                              <div className="review-form-title">Record vote</div>
-                              <div className="review-form-grid review-form-grid-three">
-                                <label className="review-field">
-                                  <span>Vote</span>
-                                  <select
-                                    value={reviewForms.vote.voteType}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        vote: { ...current.vote, voteType: event.target.value },
-                                      }))
-                                    }
-                                  >
-                                    <option value="approve">approve</option>
-                                    <option value="block">block</option>
-                                  </select>
-                                </label>
-                                <label className="review-field">
-                                  <span>User ID</span>
-                                  <input
-                                    value={reviewForms.vote.voterUserId}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        vote: { ...current.vote, voterUserId: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="voter user id"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Email</span>
-                                  <input
-                                    value={reviewForms.vote.voterEmail}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        vote: { ...current.vote, voterEmail: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="voter@example.com"
-                                  />
-                                </label>
-                              </div>
-                              <div className="review-form-actions">
-                                <button className="action-button action-button-primary" type="submit" disabled={reviewActionState === 'loading'}>
-                                  {reviewActionState === 'loading' ? 'Recording…' : 'Record vote'}
-                                </button>
-                              </div>
-                            </form>
-
-                            <form
-                              className="review-action-form"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void submitReviewAction(
-                                  `/api/v1/contributions/${detail.contribution.id}/comments`,
-                                  reviewForms.comment,
-                                  'Comment recorded.',
-                                );
-                              }}
-                            >
-                              <div className="review-form-title">Add comment</div>
-                              <div className="review-form-grid review-form-grid-three">
-                                <label className="review-field">
-                                  <span>Role</span>
-                                  <input
-                                    value={reviewForms.comment.authorRole}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        comment: { ...current.comment, authorRole: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="admin"
-                                  />
-                                </label>
-                                <label className="review-field">
-                                  <span>Disposition</span>
-                                  <input
-                                    value={reviewForms.comment.disposition}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        comment: { ...current.comment, disposition: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="note"
-                                  />
-                                </label>
-                                <label className="review-field review-field-wide">
-                                  <span>Body</span>
-                                  <textarea
-                                    rows={3}
-                                    value={reviewForms.comment.body}
-                                    onChange={(event) =>
-                                      setReviewForms((current) => ({
-                                        ...current,
-                                        comment: { ...current.comment, body: event.target.value },
-                                      }))
-                                    }
-                                    placeholder="Write the review note."
-                                  />
-                                </label>
-                              </div>
-                              <div className="review-form-actions">
-                                <button className="action-button action-button-primary" type="submit" disabled={reviewActionState === 'loading'}>
-                                  {reviewActionState === 'loading' ? 'Recording…' : 'Add comment'}
-                                </button>
-                              </div>
-                            </form>
-                          </div>
-
-                          <div className={`review-records review-records-${reviewJobCount > 0 ? 'full' : 'empty'}`}>
-                            <section className="review-record-section">
-                              <div className="review-record-title">Implementation jobs</div>
-                              {review.implementation.jobs.length === 0 ? (
-                                <div className="detail-empty detail-empty-compact">No implementation job has been queued.</div>
-                              ) : (
-                                <ul className="detail-stack-list">
-                                  {review.implementation.jobs.map((job) => (
-                                    <li className="stack-item" key={job.id}>
-                                      <div className="stack-item-head">
-                                        <span className="stack-item-title">
-                                          {job.queueName} / {job.branchName}
-                                        </span>
-                                        <span className={`pill ${reviewPillClassName(job.status)}`}>{reviewStatusLabel(job.status)}</span>
-                                      </div>
-                                      <div className="stack-item-copy">
-                                        {job.repositoryFullName} / created {formatTimestamp(job.createdAt)}
-                                        {job.startedAt ? ` / started ${formatTimestamp(job.startedAt)}` : ''}
-                                        {job.finishedAt ? ` / finished ${formatTimestamp(job.finishedAt)}` : ''}
-                                      </div>
-                                      {job.errorSummary ? <div className="stack-item-copy">{job.errorSummary}</div> : null}
-                                      <div className="stack-item-copy">{formatJson(job.metadata)}</div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </section>
-
-                            <section className="review-record-section">
-                              <div className="review-record-title">Pull requests</div>
-                              {review.pullRequests.length === 0 ? (
-                                <div className="detail-empty detail-empty-compact">No pull request has been recorded.</div>
-                              ) : (
-                                <ul className="detail-stack-list">
-                                  {review.pullRequests.map((pullRequest) => (
-                                    <li className="stack-item" key={pullRequest.id}>
-                                      <div className="stack-item-head">
-                                        <span className="stack-item-title">
-                                          <a href={pullRequest.url} target="_blank" rel="noreferrer">
-                                            #{pullRequest.number}
-                                          </a>{' '}
-                                          / {pullRequest.branchName}
-                                        </span>
-                                        <span className={`pill ${reviewPillClassName(pullRequest.status)}`}>{reviewStatusLabel(pullRequest.status)}</span>
-                                      </div>
-                                      <div className="stack-item-copy">
-                                        {pullRequest.repositoryFullName} / head {formatShortSha(pullRequest.headSha)}
-                                      </div>
-                                      <div className="stack-item-copy">
-                                        Created {formatTimestamp(pullRequest.createdAt)} / updated {formatTimestamp(pullRequest.updatedAt)}
-                                      </div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </section>
-
-                            <section className="review-record-section">
-                              <div className="review-record-title">Preview deployments</div>
-                              {review.previewDeployments.length === 0 ? (
-                                <div className="detail-empty detail-empty-compact">No preview deployment has been recorded.</div>
-                              ) : (
-                                <ul className="detail-stack-list">
-                                  {review.previewDeployments.map((deployment) => (
-                                    <li className="stack-item" key={deployment.id}>
-                                      <div className="stack-item-head">
-                                        <span className="stack-item-title">
-                                          <a href={deployment.url} target="_blank" rel="noreferrer">
-                                            {deployment.url}
-                                          </a>
-                                        </span>
-                                        <span className={`pill ${reviewPillClassName(deployment.status)}`}>{reviewStatusLabel(deployment.status)}</span>
-                                      </div>
-                                      <div className="stack-item-copy">
-                                        {deployment.deployKind} / sha {formatShortSha(deployment.gitSha)}
-                                      </div>
-                                      <div className="stack-item-copy">
-                                        Created {formatTimestamp(deployment.createdAt)}
-                                        {deployment.deployedAt ? ` / deployed ${formatTimestamp(deployment.deployedAt)}` : ''}
-                                        {deployment.checkedAt ? ` / checked ${formatTimestamp(deployment.checkedAt)}` : ''}
-                                      </div>
-                                      {deployment.errorSummary ? <div className="stack-item-copy">{deployment.errorSummary}</div> : null}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </section>
-
-                            <section className="review-record-section">
-                              <div className="review-record-title">Votes</div>
-                              <div className="review-vote-summary">
-                                <span className="pill pill-ready">Approve {reviewSummary.approve}</span>
-                                <span className="pill pill-error">Block {reviewSummary.block}</span>
-                                <span className="pill pill-neutral">Total {reviewSummary.total}</span>
-                              </div>
-                              {review.votes.items.length === 0 ? (
-                                <div className="detail-empty detail-empty-compact">No vote has been cast yet.</div>
-                              ) : (
-                                <ul className="detail-stack-list">
-                                  {review.votes.items.map((vote) => (
-                                    <li className="stack-item" key={vote.id}>
-                                      <div className="stack-item-head">
-                                        <span className="stack-item-title">{vote.voteType}</span>
-                                        <span className="stack-item-meta">{formatTimestamp(vote.createdAt)}</span>
-                                      </div>
-                                      <div className="stack-item-copy">
-                                        {vote.voterUserId ?? 'Unknown user'}
-                                        {vote.voterEmail ? ` / ${vote.voterEmail}` : ''}
-                                      </div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </section>
-
-                            <section className="review-record-section">
-                              <div className="review-record-title">Comments</div>
-                              {review.comments.length === 0 ? (
-                                <div className="detail-empty detail-empty-compact">No review comment has been added.</div>
-                              ) : (
-                                <ul className="detail-stack-list">
-                                  {review.comments.map((comment) => (
-                                    <li className="stack-item" key={comment.id}>
-                                      <div className="stack-item-head">
-                                        <span className="stack-item-title">{comment.authorRole}</span>
-                                        <span className="stack-item-meta">{formatTimestamp(comment.createdAt)}</span>
-                                      </div>
-                                      <div className="stack-item-copy">{comment.body}</div>
-                                      <div className="stack-item-copy">{comment.disposition}</div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </section>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="detail-empty detail-empty-compact">No delivery or review record is available yet.</div>
-                      )}
-                    </section>
-
-                    <section className="detail-section">
-                      <div className="detail-section-title">Attachments</div>
-                      {detail.attachments.length === 0 ? (
-                        <div className="detail-empty detail-empty-compact">No attachment metadata was shared.</div>
-                      ) : (
-                        <ul className="detail-stack-list">
-                          {detail.attachments.map((attachment) => (
-                            <li className="stack-item" key={attachment.id}>
-                              <div className="stack-item-title">{attachment.filename}</div>
-                              <div className="stack-item-copy">
-                                {attachment.contentType} / {formatBytes(attachment.sizeBytes)}
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
-
-                    <section className="detail-section">
-                      <div className="detail-section-title">Conversation</div>
-                      {detail.conversation.length === 0 ? (
-                        <div className="detail-empty detail-empty-compact">No requester conversation is stored yet.</div>
-                      ) : (
-                        <ul className="detail-stack-list">
-                          {detail.conversation.map((message) => (
-                            <li className="stack-item" key={message.id}>
-                              <div className="stack-item-head">
-                                <span className="stack-item-title">{message.authorRole}</span>
-                                <span className="stack-item-meta">{formatTimestamp(message.createdAt)}</span>
-                              </div>
-                              <div className="stack-item-copy">{message.body}</div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
-
-                    <section className="detail-section">
-                      <div className="detail-section-title">Lifecycle</div>
-                      <ul className="detail-stack-list">
-                        {detail.lifecycle.events.map((event) => (
-                          <li className="stack-item" key={event.id}>
-                            <div className="stack-item-head">
-                              <span className="stack-item-title">{event.message}</span>
-                              <span className="stack-item-meta">{formatTimestamp(event.createdAt)}</span>
-                            </div>
-                            <div className="stack-item-copy">{event.kind.replace(/_/g, ' ')} / {event.status.replace(/_/g, ' ')}</div>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  </div>
-                </>
-              )}
-            </section>
-          </div>
+          <section className="section-stack">
+            <InboxSection
+              title="Needs action"
+              note="Failures and decision-ready requests stay at the top."
+              items={groupedContributions.attention.concat(groupedContributions.ready)}
+              selectedContributionId={selectedContributionId}
+              onOpen={setSelectedContributionId}
+              emptyLabel="Nothing is waiting on a review decision."
+            />
+            <InboxSection
+              title="In motion"
+              note="These requests are already moving through the worker, pull request, or preview path."
+              items={groupedContributions.active}
+              selectedContributionId={selectedContributionId}
+              onOpen={setSelectedContributionId}
+              emptyLabel="No contribution is moving right now."
+            />
+            <InboxSection
+              title="Waiting"
+              note="These requests are still gathering requester input or are parked for later."
+              items={groupedContributions.waiting}
+              selectedContributionId={selectedContributionId}
+              onOpen={setSelectedContributionId}
+              emptyLabel="Nothing is parked."
+            />
+            <InboxSection
+              title="Closed"
+              note="Merged, completed, or rejected records."
+              items={groupedContributions.done}
+              selectedContributionId={selectedContributionId}
+              onOpen={setSelectedContributionId}
+              emptyLabel="No closed contribution yet."
+            />
+          </section>
         )}
       </section>
+
+      {selectedContributionId ? (
+        <ContributionDetailDrawer
+          selectedSummary={selectedSummary}
+          detail={detail}
+          detailStatus={detailStatus}
+          detailError={detailError}
+          onClose={() => setSelectedContributionId(null)}
+          onQueueImplementation={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/queue-implementation`,
+              reviewForms.implementation,
+              'Implementation queued.',
+            )
+          }
+          onOpenVoting={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/open-voting`,
+              {},
+              'Voting opened.',
+            )
+          }
+          onMarkMerged={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/mark-merged`,
+              {},
+              'Merged state recorded.',
+            )
+          }
+          reviewActionState={reviewActionState}
+          reviewActionMessage={reviewActionMessage}
+          reviewForms={reviewForms}
+          setReviewForms={setReviewForms}
+          submitReviewAction={submitReviewAction}
+        />
+      ) : null}
     </main>
   );
 }

@@ -717,6 +717,50 @@
         gap: 8px;
       }
 
+      .chat-question-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+      }
+
+      .chat-question-item {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .chat-question-index {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: #e4f1eb;
+        color: var(--accent-strong);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .chat-question-text {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .chat-question-why,
+      .chat-question-format {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
       .chat-choice {
         min-height: 40px;
         padding: 8px 12px;
@@ -1518,6 +1562,7 @@
           var body = message.body || '';
           var choices = Array.isArray(message.choices) ? message.choices : [];
           var messageType = message.messageType || message.type || '';
+          var isQuestionList = messageType === 'ask_user_questions';
           var isStructured = messageType === 'structured_question' || choices.length > 0;
 
           return (
@@ -1528,23 +1573,46 @@
             '</div>' +
             '<p class="chat-message-body">' + escapeHtml(body) + '</p>' +
             (isStructured
-              ? '<div class="chat-choices">' +
-                choices
-                  .map(function (choice) {
-                    return (
-                      '<button type="button" class="chat-choice" data-choice-id="' +
-                      escapeHtml(choice.id || '') +
-                      '" data-choice-label="' +
-                      escapeHtml(choice.label || '') +
-                      '" data-message-index="' +
-                      index +
-                      '">' +
-                      escapeHtml(choice.label || '') +
-                      '</button>'
-                    );
-                  })
-                  .join('') +
-                '</div>'
+              ? isQuestionList
+                ? '<ol class="chat-question-list">' +
+                  choices
+                    .map(function (choice, choiceIndex) {
+                      return (
+                        '<li class="chat-question-item">' +
+                        '<span class="chat-question-index">' + (choiceIndex + 1) + '</span>' +
+                        '<div>' +
+                        '<div class="chat-question-text">' +
+                        escapeHtml(choice.question || choice.label || 'Question') +
+                        '</div>' +
+                        (choice.why
+                          ? '<div class="chat-question-why">' + escapeHtml(choice.why) + '</div>'
+                          : '') +
+                        (choice.suggestedAnswerFormat
+                          ? '<div class="chat-question-format">Answer format: ' + escapeHtml(choice.suggestedAnswerFormat) + '</div>'
+                          : '') +
+                        '</div>' +
+                        '</li>'
+                      );
+                    })
+                    .join('') +
+                  '</ol>'
+                : '<div class="chat-choices">' +
+                  choices
+                    .map(function (choice) {
+                      return (
+                        '<button type="button" class="chat-choice" data-choice-id="' +
+                        escapeHtml(choice.id || '') +
+                        '" data-choice-label="' +
+                        escapeHtml(choice.label || '') +
+                        '" data-message-index="' +
+                        index +
+                        '">' +
+                        escapeHtml(choice.label || '') +
+                        '</button>'
+                      );
+                    })
+                    .join('') +
+                  '</div>'
               : '') +
             '</article>'
           );
@@ -1578,9 +1646,11 @@
             : contribution.title
               ? 'Add more detail for ' + contribution.title + '.'
               : 'Add a bit more detail.';
-          chatCopy.textContent = latestAgentQuestion
-            ? "Choose one of the agent's options or answer in your own words."
-            : "Answer the agent's questions before the spec is drafted.";
+          chatCopy.textContent = latestAgentQuestion && latestAgentQuestion.messageType === 'ask_user_questions'
+            ? 'Answer the questions below in one reply. Short bullets are fine.'
+            : latestAgentQuestion
+              ? "Choose one of the agent's options or answer in your own words."
+              : "Answer the agent's questions before the spec is drafted.";
           setChatChip(currentState === 'draft_chat' ? 'working' : 'ready', currentState === 'draft_chat' ? 'Questions open' : 'Clarification received');
           chatReply.disabled = state.submitting;
           chatSendButton.disabled = state.submitting;
