@@ -576,6 +576,159 @@
         gap: 8px;
       }
 
+      .chat-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .chat-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .chat-kicker {
+        margin: 0 0 4px;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .chat-head h3 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      .chat-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .chat-summary-item {
+        min-width: 0;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-2);
+      }
+
+      .chat-summary-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .chat-summary-value {
+        margin-top: 4px;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .chat-thread {
+        display: grid;
+        gap: 10px;
+      }
+
+      .chat-message {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-2);
+      }
+
+      .chat-message[data-role="agent"] {
+        background: #fff;
+      }
+
+      .chat-message[data-role="requester"] {
+        border-color: rgba(23, 98, 79, 0.16);
+        background: #edf7f3;
+      }
+
+      .chat-message-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .chat-message-role {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .chat-message-time {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .chat-message-body {
+        margin: 0;
+        font-size: 14px;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .chat-choices {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chat-choice {
+        min-height: 40px;
+        padding: 8px 12px;
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        background: #e4f1eb;
+        color: var(--accent-strong);
+        cursor: pointer;
+      }
+
+      .chat-composer {
+        position: sticky;
+        bottom: 0;
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: rgba(246, 249, 247, 0.98);
+        backdrop-filter: blur(8px);
+      }
+
+      .chat-composer-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .chat-composer-top p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .chat-composer textarea {
+        min-height: 96px;
+        resize: none;
+      }
+
+      .chat-composer-actions {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+      }
+
       .status-chip-inline {
         min-height: 32px;
         padding: 6px 10px;
@@ -674,6 +827,17 @@
         .review-columns {
           grid-template-columns: 1fr;
         }
+
+        .chat-head,
+        .chat-composer-top {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .chat-summary,
+        .chat-composer-actions {
+          grid-template-columns: 1fr;
+        }
       }
 
       @media (min-width: 541px) {
@@ -726,6 +890,10 @@
               <li class="lifecycle-step" data-step="compose" data-active="true" aria-current="step">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Request</span></div>
                 <p class="lifecycle-copy">Describe the outcome and share attachment metadata.</p>
+              </li>
+              <li class="lifecycle-step" data-step="chat">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Questions</span></div>
+                <p class="lifecycle-copy">Answer the agent's follow-up questions before the spec is drafted.</p>
               </li>
               <li class="lifecycle-step" data-step="spec">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Spec</span></div>
@@ -788,6 +956,60 @@
               </div>
             </div>
           </form>
+
+          <section class="section hidden" id="chat-section" aria-labelledby="chat-title">
+            <div class="section-head">
+              <h2 id="chat-title">Clarification chat</h2>
+              <p id="chat-copy">Answer the agent's questions before the spec is drafted.</p>
+            </div>
+            <div class="chat-card">
+              <div class="chat-head">
+                <div>
+                  <p class="chat-kicker" id="chat-kicker">Draft chat</p>
+                  <h3 id="chat-heading">Add a bit more detail.</h3>
+                </div>
+                <div class="status-chip status-chip-inline" id="chat-chip" data-mode="working" aria-live="polite">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  <span id="chat-chip-text">Waiting for your reply</span>
+                </div>
+              </div>
+
+              <div class="chat-summary" aria-label="Conversation summary">
+                <div class="chat-summary-item">
+                  <div class="chat-summary-label">Contribution</div>
+                  <div class="chat-summary-value" id="chat-title-value">Not provided</div>
+                </div>
+                <div class="chat-summary-item">
+                  <div class="chat-summary-label">Context</div>
+                  <div class="chat-summary-value" id="chat-context-value">No shared context.</div>
+                </div>
+                <div class="chat-summary-item">
+                  <div class="chat-summary-label">Attachments</div>
+                  <div class="chat-summary-value" id="chat-attachment-value">0 files</div>
+                </div>
+              </div>
+
+              <div class="chat-thread" id="chat-thread" aria-live="polite"></div>
+
+              <div class="status-block hidden" id="chat-status" aria-live="polite"></div>
+
+              <form class="chat-composer" id="chat-form" novalidate>
+                <div class="chat-composer-top">
+                  <p>Reply with the missing detail, or choose one of the agent's options.</p>
+                </div>
+                <label class="sr-only" for="chat-reply">Reply to the agent</label>
+                <textarea
+                  id="chat-reply"
+                  maxlength="2000"
+                  placeholder="Type your reply here."
+                ></textarea>
+                <div class="chat-composer-actions">
+                  <div class="summary-empty hidden" id="chat-hint"></div>
+                  <button type="submit" class="primary-button" id="chat-send-button">Send reply</button>
+                </div>
+              </form>
+            </div>
+          </section>
 
           <section class="section hidden" id="review-section" aria-labelledby="review-title">
             <div class="section-head">
@@ -886,6 +1108,7 @@
           phase: 'compose',
           contributionDetail: null,
           refineOpen: false,
+          replyDraft: '',
         };
 
         var connectionChip = document.getElementById('connection-chip');
@@ -899,11 +1122,25 @@
         var lifecycleList = document.getElementById('lifecycle-list');
         var composeForm = document.getElementById('compose-form');
         var reviewSection = document.getElementById('review-section');
+        var chatSection = document.getElementById('chat-section');
         var reviewCopy = document.getElementById('review-copy');
         var reviewState = document.getElementById('review-state');
         var reviewHeading = document.getElementById('review-heading');
         var reviewChip = document.getElementById('review-chip');
         var reviewChipText = document.getElementById('review-chip-text');
+        var chatCopy = document.getElementById('chat-copy');
+        var chatKicker = document.getElementById('chat-kicker');
+        var chatHeading = document.getElementById('chat-heading');
+        var chatChip = document.getElementById('chat-chip');
+        var chatChipText = document.getElementById('chat-chip-text');
+        var chatTitleValue = document.getElementById('chat-title-value');
+        var chatContextValue = document.getElementById('chat-context-value');
+        var chatAttachmentValue = document.getElementById('chat-attachment-value');
+        var chatThread = document.getElementById('chat-thread');
+        var chatStatus = document.getElementById('chat-status');
+        var chatForm = document.getElementById('chat-form');
+        var chatReply = document.getElementById('chat-reply');
+        var chatSendButton = document.getElementById('chat-send-button');
         var specGoal = document.getElementById('spec-goal');
         var specUserProblem = document.getElementById('spec-user-problem');
         var specCriteria = document.getElementById('spec-criteria');
@@ -967,10 +1204,21 @@
           reviewChipText.textContent = text;
         }
 
+        function setChatChip(mode, text) {
+          chatChip.setAttribute('data-mode', mode);
+          chatChipText.textContent = text;
+        }
+
         function setStatus(kind, title, copy) {
           submissionState.classList.remove('hidden');
           submissionState.setAttribute('data-tone', kind);
           submissionState.innerHTML = '<h3>' + escapeHtml(title) + '</h3><p>' + escapeHtml(copy) + '</p>';
+        }
+
+        function setInlineStatus(target, kind, title, copy) {
+          target.classList.remove('hidden');
+          target.setAttribute('data-tone', kind);
+          target.innerHTML = '<h3>' + escapeHtml(title) + '</h3><p>' + escapeHtml(copy) + '</p>';
         }
 
         function setPhase(phase) {
@@ -989,6 +1237,12 @@
           });
           if (active === 'sending' || active === 'spec' || active === 'approved') {
             lifecycleSection.classList.remove('hidden');
+          }
+          if (active === 'chat') {
+            lifecycleSection.classList.remove('hidden');
+            bannerCopy.textContent = "Answer the agent's questions so the spec can be drafted.";
+            setChip('working', 'Questions open');
+            return;
           }
           if (active === 'sending') {
             bannerCopy.textContent = 'Posting your request now.';
@@ -1148,11 +1402,162 @@
           return entries;
         }
 
+        function buildChatContextSummary() {
+          var items = [];
+          var config = state.config || {};
+          var context = state.context || {};
+
+          items.push('Project: ' + (config.project || 'Not provided'));
+          if (context.route) items.push('Route: ' + context.route);
+          if (context.url) items.push('URL: ' + context.url);
+          if (context.selectedObjectType || context.selectedObjectId) {
+            items.push(
+              'Selected object: ' + [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')
+            );
+          }
+          if (context.appVersion) items.push('App version: ' + context.appVersion);
+
+          return items.length ? items.join(' · ') : 'No shared context.';
+        }
+
+        function getContributionDetail(payload) {
+          if (!payload || typeof payload !== 'object') return null;
+          if (payload.contribution && (payload.spec || payload.contribution.state === 'draft_chat' || payload.contribution.state === 'spec_pending_approval')) {
+            return payload;
+          }
+          if (
+            payload.detail &&
+            payload.detail.contribution &&
+            (payload.detail.spec || payload.detail.contribution.state === 'draft_chat' || payload.detail.contribution.state === 'spec_pending_approval')
+          ) {
+            return payload.detail;
+          }
+          if (
+            payload.contributionDetail &&
+            payload.contributionDetail.contribution &&
+            (payload.contributionDetail.spec ||
+              payload.contributionDetail.contribution.state === 'draft_chat' ||
+              payload.contributionDetail.contribution.state === 'spec_pending_approval')
+          ) {
+            return payload.contributionDetail;
+          }
+          return null;
+        }
+
+        function getConversation(detail) {
+          if (!detail) return [];
+          if (Array.isArray(detail.conversation)) return detail.conversation;
+          if (Array.isArray(detail.messages)) return detail.messages;
+          return [];
+        }
+
+        function getContributionState(detail) {
+          return detail && detail.contribution ? detail.contribution.state : '';
+        }
+
+        function renderChatSummary(detail) {
+          var contribution = detail && detail.contribution ? detail.contribution : {};
+          var attachments = detail ? detail.attachments || [] : [];
+
+          chatTitleValue.textContent = contribution.title || state.request.title || 'Not provided';
+          chatContextValue.textContent = buildChatContextSummary();
+          chatAttachmentValue.textContent = attachments.length + (attachments.length === 1 ? ' file' : ' files');
+        }
+
+        function renderChatMessage(message, index) {
+          var role = (message.authorRole || message.role || 'agent').toLowerCase();
+          var createdAt = message.createdAt || '';
+          var body = message.body || '';
+          var choices = Array.isArray(message.choices) ? message.choices : [];
+          var messageType = message.messageType || message.type || '';
+          var isStructured = messageType === 'structured_question' || choices.length > 0;
+
+          return (
+            '<article class="chat-message" data-role="' + escapeHtml(role) + '">' +
+            '<div class="chat-message-head">' +
+            '<span class="chat-message-role">' + escapeHtml(role === 'requester' ? 'You' : 'Agent') + '</span>' +
+            (createdAt ? '<span class="chat-message-time">' + escapeHtml(createdAt) + '</span>' : '') +
+            '</div>' +
+            '<p class="chat-message-body">' + escapeHtml(body) + '</p>' +
+            (isStructured
+              ? '<div class="chat-choices">' +
+                choices
+                  .map(function (choice) {
+                    return (
+                      '<button type="button" class="chat-choice" data-choice-id="' +
+                      escapeHtml(choice.id || '') +
+                      '" data-choice-label="' +
+                      escapeHtml(choice.label || '') +
+                      '" data-message-index="' +
+                      index +
+                      '">' +
+                      escapeHtml(choice.label || '') +
+                      '</button>'
+                    );
+                  })
+                  .join('') +
+                '</div>'
+              : '') +
+            '</article>'
+          );
+        }
+
+        function renderChat(detail) {
+          var conversation = getConversation(detail);
+          var contribution = detail && detail.contribution ? detail.contribution : {};
+          var currentState = getContributionState(detail);
+          var latestAgentQuestion = null;
+
+          renderChatSummary(detail);
+          chatThread.innerHTML = conversation.length
+            ? conversation
+                .map(function (message, index) {
+                  if (!latestAgentQuestion) {
+                    var messageType = message.messageType || message.type || '';
+                    var hasChoices = Array.isArray(message.choices) && message.choices.length;
+                    if ((message.authorRole || message.role) === 'agent' && (messageType === 'structured_question' || hasChoices)) {
+                      latestAgentQuestion = message;
+                    }
+                  }
+                  return renderChatMessage(message, index);
+                })
+                .join('')
+            : '<div class="summary-empty">No clarification messages yet.</div>';
+
+          chatKicker.textContent = currentState === 'draft_chat' ? 'Draft chat' : 'Conversation';
+          chatHeading.textContent = latestAgentQuestion
+            ? latestAgentQuestion.body || 'Answer the latest question.'
+            : contribution.title
+              ? 'Add more detail for ' + contribution.title + '.'
+              : 'Add a bit more detail.';
+          chatCopy.textContent = latestAgentQuestion
+            ? "Choose one of the agent's options or answer in your own words."
+            : "Answer the agent's questions before the spec is drafted.";
+          setChatChip(currentState === 'draft_chat' ? 'working' : 'ready', currentState === 'draft_chat' ? 'Questions open' : 'Clarification received');
+          chatReply.disabled = state.submitting;
+          chatSendButton.disabled = state.submitting;
+          chatReply.value = state.replyDraft || chatReply.value || '';
+          setPhase(currentState === 'draft_chat' ? 'chat' : 'spec');
+          chatSection.classList.remove('hidden');
+          composeForm.classList.add('hidden');
+          reviewSection.classList.add('hidden');
+          lifecycleSection.classList.remove('hidden');
+        }
+
+        function hideChatStatus() {
+          chatStatus.classList.add('hidden');
+          chatStatus.innerHTML = '';
+        }
+
+        function showChatStatus(kind, title, copy) {
+          setInlineStatus(chatStatus, kind, title, copy);
+        }
+
         function renderReview() {
           var detail = state.contributionDetail;
           var currentSpec = detail && detail.spec ? detail.spec.current : null;
           var attachments = detail ? detail.attachments || [] : [];
-          var conversation = detail ? detail.conversation || [] : [];
+          var conversation = getConversation(detail);
           var isApproved = detail && detail.contribution && detail.contribution.state === 'spec_approved';
 
           if (!detail || !currentSpec) {
@@ -1160,6 +1565,7 @@
             return;
           }
 
+          chatSection.classList.add('hidden');
           reviewSection.classList.remove('hidden');
           composeForm.classList.add('hidden');
           lifecycleSection.classList.remove('hidden');
@@ -1216,6 +1622,7 @@
         }
 
         function showComposeSurface() {
+          chatSection.classList.add('hidden');
           reviewSection.classList.add('hidden');
           composeForm.classList.remove('hidden');
           renderContext();
@@ -1241,8 +1648,15 @@
           kindSelect.value = state.request.type || 'feature_request';
           updateDerivedTitle();
 
+          state.contributionDetail = getContributionDetail(payload) || state.contributionDetail;
+
           if (state.contributionDetail) {
-            renderReview();
+            var currentState = getContributionState(state.contributionDetail);
+            if (currentState === 'draft_chat') {
+              renderChat(state.contributionDetail);
+            } else {
+              renderReview();
+            }
           } else {
             showComposeSurface();
           }
@@ -1254,6 +1668,7 @@
           errorState.classList.remove('hidden');
           lifecycleSection.classList.add('hidden');
           composeForm.classList.add('hidden');
+          chatSection.classList.add('hidden');
           reviewSection.classList.add('hidden');
           errorTitle.textContent = title;
           errorCopy.textContent = copy;
@@ -1385,8 +1800,12 @@
               state.attachments = [];
               attachmentPicker.value = '';
               renderAttachments();
-              state.contributionDetail = payload;
-              renderReview();
+              state.contributionDetail = getContributionDetail(payload) || payload;
+              if (getContributionState(state.contributionDetail) === 'draft_chat') {
+                renderChat(state.contributionDetail);
+              } else {
+                renderReview();
+              }
             })
             .catch(function (error) {
               state.submitting = false;
@@ -1396,6 +1815,105 @@
               setPhase('error');
               bannerCopy.textContent = 'Review the error and try again.';
               setStatus('error', 'Request not sent', error && error.message ? error.message : 'The browser could not reach the server.');
+            });
+        }
+
+        function parseDetailResponse(result) {
+          var payload = null;
+
+          if (result.text) {
+            try {
+              payload = JSON.parse(result.text);
+            } catch (error) {
+              return { error: 'invalid-json' };
+            }
+          }
+
+          return {
+            payload: payload,
+            response: result.response,
+          };
+        }
+
+        function submitReply(choiceLabel, choiceId) {
+          if (state.submitting || !state.contributionDetail || !state.contributionDetail.contribution) return;
+
+          var body = typeof choiceLabel === 'string' ? choiceLabel : chatReply.value.trim();
+          if (!body) {
+            showChatStatus('error', 'Add a reply', 'Type a reply or choose one of the question buttons.');
+            return;
+          }
+
+          state.submitting = true;
+          state.replyDraft = body;
+          hideChatStatus();
+          chatReply.disabled = true;
+          chatSendButton.disabled = true;
+          setChatChip('working', 'Sending reply');
+          showChatStatus('working', 'Sending reply', 'Crowdship is posting your answer.');
+
+          fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id) + '/messages', {
+            method: 'POST',
+            body: JSON.stringify({
+              body: body,
+              choiceId: choiceId || null,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              state.submitting = false;
+              var parsed = parseDetailResponse(result);
+
+              chatReply.disabled = false;
+              chatSendButton.disabled = false;
+
+              if (parsed.error === 'invalid-json') {
+                setChatChip('error', 'Reply failed');
+                showChatStatus('error', 'Reply not sent', 'The server returned invalid JSON.');
+                return;
+              }
+
+              if (!parsed.response.ok) {
+                setChatChip('error', 'Reply failed');
+                showChatStatus(
+                  'error',
+                  'Reply not sent',
+                  'Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + (result.text ? ': ' + result.text.slice(0, 180) : '.')
+                );
+                return;
+              }
+
+              hideChatStatus();
+              state.replyDraft = '';
+              chatReply.value = '';
+              state.contributionDetail = getContributionDetail(parsed.payload) || parsed.payload || state.contributionDetail;
+
+              if (getContributionState(state.contributionDetail) === 'spec_pending_approval') {
+                renderReview();
+                return;
+              }
+
+              if (getContributionState(state.contributionDetail) === 'draft_chat') {
+                renderChat(state.contributionDetail);
+                return;
+              }
+
+              renderReview();
+            })
+            .catch(function (error) {
+              state.submitting = false;
+              chatReply.disabled = false;
+              chatSendButton.disabled = false;
+              setChatChip('error', 'Reply failed');
+              showChatStatus('error', 'Reply not sent', error && error.message ? error.message : 'The browser could not reach the server.');
             });
         }
 
@@ -1478,7 +1996,7 @@
 
               state.refineOpen = false;
               refineNote.value = '';
-              state.contributionDetail = payload;
+              state.contributionDetail = getContributionDetail(payload) || payload;
               renderReview();
             })
             .catch(function (error) {
@@ -1531,6 +2049,20 @@
           state.refineOpen = false;
           refineNote.value = '';
           renderReview();
+        });
+
+        chatForm.addEventListener('submit', function (event) {
+          event.preventDefault();
+          submitReply();
+        });
+
+        chatThread.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          var label = target.getAttribute('data-choice-label');
+          var choiceId = target.getAttribute('data-choice-id');
+          if (!label) return;
+          submitReply(label, choiceId);
         });
 
         closeButton.addEventListener('click', function () {

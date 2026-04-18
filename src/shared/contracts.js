@@ -64,6 +64,7 @@ export const PREVIEW_READY_CONTRIBUTION_STATE = 'preview_ready';
 export const VOTING_OPEN_CONTRIBUTION_STATE = 'voting_open';
 export const MERGED_CONTRIBUTION_STATE = 'merged';
 export const CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'created';
+export const CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND = 'clarification_requested';
 export const GENERATED_SPEC_PROGRESS_EVENT_KIND = 'spec_generated';
 export const APPROVED_SPEC_PROGRESS_EVENT_KIND = 'spec_approved';
 export const REFINED_SPEC_PROGRESS_EVENT_KIND = 'spec_refined';
@@ -99,6 +100,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     method: 'POST',
     path: '/api/v1/contributions/:id/attachments',
     handler: 'postContributionAttachment',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/messages',
+    handler: 'postContributionMessage',
   }),
   Object.freeze({
     method: 'POST',
@@ -334,6 +340,31 @@ export function validateSpecApprovalPayload(payload) {
         value: {
           decision: payload.decision.trim(),
           note: normalizeOptionalString(payload.note) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validateContributionMessagePayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.body, 'body', errors, { required: true });
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          body: payload.body.trim(),
         },
       }
     : {

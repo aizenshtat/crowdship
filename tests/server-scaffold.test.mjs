@@ -12,6 +12,7 @@ import {
 import {
   createContributionDetailHandler,
   createContributionHandler,
+  createContributionMessageHandler,
   createContributionProgressHandler,
   createRouteHandlers,
   createSpecApprovalHandler,
@@ -101,6 +102,79 @@ function buildCreatePayload() {
   };
 }
 
+function createStubSpecService() {
+  return {
+    async startConversation({ contribution }) {
+      return {
+        action: 'ask_user',
+        assistantMessage: `Before I draft the spec for ${contribution.title}, I need two quick details.`,
+        questions: [
+          {
+            id: 'desired-outcome',
+            question: 'What should the operator be able to do immediately after selecting the anomaly?',
+            why: 'This defines the user-facing outcome.',
+            suggestedAnswerFormat: 'One short sentence',
+          },
+          {
+            id: 'stay-unchanged',
+            question: 'What should stay unchanged on the mission screen while replay is added?',
+            why: 'This narrows non-goals.',
+            suggestedAnswerFormat: 'Short bullet list',
+          },
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+
+    async continueConversation() {
+      return {
+        action: 'draft_spec',
+        assistantMessage: 'I drafted the first approval-ready scope.',
+        goal: 'Let operators replay the selected signal drop from the mission screen.',
+        userProblem:
+          'Operators can spot a signal drop but cannot inspect the telemetry leading into it without leaving the mission workflow.',
+        acceptanceCriteria: [
+          'The operator can launch replay from /mission for the selected anomaly.',
+          'Replay keeps the selected anomaly and active filters in context.',
+          'Replay starts quickly and keeps recovery on the same mission surface.',
+        ],
+        nonGoals: [
+          'Do not redesign unrelated mission-control surfaces.',
+          'Do not rebuild the broader telemetry pipeline.',
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+
+    async refineSpec({ refinementNote }) {
+      return {
+        assistantMessage: 'I updated the scope to keep controls on the same mission surface.',
+        goal: 'Let operators replay the selected signal drop without leaving the mission screen.',
+        userProblem: `Operators need replay without losing context. Latest refinement: ${refinementNote}`,
+        acceptanceCriteria: [
+          'Replay launches from /mission for the selected anomaly.',
+          'Replay controls remain visible on the same mission surface.',
+          'The selected anomaly and active filters remain in context during replay.',
+        ],
+        nonGoals: [
+          'Do not redesign unrelated mission-control surfaces.',
+          'Do not rebuild the broader telemetry pipeline.',
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+  };
+}
+
 test('shared contribution states preserve the lifecycle order', () => {
   assert.deepEqual(CONTRIBUTION_STATES, [
     'draft_chat',
@@ -144,6 +218,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions',
       'GET /api/v1/contributions/:id',
       'POST /api/v1/contributions/:id/attachments',
+      'POST /api/v1/contributions/:id/messages',
       'POST /api/v1/contributions/:id/spec-approval',
       'GET /api/v1/contributions/:id/progress',
       'POST /api/v1/contributions/:id/queue-implementation',
@@ -185,14 +260,17 @@ test('contribution creation does not fake success when persistence is missing', 
   assert.equal('contributionId' in response.body, false);
 });
 
-test('connected contribution persistence stores the request, attachment metadata, and first spec version', async () => {
+test('connected contribution persistence opens clarification first and stores the first spec after a reply', async () => {
   const ids = [
     'contribution-123',
     'attachment-1',
     'message-1',
-    'spec-1',
     'message-2',
     'progress-created',
+    'progress-clarification',
+    'message-3',
+    'spec-1',
+    'message-4',
     'progress-spec',
   ];
   const persistence = createInMemoryContributionPersistenceAdapter({
@@ -200,8 +278,15 @@ test('connected contribution persistence stores the request, attachment metadata
   });
   const createContribution = createContributionHandler({
     database: persistence,
+    specService: createStubSpecService(),
     idFactory: () => ids.shift(),
     clock: () => new Date('2026-04-18T12:00:00Z'),
+  });
+  const postMessage = createContributionMessageHandler({
+    database: persistence,
+    specService: createStubSpecService(),
+    idFactory: () => ids.shift(),
+    clock: () => new Date('2026-04-18T12:02:00Z'),
   });
   const getContribution = createContributionDetailHandler({ database: persistence });
 
@@ -211,14 +296,26 @@ test('connected contribution persistence stores the request, attachment metadata
 
   assert.equal(response.status, 201);
   assert.equal(response.body.contribution.id, 'contribution-123');
-  assert.equal(response.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+  assert.equal(response.body.contribution.state, 'draft_chat');
   assert.equal(response.body.attachments.length, 1);
   assert.equal(response.body.attachments[0].filename, 'signal-drop-17.csv');
   assert.equal(response.body.conversation.length, 2);
-  assert.equal(response.body.spec.current.versionNumber, 1);
-  assert.deepEqual(response.body.spec.current.acceptanceCriteria.length > 0, true);
+  assert.equal(response.body.conversation[1].messageType, 'ask_user_questions');
+  assert.equal(response.body.spec.current, null);
   assert.equal(response.body.lifecycle.events.length, 2);
-  assert.equal(response.body.lifecycle.currentState, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+  assert.equal(response.body.lifecycle.currentState, 'draft_chat');
+
+  const clarified = await postMessage({
+    params: { id: 'contribution-123' },
+    body: {
+      body: 'Let me start replay from the anomaly row, keep the filters in place, and keep the mission layout unchanged.',
+    },
+  });
+
+  assert.equal(clarified.status, 200);
+  assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+  assert.equal(clarified.body.spec.current.versionNumber, 1);
+  assert.equal(clarified.body.conversation.length, 4);
 
   const detail = await getContribution({
     params: { id: 'contribution-123' },
@@ -235,15 +332,18 @@ test('connected contribution persistence supports refinement and approval', asyn
     'contribution-123',
     'attachment-1',
     'message-1',
-    'spec-1',
     'message-2',
     'progress-created',
-    'progress-spec',
+    'progress-clarification',
     'message-3',
-    'spec-2',
+    'spec-1',
     'message-4',
-    'progress-refined',
+    'progress-spec',
+    'spec-2',
     'message-5',
+    'message-6',
+    'progress-refined',
+    'message-7',
     'progress-approved',
   ];
   const persistence = createInMemoryContributionPersistenceAdapter({
@@ -251,17 +351,31 @@ test('connected contribution persistence supports refinement and approval', asyn
   });
   const createContribution = createContributionHandler({
     database: persistence,
+    specService: createStubSpecService(),
     idFactory: () => ids.shift(),
     clock: () => new Date('2026-04-18T12:00:00Z'),
   });
+  const postMessage = createContributionMessageHandler({
+    database: persistence,
+    specService: createStubSpecService(),
+    idFactory: () => ids.shift(),
+    clock: () => new Date('2026-04-18T12:03:00Z'),
+  });
   const specApproval = createSpecApprovalHandler({
     database: persistence,
+    specService: createStubSpecService(),
     idFactory: () => ids.shift(),
     clock: () => new Date('2026-04-18T12:05:00Z'),
   });
 
   await createContribution({
     body: buildCreatePayload(),
+  });
+  await postMessage({
+    params: { id: 'contribution-123' },
+    body: {
+      body: 'Replay should open from the anomaly row and keep the mission layout unchanged.',
+    },
   });
 
   const refined = await specApproval({
@@ -276,7 +390,7 @@ test('connected contribution persistence supports refinement and approval', asyn
   assert.equal(refined.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
   assert.equal(refined.body.spec.current.versionNumber, 2);
   assert.match(refined.body.spec.current.userProblem, /Latest refinement/i);
-  assert.equal(refined.body.conversation.length, 4);
+  assert.equal(refined.body.conversation.length, 6);
 
   const approved = await specApproval({
     params: { id: 'contribution-123' },
@@ -297,23 +411,22 @@ test('connected contribution persistence lists created contributions with latest
     'contribution-123',
     'attachment-1',
     'message-1',
-    'spec-1',
     'message-2',
     'progress-created',
-    'progress-spec',
+    'progress-clarification',
     'contribution-789',
     'attachment-2',
     'message-3',
-    'spec-2',
     'message-4',
     'progress-created-2',
-    'progress-spec-2',
+    'progress-clarification-2',
   ];
   const persistence = createInMemoryContributionPersistenceAdapter({
     clock: () => new Date('2026-04-18T12:00:00Z'),
   });
   const createContribution = createContributionHandler({
     database: persistence,
+    specService: createStubSpecService(),
     idFactory: () => ids.shift(),
     clock: () => new Date('2026-04-18T12:00:00Z'),
   });
@@ -335,8 +448,8 @@ test('connected contribution persistence lists created contributions with latest
 
   assert.equal(response.status, 200);
   assert.equal(response.body.contributions.length, 2);
-  assert.equal(response.body.contributions[0].latestSpecVersion, 1);
-  assert.equal(response.body.contributions[0].state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+  assert.equal(response.body.contributions[0].latestSpecVersion, null);
+  assert.equal(response.body.contributions[0].state, 'draft_chat');
 });
 
 test('contribution progress fails safely without persistence', async () => {
@@ -358,7 +471,9 @@ test('configured persistence can require DATABASE_URL before falling back to mem
 });
 
 test('api server persists contributions and spec approval through the real http runtime', async () => {
-  const server = createApiServer();
+  const server = createApiServer({
+    specService: createStubSpecService(),
+  });
 
   await new Promise((resolve) => {
     server.listen(0, '127.0.0.1', resolve);
@@ -378,8 +493,8 @@ test('api server persists contributions and spec approval through the real http 
 
     assert.equal(contribution.status, 201);
     assert.equal(contribution.body.contribution.projectSlug, 'example');
-    assert.equal(contribution.body.lifecycle.currentState, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
-    assert.equal(contribution.body.spec.current.versionNumber, 1);
+    assert.equal(contribution.body.lifecycle.currentState, 'draft_chat');
+    assert.equal(contribution.body.spec.current, null);
 
     const detail = await requestJson({
       port: address.port,
@@ -390,6 +505,19 @@ test('api server persists contributions and spec approval through the real http 
     assert.equal(detail.status, 200);
     assert.equal(detail.body.contribution.id, contribution.body.contribution.id);
     assert.equal(detail.body.conversation.length, 2);
+
+    const clarified = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contribution.body.contribution.id}/messages`,
+      body: {
+        body: 'Replay should open from the anomaly row and keep the mission layout unchanged.',
+      },
+    });
+
+    assert.equal(clarified.status, 200);
+    assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+    assert.equal(clarified.body.spec.current.versionNumber, 1);
 
     const approval = await requestJson({
       port: address.port,
@@ -419,7 +547,9 @@ test('api server persists contributions and spec approval through the real http 
 });
 
 test('api server supports delivery evidence, voting, and merged state through the real http runtime', async () => {
-  const server = createApiServer();
+  const server = createApiServer({
+    specService: createStubSpecService(),
+  });
 
   await new Promise((resolve) => {
     server.listen(0, '127.0.0.1', resolve);
@@ -438,6 +568,18 @@ test('api server supports delivery evidence, voting, and merged state through th
     });
 
     const contributionId = contribution.body.contribution.id;
+
+    const clarified = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: {
+        body: 'Replay should open from the anomaly row and keep the mission layout unchanged.',
+      },
+    });
+
+    assert.equal(clarified.status, 200);
+    assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
 
     const approval = await requestJson({
       port: address.port,

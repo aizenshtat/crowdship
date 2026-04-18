@@ -90,9 +90,10 @@ function matchRoute(method, pathname) {
   return null;
 }
 
-function createRequestHandler({ database } = {}) {
+function createRequestHandler(options = {}) {
   const routeHandlers = createRouteHandlers({
-    database: database ?? createConfiguredContributionPersistenceAdapter(),
+    ...options,
+    database: options.database ?? createConfiguredContributionPersistenceAdapter(),
   });
 
   return async (request, response) => {

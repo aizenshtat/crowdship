@@ -126,18 +126,26 @@ For the current production slice, selected files are captured as attachment meta
 {
   "contribution": {
     "id": "ctrb_123",
-    "state": "spec_pending_approval"
+    "state": "draft_chat"
   },
   "attachments": [],
-  "conversation": [],
-  "spec": {
-    "current": {
-      "versionNumber": 1
-    },
-    "versions": []
-  }
+  "conversation": [
+    {
+      "authorRole": "agent",
+      "messageType": "structured_question",
+      "body": "Should the replay cover the full anomaly window or only the signal drop itself?",
+      "choices": [
+        { "id": "drop_only", "label": "Signal drop only" },
+        { "id": "full_window", "label": "Full anomaly window" }
+      ],
+      "createdAt": "2026-04-18T12:00:00Z"
+    }
+  ],
+  "spec": null
 }
 ```
+
+When the agent has enough detail, the same contribution updates to `spec_pending_approval` and the widget switches into the spec review surface without a separate page change.
 
 ## Attachment Payload
 
@@ -238,6 +246,7 @@ The user can approve the spec or continue chatting. Approval creates an immutabl
 POST /api/v1/contributions
 GET  /api/v1/projects/:project/public-config
 GET  /api/v1/contributions/:id
+POST /api/v1/contributions/:id/messages
 POST /api/v1/contributions/:id/votes
 POST /api/v1/contributions/:id/comments
 POST /api/v1/contributions/:id/attachments

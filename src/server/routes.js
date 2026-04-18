@@ -4,6 +4,7 @@ import {
   AGENT_QUEUED_CONTRIBUTION_STATE,
   API_ROUTE_DEFINITIONS,
   APPROVED_SPEC_PROGRESS_EVENT_KIND,
+  CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND,
   CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND,
   CONTRIBUTION_STATES,
   GENERATED_SPEC_PROGRESS_EVENT_KIND,
@@ -24,12 +25,14 @@ import {
   getProjectPublicConfig,
   validateCommentPayload,
   validateContributionCreatePayload,
+  validateContributionMessagePayload,
   validatePreviewDeploymentPayload,
   validatePullRequestPayload,
   validateQueueImplementationPayload,
   validateSpecApprovalPayload,
   validateVotePayload,
 } from '../shared/contracts.js';
+import { createConfiguredSpecService, isSpecServiceError } from './spec-service.js';
 
 export { API_ROUTE_DEFINITIONS };
 
@@ -44,6 +47,20 @@ function notWiredResponse(message = 'Persistence is not wired yet.') {
   return buildResponse(501, {
     error: 'not_wired',
     message,
+  });
+}
+
+function specServiceErrorResponse(error) {
+  if (isSpecServiceError(error)) {
+    return buildResponse(error.statusCode, {
+      error: error.code,
+      message: error.message,
+    });
+  }
+
+  return buildResponse(502, {
+    error: 'spec_generation_failed',
+    message: error instanceof Error ? error.message : 'Spec generation failed.',
   });
 }
 
@@ -102,14 +119,22 @@ function createUserMessage({ id, contributionId, body, createdAt, messageType = 
   };
 }
 
-function createAgentMessage({ id, contributionId, body, createdAt, metadata = null }) {
+function createAgentMessage({
+  id,
+  contributionId,
+  body,
+  createdAt,
+  metadata = null,
+  messageType = 'spec_ready',
+  choices = null,
+}) {
   return {
     id,
     contributionId,
     authorRole: 'agent',
-    messageType: 'spec_ready',
+    messageType,
     body,
-    choices: null,
+    choices,
     metadata,
     createdAt,
   };
@@ -167,17 +192,20 @@ function buildSpecVersionRecord({
   attachments,
   createdAt,
   revisionNote = null,
+  generatedSpec = null,
 }) {
   const goal = formatSentence(
-    revisionNote
-      ? `Update ${contribution.title} with the latest requester refinement`
-      : contribution.title,
+    generatedSpec?.goal ??
+      (revisionNote
+        ? `Update ${contribution.title} with the latest requester refinement`
+        : contribution.title),
     'Clarify the requested product change.',
   );
   const userProblem = formatSentence(
-    revisionNote
-      ? `${contribution.body ?? contribution.title} Latest refinement: ${revisionNote}`
-      : contribution.body ?? contribution.title,
+    generatedSpec?.userProblem ??
+      (revisionNote
+        ? `${contribution.body ?? contribution.title} Latest refinement: ${revisionNote}`
+        : contribution.body ?? contribution.title),
     'The requester needs a clearer product outcome.',
   );
 
@@ -189,12 +217,22 @@ function buildSpecVersionRecord({
     goal,
     userProblem,
     spec: {
-      acceptanceCriteria: buildAcceptanceCriteria({
-        contribution,
-        attachments,
-        revisionNote,
-      }),
-      nonGoals: buildNonGoals(contribution),
+      acceptanceCriteria:
+        Array.isArray(generatedSpec?.acceptanceCriteria) && generatedSpec.acceptanceCriteria.length > 0
+          ? generatedSpec.acceptanceCriteria.map((item) =>
+              formatSentence(item, 'The requested outcome is visible in the primary mission workflow.'),
+            )
+          : buildAcceptanceCriteria({
+              contribution,
+              attachments,
+              revisionNote,
+            }),
+      nonGoals:
+        Array.isArray(generatedSpec?.nonGoals) && generatedSpec.nonGoals.length > 0
+          ? generatedSpec.nonGoals.map((item) =>
+              formatSentence(item, 'Avoid unrelated workflow changes.'),
+            )
+          : buildNonGoals(contribution),
       affectedRoute: contribution.payload?.route ?? null,
       affectedContext: contribution.payload?.context ?? null,
       attachments: attachments.map((attachment) => ({
@@ -530,6 +568,7 @@ export function createContributionDetailHandler({ database } = {}) {
 
 export function createContributionHandler({
   database,
+  specService = createConfiguredSpecService(),
   idFactory = randomUUID,
   clock = () => new Date(),
 } = {}) {
@@ -559,7 +598,7 @@ export function createContributionHandler({
       type: validation.value.type,
       title: validation.value.title,
       body: validation.value.body ?? null,
-      state: SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+      state: INITIAL_CONTRIBUTION_STATE,
       payload: validation.value,
       createdAt,
       updatedAt: createdAt,
@@ -570,23 +609,24 @@ export function createContributionHandler({
       body: validation.value.body ?? validation.value.title,
       createdAt,
     });
-    const specVersion = buildSpecVersionRecord({
-      id: idFactory(),
-      contribution,
-      versionNumber: 1,
-      attachments,
-      createdAt,
-    });
-    const agentMessage = createAgentMessage({
-      id: idFactory(),
-      contributionId,
-      body: 'Spec v1 is ready for approval.',
-      createdAt,
-      metadata: {
-        specVersionId: specVersion.id,
-        versionNumber: specVersion.versionNumber,
-      },
-    });
+
+    let openingTurn;
+    try {
+      openingTurn = await specService.startConversation({
+        contribution,
+        attachments,
+        fallbackAcceptanceCriteria: buildAcceptanceCriteria({
+          contribution,
+          attachments,
+          revisionNote: null,
+        }),
+        fallbackNonGoals: buildNonGoals(contribution),
+        messages: [requesterMessage],
+      });
+    } catch (error) {
+      return specServiceErrorResponse(error);
+    }
+
     const createdEvent = {
       id: idFactory(),
       contributionId,
@@ -602,30 +642,251 @@ export function createContributionHandler({
       },
       createdAt,
     };
-    const specEvent = {
-      id: idFactory(),
-      contributionId,
-      kind: GENERATED_SPEC_PROGRESS_EVENT_KIND,
-      status: SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
-      message: 'Spec v1 ready for approval.',
-      externalUrl: null,
-      payload: {
+    const messages = [requesterMessage];
+    const specVersions = [];
+    const progressEvents = [createdEvent];
+
+    if (openingTurn.action === 'draft_spec') {
+      contribution.state = SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE;
+      const specVersion = buildSpecVersionRecord({
+        id: idFactory(),
+        contribution,
+        versionNumber: 1,
+        attachments,
+        createdAt,
+        generatedSpec: openingTurn,
+      });
+      const agentMessage = createAgentMessage({
+        id: idFactory(),
         contributionId,
-        specVersionId: specVersion.id,
-        versionNumber: specVersion.versionNumber,
-      },
-      createdAt,
-    };
+        body: openingTurn.assistantMessage,
+        createdAt,
+        metadata: {
+          specVersionId: specVersion.id,
+          versionNumber: specVersion.versionNumber,
+          ...openingTurn.metadata,
+        },
+      });
+      const specEvent = {
+        id: idFactory(),
+        contributionId,
+        kind: GENERATED_SPEC_PROGRESS_EVENT_KIND,
+        status: SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+        message: 'Spec v1 ready for approval.',
+        externalUrl: null,
+        payload: {
+          contributionId,
+          specVersionId: specVersion.id,
+          versionNumber: specVersion.versionNumber,
+        },
+        createdAt,
+      };
+      messages.push(agentMessage);
+      specVersions.push(specVersion);
+      progressEvents.push(specEvent);
+    } else {
+      const agentMessage = createAgentMessage({
+        id: idFactory(),
+        contributionId,
+        body: openingTurn.assistantMessage,
+        createdAt,
+        messageType: 'ask_user_questions',
+        choices: openingTurn.questions,
+        metadata: {
+          questionCount: Array.isArray(openingTurn.questions) ? openingTurn.questions.length : 0,
+          ...openingTurn.metadata,
+        },
+      });
+      const clarificationEvent = {
+        id: idFactory(),
+        contributionId,
+        kind: CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND,
+        status: INITIAL_CONTRIBUTION_STATE,
+        message: 'Clarification questions sent.',
+        externalUrl: null,
+        payload: {
+          contributionId,
+          questionCount: Array.isArray(openingTurn.questions) ? openingTurn.questions.length : 0,
+        },
+        createdAt,
+      };
+      messages.push(agentMessage);
+      progressEvents.push(clarificationEvent);
+    }
 
     const persisted = await database.createContribution({
       contribution,
       attachments,
-      messages: [requesterMessage, agentMessage],
-      specVersions: [specVersion],
-      progressEvents: [createdEvent, specEvent],
+      messages,
+      specVersions,
+      progressEvents,
     });
 
     return buildResponse(201, buildContributionSnapshot(persisted));
+  };
+}
+
+export function createContributionMessageHandler({
+  database,
+  specService = createConfiguredSpecService(),
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validateContributionMessagePayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_message_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Contribution conversation persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (detail.contribution.state !== INITIAL_CONTRIBUTION_STATE) {
+      return buildResponse(409, {
+        error: 'contribution_not_accepting_messages',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const requesterMessage = createUserMessage({
+      id: idFactory(),
+      contributionId,
+      body: validation.value.body,
+      createdAt,
+      messageType: 'clarification_answer',
+    });
+    const nextConversation = asArray(detail.messages).concat(requesterMessage);
+
+    let nextTurn;
+    try {
+      nextTurn = await specService.continueConversation({
+        contribution: {
+          ...detail.contribution,
+          updatedAt: createdAt,
+        },
+        attachments: asArray(detail.attachments),
+        fallbackAcceptanceCriteria: buildAcceptanceCriteria({
+          contribution: detail.contribution,
+          attachments: asArray(detail.attachments),
+          revisionNote: validation.value.body,
+        }),
+        fallbackNonGoals: buildNonGoals(detail.contribution),
+        messages: nextConversation,
+      });
+    } catch (error) {
+      return specServiceErrorResponse(error);
+    }
+
+    if (nextTurn.action === 'draft_spec') {
+      const versionNumber = (getLatestSpecVersion(detail.specVersions)?.versionNumber ?? 0) + 1;
+      const specVersion = buildSpecVersionRecord({
+        id: idFactory(),
+        contribution: {
+          ...detail.contribution,
+          updatedAt: createdAt,
+        },
+        versionNumber,
+        attachments: asArray(detail.attachments),
+        createdAt,
+        generatedSpec: nextTurn,
+      });
+      const agentMessage = createAgentMessage({
+        id: idFactory(),
+        contributionId,
+        body: nextTurn.assistantMessage,
+        createdAt,
+        metadata: {
+          specVersionId: specVersion.id,
+          versionNumber: specVersion.versionNumber,
+          ...nextTurn.metadata,
+        },
+      });
+      const specEvent = {
+        id: idFactory(),
+        contributionId,
+        kind: GENERATED_SPEC_PROGRESS_EVENT_KIND,
+        status: SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+        message: `Spec v${specVersion.versionNumber} ready for approval.`,
+        externalUrl: null,
+        payload: {
+          contributionId,
+          specVersionId: specVersion.id,
+          versionNumber: specVersion.versionNumber,
+        },
+        createdAt,
+      };
+
+      const updated = await database.applyContributionUpdate({
+        contributionId,
+        nextState: SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+        updatedAt: createdAt,
+        messages: [requesterMessage, agentMessage],
+        specVersions: [specVersion],
+        progressEvents: [specEvent],
+      });
+
+      return buildResponse(200, buildContributionSnapshot(updated));
+    }
+
+    const agentMessage = createAgentMessage({
+      id: idFactory(),
+      contributionId,
+      body: nextTurn.assistantMessage,
+      createdAt,
+      messageType: 'ask_user_questions',
+      choices: nextTurn.questions,
+      metadata: {
+        questionCount: Array.isArray(nextTurn.questions) ? nextTurn.questions.length : 0,
+        ...nextTurn.metadata,
+      },
+    });
+    const clarificationEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND,
+      status: INITIAL_CONTRIBUTION_STATE,
+      message: 'More clarification is needed.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+        questionCount: Array.isArray(nextTurn.questions) ? nextTurn.questions.length : 0,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: INITIAL_CONTRIBUTION_STATE,
+      updatedAt: createdAt,
+      messages: [requesterMessage, agentMessage],
+      progressEvents: [clarificationEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
   };
 }
 
@@ -636,6 +897,7 @@ export function createContributionAttachmentHandler() {
 
 export function createSpecApprovalHandler({
   database,
+  specService = createConfiguredSpecService(),
   idFactory = randomUUID,
   clock = () => new Date(),
 } = {}) {
@@ -721,6 +983,28 @@ export function createSpecApprovalHandler({
     }
 
     const refinementNote = validation.value.note ?? 'Please revise the spec.';
+    let refinedSpec;
+    try {
+      refinedSpec = await specService.refineSpec({
+        contribution: {
+          ...detail.contribution,
+          updatedAt: createdAt,
+        },
+        attachments: asArray(detail.attachments),
+        currentSpec: latestSpec,
+        refinementNote,
+        fallbackAcceptanceCriteria: buildAcceptanceCriteria({
+          contribution: detail.contribution,
+          attachments: asArray(detail.attachments),
+          revisionNote: refinementNote,
+        }),
+        fallbackNonGoals: buildNonGoals(detail.contribution),
+        messages: asArray(detail.messages),
+      });
+    } catch (error) {
+      return specServiceErrorResponse(error);
+    }
+
     const nextSpecVersion = buildSpecVersionRecord({
       id: idFactory(),
       contribution: {
@@ -731,6 +1015,7 @@ export function createSpecApprovalHandler({
       attachments: asArray(detail.attachments),
       createdAt,
       revisionNote: refinementNote,
+      generatedSpec: refinedSpec,
     });
     const requesterMessage = createUserMessage({
       id: idFactory(),
@@ -742,12 +1027,13 @@ export function createSpecApprovalHandler({
     const agentMessage = createAgentMessage({
       id: idFactory(),
       contributionId,
-      body: `Spec v${nextSpecVersion.versionNumber} is ready for approval.`,
+      body: refinedSpec.assistantMessage,
       createdAt,
       metadata: {
         specVersionId: nextSpecVersion.id,
         versionNumber: nextSpecVersion.versionNumber,
         revisionNote: refinementNote,
+        ...refinedSpec.metadata,
       },
     });
     const progressEvent = {
@@ -1375,6 +1661,7 @@ export function createRouteHandlers(options = {}) {
     postContribution: createContributionHandler(options),
     getContribution: createContributionDetailHandler(options),
     postContributionAttachment: createContributionAttachmentHandler(options),
+    postContributionMessage: createContributionMessageHandler(options),
     postSpecApproval: createSpecApprovalHandler(options),
     getContributionProgress: createContributionProgressHandler(options),
     postQueueImplementation: createQueueImplementationHandler(options),
