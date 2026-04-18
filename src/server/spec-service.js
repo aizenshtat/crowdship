@@ -123,6 +123,12 @@ function createDisabledSpecService(message) {
         statusCode: 503,
       });
     },
+    async finalizeConversation() {
+      throw new SpecServiceError(message, {
+        code: 'openai_not_configured',
+        statusCode: 503,
+      });
+    },
     async refineSpec() {
       throw new SpecServiceError(message, {
         code: 'openai_not_configured',
@@ -298,6 +304,50 @@ function getRefineSpecFunctionDefinition() {
   };
 }
 
+function getForcedDraftFunctionDefinition() {
+  return {
+    type: 'function',
+    function: {
+      name: 'submit_forced_spec',
+      description: 'Return the next approval-ready draft spec now. Do not ask more questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          assistantMessage: {
+            type: 'string',
+          },
+          goal: {
+            type: 'string',
+          },
+          userProblem: {
+            type: 'string',
+          },
+          acceptanceCriteria: {
+            type: 'array',
+            minItems: 3,
+            maxItems: 5,
+            items: { type: 'string' },
+          },
+          nonGoals: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 4,
+            items: { type: 'string' },
+          },
+        },
+        required: [
+          'assistantMessage',
+          'goal',
+          'userProblem',
+          'acceptanceCriteria',
+          'nonGoals',
+        ],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
 function buildTurnMessages(mode, payload) {
   const system = [
     'You are Crowdship, a product requirements assistant for external customer-requested software changes.',
@@ -314,6 +364,8 @@ function buildTurnMessages(mode, payload) {
       'This is the first AI turn. Always ask the requester 1 to 3 concise clarification questions before drafting a spec.',
     reply:
       'This is a follow-up turn after the requester answered. If the latest answer gives enough information, draft the spec. Otherwise ask at most 2 more concise questions.',
+    force_draft:
+      'This is the final clarification turn. Draft the best approval-ready spec now. Do not ask more questions. If some detail is still ambiguous, make the narrowest reasonable user-facing assumption and keep scope tight with clear acceptance criteria and non-goals.',
     refine:
       'The requester reviewed a draft spec and asked for a revision. Return a revised approval-ready spec now; do not ask more questions in this mode.',
   };
@@ -359,9 +411,19 @@ function parseToolArguments(payload, toolName) {
   return JSON.parse(toolCall.function.arguments);
 }
 
-function sanitizeTurnResult(rawResult, { contribution, fallbackAcceptanceCriteria, fallbackNonGoals, forceQuestionTurn = false }) {
+function sanitizeTurnResult(rawResult, {
+  contribution,
+  fallbackAcceptanceCriteria,
+  fallbackNonGoals,
+  forceQuestionTurn = false,
+  forceDraftTurn = false,
+}) {
   const fallbackQuestions = buildFallbackQuestions(contribution);
-  const action = forceQuestionTurn ? 'ask_user' : rawResult?.action === 'draft_spec' ? 'draft_spec' : 'ask_user';
+  const action = forceQuestionTurn
+    ? 'ask_user'
+    : forceDraftTurn || rawResult?.action === 'draft_spec'
+      ? 'draft_spec'
+      : 'ask_user';
 
   if (action === 'ask_user') {
     return {
@@ -377,8 +439,8 @@ function sanitizeTurnResult(rawResult, { contribution, fallbackAcceptanceCriteri
   return {
     action,
     assistantMessage: cleanText(
-      rawResult?.assistantMessage,
-      `I drafted the spec for ${contribution.title}.`,
+      forceDraftTurn && rawResult?.action !== 'draft_spec' ? null : rawResult?.assistantMessage,
+      `I drafted the spec for ${contribution.title} based on the details so far.`,
     ),
     goal: cleanSentence(rawResult?.goal, buildFallbackGoal(contribution)),
     userProblem: cleanSentence(rawResult?.userProblem, buildFallbackUserProblem(contribution)),
@@ -544,6 +606,40 @@ export function createOpenAiSpecService({
           fallbackAcceptanceCriteria,
           fallbackNonGoals,
           forceQuestionTurn: false,
+        }),
+        metadata: {
+          provider: 'openai',
+          model,
+        },
+      };
+    },
+
+    async finalizeConversation({
+      contribution,
+      attachments = [],
+      fallbackAcceptanceCriteria = [],
+      fallbackNonGoals = [],
+      messages = [],
+    }) {
+      const rawResult = await requestToolResult({
+        messages: buildTurnMessages(
+          'force_draft',
+          buildConversationPayload({
+            contribution,
+            attachments,
+            messages,
+          }),
+        ),
+        tool: getForcedDraftFunctionDefinition(),
+        toolName: 'submit_forced_spec',
+      });
+
+      return {
+        ...sanitizeTurnResult(rawResult, {
+          contribution,
+          fallbackAcceptanceCriteria,
+          fallbackNonGoals,
+          forceDraftTurn: true,
         }),
         metadata: {
           provider: 'openai',

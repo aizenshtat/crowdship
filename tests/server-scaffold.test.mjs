@@ -152,6 +152,29 @@ function createStubSpecService() {
       };
     },
 
+    async finalizeConversation() {
+      return {
+        action: 'draft_spec',
+        assistantMessage: 'I drafted the first approval-ready scope.',
+        goal: 'Let operators replay the selected signal drop from the mission screen.',
+        userProblem:
+          'Operators can spot a signal drop but cannot inspect the telemetry leading into it without leaving the mission workflow.',
+        acceptanceCriteria: [
+          'The operator can launch replay from /mission for the selected anomaly.',
+          'The replay keeps the mission layout and active filters visible.',
+          'The replay includes the lead-up to the selected signal drop.',
+        ],
+        nonGoals: [
+          'Redesigning unrelated mission-control flows.',
+          'Changing authentication or permissions.',
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+
     async refineSpec({ refinementNote }) {
       return {
         assistantMessage: 'I updated the scope to keep controls on the same mission surface.',
@@ -325,6 +348,141 @@ test('connected contribution persistence opens clarification first and stores th
   assert.equal(detail.body.spec.current.id, 'spec-1');
   assert.equal(detail.body.conversation[0].authorRole, 'requester');
   assert.equal(detail.body.conversation[1].authorRole, 'agent');
+});
+
+test('connected contribution persistence forces a spec draft after capped clarification replies', async () => {
+  const ids = [
+    'contribution-123',
+    'attachment-1',
+    'message-1',
+    'message-2',
+    'progress-created',
+    'progress-clarification',
+    'message-3',
+    'message-4',
+    'progress-clarification-2',
+    'message-5',
+    'message-6',
+    'progress-clarification-3',
+    'message-7',
+    'spec-1',
+    'message-8',
+    'progress-spec',
+  ];
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    clock: () => new Date('2026-04-18T12:00:00Z'),
+  });
+  const specService = {
+    async startConversation({ contribution }) {
+      return {
+        action: 'ask_user',
+        assistantMessage: `Before I draft the spec for ${contribution.title}, I need two quick details.`,
+        questions: [
+          {
+            id: 'replay-content',
+            question: 'What should replay show?',
+            why: 'This defines scope.',
+            suggestedAnswerFormat: 'Short sentence',
+          },
+          {
+            id: 'replay-controls',
+            question: 'Which controls are required?',
+            why: 'This defines launch scope.',
+            suggestedAnswerFormat: 'Short list',
+          },
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+    async continueConversation() {
+      return {
+        action: 'ask_user',
+        assistantMessage: 'I still need one more detail.',
+        questions: [
+          {
+            id: 'replay-content-final',
+            question: 'What should replay show in v1?',
+            why: 'This defines scope.',
+            suggestedAnswerFormat: 'Short sentence',
+          },
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+    async finalizeConversation() {
+      return {
+        action: 'draft_spec',
+        assistantMessage: 'I drafted the first approval-ready scope.',
+        goal: 'Let operators replay the selected signal drop from the mission screen.',
+        userProblem:
+          'Operators can spot a signal drop but cannot inspect the telemetry leading into it without leaving the mission workflow.',
+        acceptanceCriteria: [
+          'The operator can launch replay from /mission for the selected anomaly.',
+          'The replay keeps the mission layout and active filters visible.',
+          'The replay includes the lead-up to the selected signal drop.',
+        ],
+        nonGoals: [
+          'Redesigning unrelated mission-control flows.',
+          'Changing authentication or permissions.',
+        ],
+        metadata: {
+          provider: 'stub',
+          model: 'gpt-5.4',
+        },
+      };
+    },
+  };
+  const createContribution = createContributionHandler({
+    database: persistence,
+    specService,
+    idFactory: () => ids.shift(),
+    clock: () => new Date('2026-04-18T12:00:00Z'),
+  });
+  const postMessage = createContributionMessageHandler({
+    database: persistence,
+    specService,
+    idFactory: () => ids.shift(),
+    clock: () => new Date('2026-04-18T12:02:00Z'),
+  });
+
+  await createContribution({
+    body: buildCreatePayload(),
+  });
+
+  const reply1 = await postMessage({
+    params: { id: 'contribution-123' },
+    body: {
+      body: 'Keep replay on the mission screen.',
+    },
+  });
+  assert.equal(reply1.status, 200);
+  assert.equal(reply1.body.contribution.state, 'draft_chat');
+
+  const reply2 = await postMessage({
+    params: { id: 'contribution-123' },
+    body: {
+      body: 'Keep filters and layout visible.',
+    },
+  });
+  assert.equal(reply2.status, 200);
+  assert.equal(reply2.body.contribution.state, 'draft_chat');
+
+  const reply3 = await postMessage({
+    params: { id: 'contribution-123' },
+    body: {
+      body: 'Replay should show signal timeline and telemetry.',
+    },
+  });
+  assert.equal(reply3.status, 200);
+  assert.equal(reply3.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+  assert.equal(reply3.body.spec.current.versionNumber, 1);
+  assert.equal(reply3.body.conversation.at(-1).messageType, 'spec_ready');
 });
 
 test('connected contribution persistence supports refinement and approval', async () => {

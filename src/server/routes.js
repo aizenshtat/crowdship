@@ -72,6 +72,8 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+const MAX_CLARIFICATION_ANSWERS = 3;
+
 function formatSentence(value, fallback) {
   const text = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
 
@@ -138,6 +140,13 @@ function createAgentMessage({
     metadata,
     createdAt,
   };
+}
+
+function countClarificationAnswers(messages) {
+  return asArray(messages).filter(
+    (message) =>
+      message?.authorRole === 'requester' && message?.messageType === 'clarification_answer',
+  ).length;
 }
 
 function buildAcceptanceCriteria({ contribution, attachments, revisionNote }) {
@@ -781,23 +790,42 @@ export function createContributionMessageHandler({
       messageType: 'clarification_answer',
     });
     const nextConversation = asArray(detail.messages).concat(requesterMessage);
+    const clarificationAnswerCount = countClarificationAnswers(nextConversation);
+    const shouldForceDraft =
+      clarificationAnswerCount >= MAX_CLARIFICATION_ANSWERS &&
+      typeof specService.finalizeConversation === 'function';
 
     let nextTurn;
     try {
-      nextTurn = await specService.continueConversation({
-        contribution: {
-          ...detail.contribution,
-          updatedAt: createdAt,
-        },
-        attachments: asArray(detail.attachments),
-        fallbackAcceptanceCriteria: buildAcceptanceCriteria({
-          contribution: detail.contribution,
-          attachments: asArray(detail.attachments),
-          revisionNote: validation.value.body,
-        }),
-        fallbackNonGoals: buildNonGoals(detail.contribution),
-        messages: nextConversation,
-      });
+      nextTurn = await (shouldForceDraft
+        ? specService.finalizeConversation({
+            contribution: {
+              ...detail.contribution,
+              updatedAt: createdAt,
+            },
+            attachments: asArray(detail.attachments),
+            fallbackAcceptanceCriteria: buildAcceptanceCriteria({
+              contribution: detail.contribution,
+              attachments: asArray(detail.attachments),
+              revisionNote: validation.value.body,
+            }),
+            fallbackNonGoals: buildNonGoals(detail.contribution),
+            messages: nextConversation,
+          })
+        : specService.continueConversation({
+            contribution: {
+              ...detail.contribution,
+              updatedAt: createdAt,
+            },
+            attachments: asArray(detail.attachments),
+            fallbackAcceptanceCriteria: buildAcceptanceCriteria({
+              contribution: detail.contribution,
+              attachments: asArray(detail.attachments),
+              revisionNote: validation.value.body,
+            }),
+            fallbackNonGoals: buildNonGoals(detail.contribution),
+            messages: nextConversation,
+          }));
     } catch (error) {
       return specServiceErrorResponse(error);
     }
