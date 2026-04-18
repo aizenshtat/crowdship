@@ -170,11 +170,14 @@
 
       .lifecycle {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(124px, 1fr);
         gap: 8px;
         margin: 0;
         padding: 0;
         list-style: none;
+        overflow-x: auto;
+        scrollbar-width: thin;
       }
 
       .lifecycle-step {
@@ -611,6 +614,109 @@
         gap: 8px;
       }
 
+      .review-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .button-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+      }
+
+      .review-metrics {
+        display: grid;
+        gap: 8px;
+      }
+
+      .review-metric {
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfb;
+      }
+
+      .review-metric-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .review-metric-value {
+        margin-top: 4px;
+        font-size: 14px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+
+      .review-metric-copy {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .review-status-link {
+        display: inline-flex;
+        margin-top: 8px;
+        color: var(--accent-strong);
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .review-form {
+        display: grid;
+        gap: 8px;
+      }
+
+      .review-form textarea {
+        width: 100%;
+        min-height: 108px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+        resize: none;
+      }
+
+      .review-form textarea:focus {
+        outline: 2px solid #0f766e;
+        outline-offset: 2px;
+      }
+
+      .vote-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .vote-summary-item {
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfb;
+        text-align: left;
+      }
+
+      .vote-summary-item strong {
+        display: block;
+        font-size: 18px;
+        line-height: 1.1;
+      }
+
+      .vote-summary-item span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
       .chat-card {
         display: grid;
         gap: 10px;
@@ -972,7 +1078,7 @@
           <section class="section hidden" id="lifecycle-section" aria-labelledby="lifecycle-title">
             <div class="section-head">
               <h2 id="lifecycle-title">Lifecycle</h2>
-              <p id="lifecycle-copy">Track request, questions, spec, and approval.</p>
+              <p id="lifecycle-copy">Track request, questions, scope, and delivery.</p>
             </div>
             <ol class="lifecycle" id="lifecycle-list">
               <li class="lifecycle-step" data-step="compose" data-state="current" aria-current="step">
@@ -987,9 +1093,9 @@
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Spec</span></div>
                 <p class="lifecycle-copy">Review the drafted scope.</p>
               </li>
-              <li class="lifecycle-step" data-step="approved" data-state="upcoming">
-                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Approved</span></div>
-                <p class="lifecycle-copy">Hand off to implementation.</p>
+              <li class="lifecycle-step" data-step="delivery" data-state="upcoming">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Delivery</span></div>
+                <p class="lifecycle-copy">Track implementation, preview, and launch.</p>
               </li>
             </ol>
           </section>
@@ -1101,7 +1207,7 @@
 
           <section class="section hidden" id="review-section" aria-labelledby="review-title">
             <div class="section-head">
-              <h2 id="review-title">Spec review</h2>
+              <h2 id="review-title">Contribution review</h2>
               <p id="review-copy">Approve the scope or refine it.</p>
             </div>
             <div class="review-card">
@@ -1115,6 +1221,45 @@
                   <span id="review-chip-text">Waiting for approval</span>
                 </div>
               </div>
+
+              <div class="status-block hidden" id="delivery-status" aria-live="polite"></div>
+
+              <div class="review-links hidden" id="delivery-links"></div>
+
+              <div class="review-metrics hidden" id="delivery-summary"></div>
+
+              <div class="review-section hidden" id="vote-summary-section">
+                <div class="review-label">Vote status</div>
+                <div class="vote-summary-grid" id="vote-summary"></div>
+              </div>
+
+              <div class="review-actions hidden" id="vote-actions">
+                <button type="button" class="primary-button" id="vote-approve-button">Approve change</button>
+                <button type="button" class="secondary-button" id="vote-block-button">Block for now</button>
+              </div>
+
+              <div class="status-block hidden" id="comment-status" aria-live="polite"></div>
+
+              <div class="review-section hidden" id="comment-list-section">
+                <div class="review-label">Comments</div>
+                <div class="stack-list" id="comment-list"></div>
+              </div>
+
+              <form class="review-form hidden" id="comment-form" novalidate>
+                <div class="review-label" id="comment-form-label">Comment</div>
+                <label class="sr-only" for="comment-body">Comment</label>
+                <textarea id="comment-body" maxlength="2000" placeholder="Add context or request a change."></textarea>
+                <div class="review-actions">
+                  <button type="submit" class="primary-button" id="comment-submit-button">Send comment</button>
+                </div>
+              </form>
+
+              <details class="details hidden" id="timeline-details" open>
+                <summary>Progress timeline</summary>
+                <div class="details-body">
+                  <div class="stack-list" id="timeline-list"></div>
+                </div>
+              </details>
 
               <div class="review-section">
                 <div class="review-label">Goal</div>
@@ -1197,7 +1342,10 @@
           contributionDetail: null,
           refineOpen: false,
           replyDraft: '',
+          commentDraft: '',
           selectedQuestionChoices: {},
+          pollTimer: 0,
+          pollInFlight: false,
         };
 
         var connectionChip = document.getElementById('connection-chip');
@@ -1217,6 +1365,22 @@
         var reviewHeading = document.getElementById('review-heading');
         var reviewChip = document.getElementById('review-chip');
         var reviewChipText = document.getElementById('review-chip-text');
+        var deliveryStatus = document.getElementById('delivery-status');
+        var deliveryLinks = document.getElementById('delivery-links');
+        var deliverySummary = document.getElementById('delivery-summary');
+        var voteSummarySection = document.getElementById('vote-summary-section');
+        var voteSummary = document.getElementById('vote-summary');
+        var voteActions = document.getElementById('vote-actions');
+        var voteApproveButton = document.getElementById('vote-approve-button');
+        var voteBlockButton = document.getElementById('vote-block-button');
+        var commentStatus = document.getElementById('comment-status');
+        var commentListSection = document.getElementById('comment-list-section');
+        var commentList = document.getElementById('comment-list');
+        var commentForm = document.getElementById('comment-form');
+        var commentBody = document.getElementById('comment-body');
+        var commentSubmitButton = document.getElementById('comment-submit-button');
+        var timelineDetails = document.getElementById('timeline-details');
+        var timelineList = document.getElementById('timeline-list');
         var chatCopy = document.getElementById('chat-copy');
         var chatKicker = document.getElementById('chat-kicker');
         var chatHeading = document.getElementById('chat-heading');
@@ -1313,7 +1477,7 @@
         function setPhase(phase) {
           var active = phase || 'compose';
           state.phase = active;
-          var phaseOrder = ['compose', 'chat', 'spec', 'approved'];
+          var phaseOrder = ['compose', 'chat', 'spec', 'delivery'];
           var activeIndex = phaseOrder.indexOf(active);
           if (active === 'sending') {
             activeIndex = 0;
@@ -1337,7 +1501,7 @@
               step.removeAttribute('aria-current');
             }
           });
-          if (active === 'sending' || active === 'spec' || active === 'approved') {
+          if (active === 'sending' || active === 'spec' || active === 'delivery') {
             lifecycleSection.classList.remove('hidden');
           }
           if (active === 'chat') {
@@ -1356,9 +1520,9 @@
             setChip('ready', 'Spec ready');
             return;
           }
-          if (active === 'approved') {
-            bannerCopy.textContent = 'The approved scope is stored for the next engineering step.';
-            setChip('ready', 'Spec approved');
+          if (active === 'delivery') {
+            bannerCopy.textContent = 'Crowdship is tracking implementation, preview, and review state.';
+            setChip('working', 'Delivery in progress');
             return;
           }
           if (active === 'error') {
@@ -1472,8 +1636,77 @@
             .join('');
         }
 
+        function renderMetricGrid(target, items, emptyText) {
+          if (!items.length) {
+            target.innerHTML = '<div class="summary-empty">' + escapeHtml(emptyText) + '</div>';
+            return;
+          }
+
+          target.innerHTML = items
+            .map(function (item) {
+              return (
+                '<div class="review-metric">' +
+                '<div class="review-metric-label">' + escapeHtml(item.label) + '</div>' +
+                '<div class="review-metric-value">' + escapeHtml(item.value) + '</div>' +
+                (item.copy ? '<div class="review-metric-copy">' + escapeHtml(item.copy) + '</div>' : '') +
+                (item.url
+                  ? '<a class="review-status-link" href="' + escapeHtml(item.url) + '" target="_blank" rel="noreferrer">Open</a>'
+                  : '') +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+
+        function toggleHidden(target, hidden) {
+          target.classList.toggle('hidden', !!hidden);
+        }
+
+        function normalizePublicUrl(url) {
+          if (!url) return '';
+          if (window.location.protocol !== 'https:') return url;
+          return String(url).replace(/^http:\/\/(example|crowdship)\.aizenshtat\.eu(?=\/|$)/, 'https://$1.aizenshtat.eu');
+        }
+
+        function formatDateTime(value) {
+          if (!value) return 'Not recorded';
+
+          var date = new Date(value);
+          if (isNaN(date.getTime())) {
+            return String(value);
+          }
+
+          try {
+            return date.toLocaleString([], {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            });
+          } catch (error) {
+            return date.toISOString();
+          }
+        }
+
+        function getLatestByCreatedAt(items) {
+          return (Array.isArray(items) ? items : []).reduce(function (latest, item) {
+            if (!latest) return item;
+            return String(item && item.createdAt || '') > String(latest && latest.createdAt || '') ? item : latest;
+          }, null);
+        }
+
+        function isDeliveryState(stateName) {
+          return !!stateName && stateName !== 'draft_chat' && stateName !== 'spec_pending_approval';
+        }
+
+        function shouldPollContribution(detail) {
+          if (!state.open || !detail || !detail.contribution) return false;
+
+          var stateName = getContributionState(detail);
+          return isDeliveryState(stateName) && stateName !== 'merged' && stateName !== 'completed' && stateName !== 'rejected';
+        }
+
         function normalizeReviewPhase(detail) {
-          return detail && detail.contribution && detail.contribution.state === 'spec_approved' ? 'approved' : 'spec';
+          var stateName = getContributionState(detail);
+          return isDeliveryState(stateName) ? 'delivery' : 'spec';
         }
 
         function buildReviewContext(detail) {
@@ -1524,23 +1757,13 @@
 
         function getContributionDetail(payload) {
           if (!payload || typeof payload !== 'object') return null;
-          if (payload.contribution && (payload.spec || payload.contribution.state === 'draft_chat' || payload.contribution.state === 'spec_pending_approval')) {
+          if (payload.contribution) {
             return payload;
           }
-          if (
-            payload.detail &&
-            payload.detail.contribution &&
-            (payload.detail.spec || payload.detail.contribution.state === 'draft_chat' || payload.detail.contribution.state === 'spec_pending_approval')
-          ) {
+          if (payload.detail && payload.detail.contribution) {
             return payload.detail;
           }
-          if (
-            payload.contributionDetail &&
-            payload.contributionDetail.contribution &&
-            (payload.contributionDetail.spec ||
-              payload.contributionDetail.contribution.state === 'draft_chat' ||
-              payload.contributionDetail.contribution.state === 'spec_pending_approval')
-          ) {
+          if (payload.contributionDetail && payload.contributionDetail.contribution) {
             return payload.contributionDetail;
           }
           return null;
@@ -1757,6 +1980,7 @@
           composeForm.classList.add('hidden');
           reviewSection.classList.add('hidden');
           lifecycleSection.classList.remove('hidden');
+          stopContributionPolling();
         }
 
         function hideChatStatus() {
@@ -1768,12 +1992,290 @@
           setInlineStatus(chatStatus, kind, title, copy);
         }
 
+        function hideCommentStatus() {
+          commentStatus.classList.add('hidden');
+          commentStatus.innerHTML = '';
+        }
+
+        function showCommentStatus(kind, title, copy) {
+          setInlineStatus(commentStatus, kind, title, copy);
+        }
+
+        function buildDeliveryModel(detail) {
+          var review = detail && detail.review ? detail.review : {};
+          var lifecycle = detail && detail.lifecycle ? detail.lifecycle : {};
+          var implementation = review.implementation || {};
+
+          return {
+            contribution: detail && detail.contribution ? detail.contribution : {},
+            state: getContributionState(detail),
+            currentJob: implementation.current || getLatestByCreatedAt(implementation.jobs || []),
+            latestPullRequest: getLatestByCreatedAt(review.pullRequests || []),
+            latestPreview: getLatestByCreatedAt(review.previewDeployments || []),
+            voteSummary: review.votes && review.votes.summary ? review.votes.summary : { approve: 0, block: 0, total: 0 },
+            comments: Array.isArray(review.comments) ? review.comments : [],
+            events: Array.isArray(lifecycle.events) ? lifecycle.events : [],
+          };
+        }
+
+        function getDeliveryStatusMeta(model) {
+          var latestEvent = model.events.length ? model.events[model.events.length - 1] : null;
+          var latestMessage = latestEvent && latestEvent.message ? latestEvent.message : 'Crowdship is tracking this change.';
+
+          switch (model.state) {
+            case 'spec_approved':
+              return {
+                tone: 'ready',
+                title: 'Scope approved',
+                copy: 'Waiting for an owner or automation rule to queue implementation.',
+              };
+            case 'agent_queued':
+              return {
+                tone: 'working',
+                title: 'Implementation queued',
+                copy: latestMessage,
+              };
+            case 'agent_running':
+              return {
+                tone: 'working',
+                title: 'Implementation running',
+                copy: latestMessage,
+              };
+            case 'implementation_failed':
+              return {
+                tone: 'error',
+                title: 'Implementation failed',
+                copy: model.currentJob && model.currentJob.errorSummary ? model.currentJob.errorSummary : latestMessage,
+              };
+            case 'pr_opened':
+              return {
+                tone: 'working',
+                title: 'Pull request open',
+                copy: model.latestPullRequest ? 'Preview deployment is the next step.' : latestMessage,
+              };
+            case 'preview_deploying':
+              return {
+                tone: 'working',
+                title: 'Preview deploying',
+                copy: latestMessage,
+              };
+            case 'preview_failed':
+              return {
+                tone: 'error',
+                title: 'Preview failed',
+                copy: model.latestPreview && model.latestPreview.errorSummary ? model.latestPreview.errorSummary : latestMessage,
+              };
+            case 'preview_ready':
+            case 'requester_review':
+              return {
+                tone: 'ready',
+                title: 'Preview ready',
+                copy: 'Open the preview and leave comments while the branch is under review.',
+              };
+            case 'revision_requested':
+              return {
+                tone: 'working',
+                title: 'Revision requested',
+                copy: latestMessage,
+              };
+            case 'ready_for_voting':
+              return {
+                tone: 'ready',
+                title: 'Ready for voting',
+                copy: 'The preview is available and the contribution can move into voting.',
+              };
+            case 'voting_open':
+              return {
+                tone: 'ready',
+                title: 'Voting open',
+                copy: 'Core signals are being collected on this preview.',
+              };
+            case 'core_team_flagged':
+            case 'core_review':
+              return {
+                tone: 'working',
+                title: 'Core review in progress',
+                copy: latestMessage,
+              };
+            case 'merged':
+            case 'completed':
+              return {
+                tone: 'ready',
+                title: 'Merged',
+                copy: latestMessage,
+              };
+            case 'production_deploying':
+              return {
+                tone: 'working',
+                title: 'Production deploying',
+                copy: latestMessage,
+              };
+            case 'rejected':
+              return {
+                tone: 'error',
+                title: 'Contribution closed',
+                copy: latestMessage,
+              };
+            default:
+              return {
+                tone: 'working',
+                title: 'Contribution in progress',
+                copy: latestMessage,
+              };
+          }
+        }
+
+        function renderDeliveryLinks(model) {
+          var links = [];
+          var previewUrl = model.latestPreview && model.latestPreview.url ? normalizePublicUrl(model.latestPreview.url) : '';
+          var prUrl = model.latestPullRequest && model.latestPullRequest.url ? normalizePublicUrl(model.latestPullRequest.url) : '';
+
+          if (previewUrl) {
+            links.push({
+              label: 'Open preview',
+              url: previewUrl,
+            });
+          }
+
+          if (prUrl) {
+            links.push({
+              label: 'View pull request',
+              url: prUrl,
+            });
+          }
+
+          if (!links.length) {
+            deliveryLinks.innerHTML = '';
+            toggleHidden(deliveryLinks, true);
+            return;
+          }
+
+          deliveryLinks.innerHTML = links
+            .map(function (link) {
+              return (
+                '<a class="button-link secondary-button" href="' + escapeHtml(link.url) + '" target="_blank" rel="noreferrer">' +
+                escapeHtml(link.label) +
+                '</a>'
+              );
+            })
+            .join('');
+          toggleHidden(deliveryLinks, false);
+        }
+
+        function renderVoteSummary(summary, showEvenWhenEmpty) {
+          if (!showEvenWhenEmpty && !summary.total) {
+            voteSummary.innerHTML = '';
+            toggleHidden(voteSummarySection, true);
+            return;
+          }
+
+          voteSummary.innerHTML = [
+            { label: 'Approve', value: summary.approve },
+            { label: 'Block', value: summary.block },
+            { label: 'Total', value: summary.total },
+          ]
+            .map(function (item) {
+              return (
+                '<div class="vote-summary-item">' +
+                '<strong>' + escapeHtml(String(item.value)) + '</strong>' +
+                '<span>' + escapeHtml(item.label) + '</span>' +
+                '</div>'
+              );
+            })
+            .join('');
+          toggleHidden(voteSummarySection, false);
+        }
+
+        function renderTimeline(events) {
+          renderStackList(
+            timelineList,
+            events
+              .slice()
+              .reverse()
+              .map(function (event) {
+                return {
+                  title: event.message || event.kind || 'Event',
+                  meta: [event.status, formatDateTime(event.createdAt)].filter(Boolean).join(' · '),
+                  copy: event.externalUrl ? normalizePublicUrl(event.externalUrl) : '',
+                };
+              }),
+            'No delivery events recorded yet.'
+          );
+          toggleHidden(timelineDetails, false);
+        }
+
+        function renderDelivery(detail) {
+          var model = buildDeliveryModel(detail);
+          var statusMeta = getDeliveryStatusMeta(model);
+          var verification = model.currentJob && model.currentJob.metadata && Array.isArray(model.currentJob.metadata.verification)
+            ? model.currentJob.metadata.verification.join(', ')
+            : 'Not recorded yet';
+          var metrics = [
+            {
+              label: 'State',
+              value: model.state || 'Unknown',
+              copy: model.currentJob && model.currentJob.branchName ? model.currentJob.branchName : 'Waiting for delivery metadata.',
+            },
+            {
+              label: 'Implementation job',
+              value: model.currentJob ? model.currentJob.status : 'Not started',
+              copy: model.currentJob && model.currentJob.finishedAt
+                ? 'Finished ' + formatDateTime(model.currentJob.finishedAt)
+                : model.currentJob && model.currentJob.startedAt
+                  ? 'Started ' + formatDateTime(model.currentJob.startedAt)
+                  : 'No implementation job recorded.',
+            },
+            {
+              label: 'Verification',
+              value: verification,
+              copy: model.latestPullRequest ? 'PR #' + model.latestPullRequest.number + ' is open.' : 'No pull request recorded yet.',
+              url: model.latestPullRequest ? normalizePublicUrl(model.latestPullRequest.url) : '',
+            },
+            {
+              label: 'Preview',
+              value: model.latestPreview ? model.latestPreview.status : 'Not ready',
+              copy: model.latestPreview && model.latestPreview.deployedAt
+                ? 'Updated ' + formatDateTime(model.latestPreview.deployedAt)
+                : 'No preview recorded yet.',
+              url: model.latestPreview ? normalizePublicUrl(model.latestPreview.url) : '',
+            },
+          ];
+
+          setInlineStatus(deliveryStatus, statusMeta.tone, statusMeta.title, statusMeta.copy);
+          renderDeliveryLinks(model);
+          renderMetricGrid(deliverySummary, metrics, 'No delivery metadata recorded yet.');
+          toggleHidden(deliverySummary, false);
+          renderVoteSummary(model.voteSummary, model.state === 'voting_open');
+          toggleHidden(voteActions, model.state !== 'voting_open');
+          voteApproveButton.disabled = state.submitting;
+          voteBlockButton.disabled = state.submitting;
+          renderStackList(
+            commentList,
+            model.comments.map(function (comment) {
+              return {
+                title: (comment.authorRole || 'Comment') + ' · ' + (comment.disposition || 'note'),
+                meta: formatDateTime(comment.createdAt),
+                copy: comment.body || '',
+              };
+            }),
+            'No comments yet.'
+          );
+          toggleHidden(commentListSection, false);
+          toggleHidden(commentForm, false);
+          commentBody.disabled = state.submitting;
+          commentSubmitButton.disabled = state.submitting;
+          commentBody.value = state.commentDraft || '';
+          renderTimeline(model.events);
+        }
+
         function renderReview() {
           var detail = state.contributionDetail;
           var currentSpec = detail && detail.spec ? detail.spec.current : null;
           var attachments = detail ? detail.attachments || [] : [];
           var conversation = getConversation(detail);
-          var isApproved = detail && detail.contribution && detail.contribution.state === 'spec_approved';
+          var contributionState = getContributionState(detail);
+          var isSpecPendingApproval = contributionState === 'spec_pending_approval';
+          var showDelivery = isDeliveryState(contributionState);
 
           if (!detail || !currentSpec) {
             reviewSection.classList.add('hidden');
@@ -1785,14 +2287,14 @@
           composeForm.classList.add('hidden');
           lifecycleSection.classList.remove('hidden');
 
-          reviewState.textContent = isApproved ? 'Spec approved' : 'Spec ready';
-          reviewHeading.textContent = isApproved
-            ? 'The approved scope is stored.'
-            : 'Review spec v' + currentSpec.versionNumber + '.';
-          reviewCopy.textContent = isApproved
-            ? 'No implementation job has started yet.'
-            : 'Approve the scope or ask for changes before any implementation work starts.';
-          setReviewChip(isApproved ? 'ready' : 'working', isApproved ? 'Approved' : 'Waiting for approval');
+          reviewState.textContent = isSpecPendingApproval ? 'Spec ready' : 'Delivery tracked';
+          reviewHeading.textContent = isSpecPendingApproval
+            ? 'Review spec v' + currentSpec.versionNumber + '.'
+            : 'Track the approved change.';
+          reviewCopy.textContent = isSpecPendingApproval
+            ? 'Approve the scope or ask for changes before any implementation work starts.'
+            : 'Crowdship keeps the approved scope visible while implementation, preview, and review move forward.';
+          setReviewChip(isSpecPendingApproval ? 'working' : 'ready', isSpecPendingApproval ? 'Waiting for approval' : 'Delivery active');
           specGoal.textContent = currentSpec.goal || 'No goal recorded.';
           specUserProblem.textContent = currentSpec.userProblem || 'No user problem recorded.';
           renderSimpleList(specCriteria, currentSpec.acceptanceCriteria || [], 'No acceptance criteria.');
@@ -1821,27 +2323,51 @@
             'No conversation recorded.'
           );
 
-          reviewActions.classList.toggle('hidden', isApproved);
-          refineField.classList.toggle('hidden', isApproved || !state.refineOpen);
-          refineActions.classList.toggle('hidden', isApproved || !state.refineOpen);
+          reviewActions.classList.toggle('hidden', !isSpecPendingApproval);
+          refineField.classList.toggle('hidden', !isSpecPendingApproval || !state.refineOpen);
+          refineActions.classList.toggle('hidden', !isSpecPendingApproval || !state.refineOpen);
           approveButton.disabled = state.submitting;
           refineToggleButton.disabled = state.submitting;
           refineSubmitButton.disabled = state.submitting;
           refineCancelButton.disabled = state.submitting;
 
-          if (!isApproved && !state.refineOpen) {
+          if (isSpecPendingApproval && !state.refineOpen) {
             refineNote.value = '';
           }
 
+          toggleHidden(deliveryStatus, !showDelivery);
+          toggleHidden(deliverySummary, !showDelivery);
+          toggleHidden(commentListSection, !showDelivery);
+          toggleHidden(commentForm, !showDelivery);
+          toggleHidden(timelineDetails, !showDelivery);
+          toggleHidden(voteActions, true);
+          toggleHidden(voteSummarySection, true);
+          toggleHidden(deliveryLinks, true);
+          hideCommentStatus();
+
+          if (showDelivery) {
+            renderDelivery(detail);
+          }
+
           setPhase(normalizeReviewPhase(detail));
+          syncContributionPolling();
         }
 
         function showComposeSurface() {
           chatSection.classList.add('hidden');
           reviewSection.classList.add('hidden');
           composeForm.classList.remove('hidden');
+          stopContributionPolling();
           renderContext();
           renderAttachments();
+          toggleHidden(deliveryStatus, true);
+          toggleHidden(deliverySummary, true);
+          toggleHidden(commentListSection, true);
+          toggleHidden(commentForm, true);
+          toggleHidden(timelineDetails, true);
+          toggleHidden(voteActions, true);
+          toggleHidden(voteSummarySection, true);
+          toggleHidden(deliveryLinks, true);
           setPhase(state.submitting ? 'sending' : 'compose');
         }
 
@@ -1875,10 +2401,13 @@
           } else {
             showComposeSurface();
           }
+
+          syncContributionPolling();
         }
 
         function showError(title, copy) {
           state.ready = false;
+          stopContributionPolling();
           loadingState.classList.add('hidden');
           errorState.classList.remove('hidden');
           lifecycleSection.classList.add('hidden');
@@ -2048,6 +2577,212 @@
             payload: payload,
             response: result.response,
           };
+        }
+
+        function stopContributionPolling() {
+          if (state.pollTimer) {
+            clearTimeout(state.pollTimer);
+            state.pollTimer = 0;
+          }
+        }
+
+        function queueContributionPoll() {
+          stopContributionPolling();
+
+          if (!shouldPollContribution(state.contributionDetail)) {
+            return;
+          }
+
+          state.pollTimer = window.setTimeout(function () {
+            fetchContributionDetail({ silent: true });
+          }, 4000);
+        }
+
+        function syncContributionPolling() {
+          if (!shouldPollContribution(state.contributionDetail)) {
+            stopContributionPolling();
+            return;
+          }
+
+          if (!state.pollTimer && !state.pollInFlight) {
+            queueContributionPoll();
+          }
+        }
+
+        function fetchContributionDetail(options) {
+          var silent = options && options.silent === true;
+
+          if (
+            state.pollInFlight ||
+            !state.contributionDetail ||
+            !state.contributionDetail.contribution ||
+            !state.contributionDetail.contribution.id
+          ) {
+            return Promise.resolve(null);
+          }
+
+          state.pollInFlight = true;
+          stopContributionPolling();
+
+          return fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id), {
+            method: 'GET',
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              var parsed = parseDetailResponse(result);
+
+              if (parsed.error === 'invalid-json' || !parsed.response.ok) {
+                if (!silent) {
+                  setReviewChip('error', 'Refresh failed');
+                  reviewCopy.textContent = parsed.error === 'invalid-json'
+                    ? 'The server returned invalid JSON.'
+                    : 'Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + '.';
+                }
+                return null;
+              }
+
+              var nextDetail = getContributionDetail(parsed.payload) || parsed.payload;
+              if (nextDetail && nextDetail.contribution) {
+                state.contributionDetail = nextDetail;
+                if (getContributionState(state.contributionDetail) === 'draft_chat') {
+                  renderChat(state.contributionDetail);
+                } else {
+                  renderReview();
+                }
+              }
+
+              return nextDetail;
+            })
+            .catch(function (error) {
+              if (!silent) {
+                setReviewChip('error', 'Refresh failed');
+                reviewCopy.textContent = error && error.message ? error.message : 'The browser could not refresh the contribution.';
+              }
+              return null;
+            })
+            .finally(function () {
+              state.pollInFlight = false;
+              syncContributionPolling();
+            });
+        }
+
+        function submitVote(voteType) {
+          if (state.submitting || !state.contributionDetail || !state.contributionDetail.contribution) return;
+
+          state.submitting = true;
+          renderReview();
+          setReviewChip('working', voteType === 'approve' ? 'Recording approval' : 'Recording block');
+          reviewCopy.textContent = 'Saving your vote.';
+
+          fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id) + '/votes', {
+            method: 'POST',
+            body: JSON.stringify({
+              voteType: voteType,
+              voterUserId: state.user && state.user.id ? state.user.id : null,
+              voterEmail: state.user && state.user.email ? state.user.email : null,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              state.submitting = false;
+              var parsed = parseDetailResponse(result);
+
+              if (parsed.error === 'invalid-json' || !parsed.response.ok) {
+                renderReview();
+                setReviewChip('error', 'Vote failed');
+                reviewCopy.textContent = parsed.error === 'invalid-json'
+                  ? 'The server returned invalid JSON.'
+                  : 'Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + '.';
+                return;
+              }
+
+              state.contributionDetail = getContributionDetail(parsed.payload) || parsed.payload || state.contributionDetail;
+              renderReview();
+            })
+            .catch(function (error) {
+              state.submitting = false;
+              renderReview();
+              setReviewChip('error', 'Vote failed');
+              reviewCopy.textContent = error && error.message ? error.message : 'The browser could not reach the server.';
+            });
+        }
+
+        function submitComment(event) {
+          event.preventDefault();
+          if (state.submitting || !state.contributionDetail || !state.contributionDetail.contribution) return;
+
+          var body = commentBody.value.trim();
+          if (!body) {
+            showCommentStatus('error', 'Add a comment', 'Write a short note before sending it.');
+            return;
+          }
+
+          state.submitting = true;
+          state.commentDraft = body;
+          renderReview();
+          hideCommentStatus();
+          setReviewChip('working', 'Sending comment');
+          reviewCopy.textContent = 'Saving your comment.';
+
+          fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id) + '/comments', {
+            method: 'POST',
+            body: JSON.stringify({
+              authorRole: state.user && state.user.role ? state.user.role : 'requester',
+              authorUserId: state.user && state.user.id ? state.user.id : null,
+              body: body,
+              disposition: 'note',
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              state.submitting = false;
+              var parsed = parseDetailResponse(result);
+
+              if (parsed.error === 'invalid-json' || !parsed.response.ok) {
+                renderReview();
+                showCommentStatus(
+                  'error',
+                  'Comment failed',
+                  parsed.error === 'invalid-json'
+                    ? 'The server returned invalid JSON.'
+                    : 'Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + '.'
+                );
+                return;
+              }
+
+              state.commentDraft = '';
+              state.contributionDetail = getContributionDetail(parsed.payload) || parsed.payload || state.contributionDetail;
+              renderReview();
+              hideCommentStatus();
+            })
+            .catch(function (error) {
+              state.submitting = false;
+              renderReview();
+              showCommentStatus('error', 'Comment failed', error && error.message ? error.message : 'The browser could not reach the server.');
+            });
         }
 
         function submitReply(choiceLabel, choiceId) {
@@ -2293,7 +3028,23 @@
           submitReply(label, choiceId);
         });
 
+        voteApproveButton.addEventListener('click', function () {
+          submitVote('approve');
+        });
+
+        voteBlockButton.addEventListener('click', function () {
+          submitVote('block');
+        });
+
+        commentForm.addEventListener('submit', submitComment);
+
+        commentBody.addEventListener('input', function () {
+          state.commentDraft = commentBody.value;
+          hideCommentStatus();
+        });
+
         closeButton.addEventListener('click', function () {
+          stopContributionPolling();
           window.parent.postMessage({ source: 'crowdship', type: 'crowdship:close-request' }, '*');
         });
 
@@ -2307,6 +3058,7 @@
             return;
           }
           if (data.type === 'crowdship:close') {
+            stopContributionPolling();
             window.close();
           }
         });

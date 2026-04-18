@@ -10,7 +10,7 @@ import {
   buildPullRequestTitle,
 } from '../src/worker/helpers.js';
 import { sanitizeImplementationEdits } from '../src/worker/implementation-service.js';
-import { isDirectWorkerRun } from '../src/worker/runtime.js';
+import { isDirectWorkerRun, processClaimedJob } from '../src/worker/runtime.js';
 
 test('worker builds branch names with contribution id and slugged title', () => {
   assert.equal(
@@ -107,4 +107,98 @@ test('implementation edits reject paths outside the allowed example repo surface
       ]),
     /outside the allowed repo surface/,
   );
+});
+
+test('worker marks implementation jobs failed when setup errors happen before repository work starts', async () => {
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const poolCalls = [];
+  const progressUpdates = [];
+
+  delete process.env.OPENAI_API_KEY;
+
+  try {
+    await processClaimedJob(
+      {
+        query: async (sql, values) => {
+          poolCalls.push({ sql, values });
+          return { rows: [] };
+        },
+      },
+      {
+        async getContributionDetail() {
+          return {
+            contribution: {
+              id: 'ctrb-setup-failure',
+              projectSlug: 'example',
+              title: 'Add anomaly replay for signal drops',
+            },
+            specVersions: [],
+          };
+        },
+        async applyContributionUpdate(payload) {
+          progressUpdates.push(payload);
+        },
+      },
+      {
+        id: 'job-setup-failure',
+        contribution_id: 'ctrb-setup-failure',
+        branch_name: null,
+        repository_full_name: 'aizenshtat/example',
+      },
+    );
+  } finally {
+    if (previousApiKey == null) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousApiKey;
+    }
+  }
+
+  assert.ok(
+    poolCalls.some(({ sql, values }) =>
+      /UPDATE implementation_jobs/.test(sql) &&
+      Array.isArray(values) &&
+      values.includes('failed'),
+    ),
+  );
+  assert.ok(
+    progressUpdates.some((payload) => payload.nextState === 'implementation_failed'),
+  );
+});
+
+test('worker marks implementation jobs failed when contribution detail lookup throws before setup starts', async () => {
+  const poolCalls = [];
+  const progressUpdates = [];
+
+  await processClaimedJob(
+    {
+      query: async (sql, values) => {
+        poolCalls.push({ sql, values });
+        return { rows: [] };
+      },
+    },
+    {
+      async getContributionDetail() {
+        throw new Error('Detail lookup failed.');
+      },
+      async applyContributionUpdate(payload) {
+        progressUpdates.push(payload);
+      },
+    },
+    {
+      id: 'job-detail-lookup-failure',
+      contribution_id: 'ctrb-detail-lookup-failure',
+      branch_name: null,
+      repository_full_name: 'aizenshtat/example',
+    },
+  );
+
+  assert.ok(
+    poolCalls.some(({ sql, values }) =>
+      /UPDATE implementation_jobs/.test(sql) &&
+      Array.isArray(values) &&
+      values.includes('failed'),
+    ),
+  );
+  assert.equal(progressUpdates.length, 0);
 });

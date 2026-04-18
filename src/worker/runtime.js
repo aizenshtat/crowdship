@@ -378,29 +378,37 @@ async function deployPreviewIfConfigured(contributionId, repoPath) {
   return previewUrl;
 }
 
-async function processClaimedJob(pool, database, claimedJob) {
-  const detail = await database.getContributionDetail(claimedJob.contribution_id);
-
-  if (!detail) {
-    await updateImplementationJob(pool, claimedJob.id, {
-      status: 'failed',
-      finished_at: nowIso(),
-      error_summary: 'Contribution detail could not be loaded.',
-    });
-    return;
-  }
-
-  const repo = getProjectRepoConfig(detail, claimedJob);
-  if (!existsSync(repo.repoPath)) {
-    throw new Error(`Target repository path does not exist: ${repo.repoPath}`);
-  }
-  const branchName =
-    claimedJob.branch_name || buildBranchName(detail.contribution.id, detail.contribution.title);
-  const worktreePath = join(tmpdir(), `crowdship-${detail.contribution.id}`);
+export async function processClaimedJob(pool, database, claimedJob) {
+  var detail = null;
+  var repo = null;
+  var branchName = claimedJob.branch_name || null;
+  var worktreePath = null;
   const verification = [];
-  const implementationService = createConfiguredImplementationService();
 
   try {
+    detail = await database.getContributionDetail(claimedJob.contribution_id);
+
+    if (!detail || !detail.contribution) {
+      await updateImplementationJob(pool, claimedJob.id, {
+        status: 'failed',
+        finished_at: nowIso(),
+        error_summary: 'Contribution detail could not be loaded.',
+      });
+      return;
+    }
+
+    if (!branchName) {
+      branchName = buildBranchName(detail.contribution.id, detail.contribution.title);
+    }
+    worktreePath = join(tmpdir(), `crowdship-${detail.contribution.id}`);
+
+    repo = getProjectRepoConfig(detail, claimedJob);
+    if (!existsSync(repo.repoPath)) {
+      throw new Error(`Target repository path does not exist: ${repo.repoPath}`);
+    }
+
+    const implementationService = createConfiguredImplementationService();
+
     await emitProgress(database, detail.contribution.id, {
       nextState: 'agent_running',
       kind: 'agent_step',
@@ -644,16 +652,18 @@ async function processClaimedJob(pool, database, claimedJob) {
       error_summary: error instanceof Error ? error.message.slice(0, 500) : 'Worker execution failed.',
     });
 
-    await emitProgress(database, detail.contribution.id, {
-      nextState: IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
-      kind: 'agent_step',
-      message: error instanceof Error ? `Worker failed: ${error.message}` : 'Worker failed.',
-      payload: {
-        contributionId: detail.contribution.id,
-      },
-    });
+    if (detail && detail.contribution && detail.contribution.id) {
+      await emitProgress(database, detail.contribution.id, {
+        nextState: IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
+        kind: 'agent_step',
+        message: error instanceof Error ? `Worker failed: ${error.message}` : 'Worker failed.',
+        payload: {
+          contributionId: detail.contribution.id,
+        },
+      });
+    }
   } finally {
-    if (existsSync(worktreePath)) {
+    if (repo && worktreePath && existsSync(worktreePath)) {
       try {
         await runCommand('git', ['worktree', 'remove', '--force', worktreePath], {
           cwd: repo.repoPath,
