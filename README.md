@@ -18,6 +18,7 @@ This repository intentionally contains only bootstrap infrastructure:
 - Implementation agent contract at `docs/implementation-agent.md`
 - Preview CI/CD contract at `docs/preview-cicd.md`
 - Product walkthrough at `docs/demo-script.md`
+- Implementation plan at `docs/implementation-plan.md`
 - Security model at `docs/security-model.md`
 - Sentry project notes at `docs/sentry.md`
 - GitHub Actions configuration at `docs/github-configuration.md`

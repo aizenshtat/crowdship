@@ -22,9 +22,21 @@ test('quality infrastructure files exist', () => {
     '.githooks/pre-commit',
     '.github/workflows/smoke.yml',
     'docs/agent-tooling.md',
+    'docs/implementation-plan.md',
     'docs/ui-quality-contract.md',
     'scripts/quality-check.sh',
   ].forEach(assertFile);
+});
+
+test('implementation plan references required contracts', () => {
+  const plan = read('docs/implementation-plan.md');
+
+  assert.match(plan, /Stack Decision/);
+  assert.match(plan, /docs\/widget-contract\.md/);
+  assert.match(plan, /docs\/contribution-lifecycle\.md/);
+  assert.match(plan, /docs\/sentry\.md/);
+  assert.match(plan, /\.agents\/skills\/crowdship-ui-ux\/SKILL\.md/);
+  assert.match(plan, /\.\.\/example\/docs\/external-app-role\.md/);
 });
 
 test('ui contract preserves the product quality bar', () => {
