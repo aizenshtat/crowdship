@@ -9,6 +9,7 @@ import { Pool } from 'pg';
 
 import { createPostgresContributionPersistenceAdapter } from '../server/persistence.js';
 import {
+  IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
   PREVIEW_READY_CONTRIBUTION_STATE,
   PR_OPENED_CONTRIBUTION_STATE,
 } from '../shared/contracts.js';
@@ -569,7 +570,7 @@ async function processClaimedJob(pool, database, claimedJob) {
     });
 
     await emitProgress(database, detail.contribution.id, {
-      nextState: detail.contribution.state,
+      nextState: IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
       kind: 'agent_step',
       message: error instanceof Error ? `Worker failed: ${error.message}` : 'Worker failed.',
       payload: {

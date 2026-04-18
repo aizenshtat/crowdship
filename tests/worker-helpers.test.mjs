@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   buildBranchName,
@@ -68,8 +69,9 @@ test('worker builds real artifact and pr body summaries', () => {
 
 test('worker only treats the runtime file as a direct entry point', () => {
   const runtimeUrl = new URL('../src/worker/runtime.js', import.meta.url).href;
+  const runtimePath = fileURLToPath(runtimeUrl);
 
-  assert.equal(isDirectWorkerRun('/root/crowdship/src/worker/runtime.js', runtimeUrl), true);
-  assert.equal(isDirectWorkerRun('/root/crowdship/src/worker/runtime.js', 'file:///tmp/other.js'), false);
+  assert.equal(isDirectWorkerRun(runtimePath, runtimeUrl), true);
+  assert.equal(isDirectWorkerRun(runtimePath, 'file:///tmp/other.js'), false);
   assert.equal(isDirectWorkerRun(null, runtimeUrl), false);
 });

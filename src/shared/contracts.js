@@ -4,8 +4,10 @@ const CONTRIBUTION_STATE_LIST = [
   'spec_approved',
   'agent_queued',
   'agent_running',
+  'implementation_failed',
   'pr_opened',
   'preview_deploying',
+  'preview_failed',
   'preview_ready',
   'requester_review',
   'revision_requested',
@@ -58,8 +60,10 @@ export const INITIAL_CONTRIBUTION_STATE = CONTRIBUTION_STATE_LIST[0];
 export const SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE = 'spec_pending_approval';
 export const SPEC_APPROVED_CONTRIBUTION_STATE = 'spec_approved';
 export const AGENT_QUEUED_CONTRIBUTION_STATE = 'agent_queued';
+export const IMPLEMENTATION_FAILED_CONTRIBUTION_STATE = 'implementation_failed';
 export const PR_OPENED_CONTRIBUTION_STATE = 'pr_opened';
 export const PREVIEW_DEPLOYING_CONTRIBUTION_STATE = 'preview_deploying';
+export const PREVIEW_FAILED_CONTRIBUTION_STATE = 'preview_failed';
 export const PREVIEW_READY_CONTRIBUTION_STATE = 'preview_ready';
 export const VOTING_OPEN_CONTRIBUTION_STATE = 'voting_open';
 export const MERGED_CONTRIBUTION_STATE = 'merged';

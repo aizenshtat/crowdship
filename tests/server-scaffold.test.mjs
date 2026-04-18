@@ -205,8 +205,10 @@ test('shared contribution states preserve the lifecycle order', () => {
     'spec_approved',
     'agent_queued',
     'agent_running',
+    'implementation_failed',
     'pr_opened',
     'preview_deploying',
+    'preview_failed',
     'preview_ready',
     'requester_review',
     'revision_requested',
@@ -862,6 +864,88 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(merged.body.contribution.state, 'merged');
     assert.equal(merged.body.review.pullRequests.length, 2);
     assert.equal(merged.body.lifecycle.events.at(-1).kind, 'merged_recorded');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('preview deployment failures surface a first-class failed contribution state in summaries', async () => {
+  const server = createApiServer({
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+
+    if (!address || typeof address === 'string') {
+      throw new Error('Test server did not expose an address.');
+    }
+
+    const created = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: {
+        ...buildCreatePayload(),
+        title: 'Retry failed preview deploys',
+        body: 'Let owners see when preview deploys fail.',
+      },
+    });
+
+    const contributionId = created.body.contribution.id;
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: {
+        body: 'Show the failure where owners already review the request.',
+      },
+    });
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/spec-approval`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/queue-implementation`,
+      body: {},
+    });
+
+    const failedPreview = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/preview-deployments`,
+      body: {
+        url: 'https://example.aizenshtat.eu/previews/contribution-999/',
+        status: 'failed',
+        deployKind: 'manual_preview',
+        errorSummary: 'Preview path returned 404.',
+      },
+    });
+
+    assert.equal(failedPreview.status, 200);
+    assert.equal(failedPreview.body.contribution.state, 'preview_failed');
+    assert.equal(failedPreview.body.review.previewDeployments.at(-1).status, 'failed');
+
+    const listResponse = await requestJson({
+      port: address.port,
+      method: 'GET',
+      path: '/api/v1/contributions',
+    });
+
+    assert.equal(listResponse.status, 200);
+    assert.equal(listResponse.body.contributions[0].adminBucket, 'attention');
+    assert.equal(listResponse.body.contributions[0].latestPreviewDeployment.status, 'failed');
+    assert.equal(listResponse.body.contributions[0].latestPreviewDeployment.errorSummary, 'Preview path returned 404.');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

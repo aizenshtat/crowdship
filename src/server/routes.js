@@ -8,11 +8,13 @@ import {
   CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND,
   CONTRIBUTION_STATES,
   GENERATED_SPEC_PROGRESS_EVENT_KIND,
+  IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
   INITIAL_CONTRIBUTION_STATE,
   MARKED_MERGED_PROGRESS_EVENT_KIND,
   MERGED_CONTRIBUTION_STATE,
   OPENED_VOTING_PROGRESS_EVENT_KIND,
   PREVIEW_DEPLOYING_CONTRIBUTION_STATE,
+  PREVIEW_FAILED_CONTRIBUTION_STATE,
   PREVIEW_READY_CONTRIBUTION_STATE,
   PR_OPENED_CONTRIBUTION_STATE,
   QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND,
@@ -454,6 +456,50 @@ function summarizeVotes(votes) {
   return summary;
 }
 
+function deriveContributionAdminBucket(contribution, implementationJobs = [], previewDeployments = []) {
+  const latestImplementationJob = getLatestByCreatedAt(implementationJobs);
+  const latestPreviewDeployment = getLatestByCreatedAt(previewDeployments);
+
+  if (
+    contribution.state === IMPLEMENTATION_FAILED_CONTRIBUTION_STATE ||
+    contribution.state === PREVIEW_FAILED_CONTRIBUTION_STATE ||
+    latestImplementationJob?.status === 'failed' ||
+    latestPreviewDeployment?.status === 'failed'
+  ) {
+    return 'attention';
+  }
+
+  if (contribution.state === MERGED_CONTRIBUTION_STATE || contribution.state === 'completed' || contribution.state === 'rejected') {
+    return 'done';
+  }
+
+  if (
+    contribution.state === AGENT_QUEUED_CONTRIBUTION_STATE ||
+    contribution.state === 'agent_running' ||
+    contribution.state === PR_OPENED_CONTRIBUTION_STATE ||
+    contribution.state === PREVIEW_DEPLOYING_CONTRIBUTION_STATE ||
+    latestImplementationJob?.status === 'queued' ||
+    latestImplementationJob?.status === 'running' ||
+    latestPreviewDeployment?.status === 'deploying'
+  ) {
+    return 'active';
+  }
+
+  if (
+    contribution.state === SPEC_APPROVED_CONTRIBUTION_STATE ||
+    contribution.state === PREVIEW_READY_CONTRIBUTION_STATE ||
+    contribution.state === 'requester_review' ||
+    contribution.state === 'ready_for_voting' ||
+    contribution.state === VOTING_OPEN_CONTRIBUTION_STATE ||
+    contribution.state === 'core_team_flagged' ||
+    contribution.state === 'core_review'
+  ) {
+    return 'ready';
+  }
+
+  return 'waiting';
+}
+
 function buildContributionSnapshot(detail) {
   const attachments = asArray(detail.attachments);
   const messages = asArray(detail.messages);
@@ -495,13 +541,26 @@ function buildContributionSnapshot(detail) {
   };
 }
 
-function serializeContributionSummary(contribution, specVersions = []) {
+function serializeContributionSummary(
+  contribution,
+  specVersions = [],
+  implementationJobs = [],
+  pullRequests = [],
+  previewDeployments = [],
+) {
   const latestSpec = getLatestSpecVersion(specVersions);
+  const latestImplementationJob = getLatestByCreatedAt(implementationJobs);
+  const latestPullRequest = getLatestByCreatedAt(pullRequests);
+  const latestPreviewDeployment = getLatestByCreatedAt(previewDeployments);
 
   return {
     ...serializeContribution(contribution),
     latestSpecVersion: latestSpec?.versionNumber ?? null,
     specApprovedAt: latestSpec?.approvedAt ?? null,
+    latestImplementationJob: latestImplementationJob ? serializeImplementationJob(latestImplementationJob) : null,
+    latestPullRequest: latestPullRequest ? serializePullRequest(latestPullRequest) : null,
+    latestPreviewDeployment: latestPreviewDeployment ? serializePreviewDeployment(latestPreviewDeployment) : null,
+    adminBucket: deriveContributionAdminBucket(contribution, implementationJobs, previewDeployments),
   };
 }
 
@@ -539,7 +598,15 @@ export function createContributionListHandler({ database } = {}) {
     const contributions = details
       .slice()
       .sort((left, right) => String(right.contribution.createdAt).localeCompare(String(left.contribution.createdAt)))
-      .map((detail) => serializeContributionSummary(detail.contribution, detail.specVersions));
+      .map((detail) =>
+        serializeContributionSummary(
+          detail.contribution,
+          detail.specVersions,
+          detail.implementationJobs,
+          detail.pullRequests,
+          detail.previewDeployments,
+        ),
+      );
 
     return buildResponse(200, {
       contributions,
@@ -1373,9 +1440,9 @@ export function createPreviewDeploymentHandler({
     const candidateState =
       validation.value.status === 'ready'
         ? PREVIEW_READY_CONTRIBUTION_STATE
-        : validation.value.status === 'deploying'
+      : validation.value.status === 'deploying'
           ? PREVIEW_DEPLOYING_CONTRIBUTION_STATE
-          : detail.contribution.state;
+          : PREVIEW_FAILED_CONTRIBUTION_STATE;
     const nextState = advanceContributionState(detail.contribution.state, candidateState);
     const progressEvent = {
       id: idFactory(),
