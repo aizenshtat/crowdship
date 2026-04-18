@@ -58,6 +58,23 @@ async function runCommand(command, args, { cwd, env } = {}) {
   };
 }
 
+async function getGithubPushExtraHeader(cwd) {
+  const { stdout } = await runCommand('gh', ['auth', 'token'], {
+    cwd,
+    env: {
+      GH_PROMPT_DISABLED: '1',
+    },
+  });
+  const token = stdout.trim();
+
+  if (!token) {
+    throw new Error('GitHub CLI authentication token is unavailable for worker push.');
+  }
+
+  const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
+  return `AUTHORIZATION: basic ${basic}`;
+}
+
 async function claimNextQueuedJob(pool) {
   const client = await pool.connect();
 
@@ -227,9 +244,14 @@ async function commitContributionArtifact(worktreePath, contributionId, detail) 
 }
 
 async function ensureBranchPushed(worktreePath, branchName) {
-  await runCommand('git', ['push', '-u', 'origin', branchName], {
-    cwd: worktreePath,
-  });
+  const extraHeader = await getGithubPushExtraHeader(worktreePath);
+  await runCommand(
+    'git',
+    ['-c', `http.https://github.com/.extraheader=${extraHeader}`, 'push', '-u', 'origin', branchName],
+    {
+      cwd: worktreePath,
+    },
+  );
 }
 
 async function runVerification(worktreePath) {
