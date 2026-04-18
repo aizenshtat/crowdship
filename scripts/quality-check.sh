@@ -14,6 +14,7 @@ fi
 
 bash -n scripts/*.sh .githooks/pre-commit
 node --test tests/*.test.mjs
+npm run build
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT

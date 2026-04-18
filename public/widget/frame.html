@@ -1,0 +1,1098 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <title>Crowdship Widget</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eff4f1;
+        --panel: #ffffff;
+        --panel-2: #f6f9f7;
+        --border: #cfd9d3;
+        --text: #10211c;
+        --muted: #5a6962;
+        --accent: #17624f;
+        --accent-strong: #0f4538;
+        --danger: #9a3412;
+        --warning: #8a4b08;
+        --shadow: 0 10px 24px rgba(18, 33, 28, 0.08);
+        --radius: 8px;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      button {
+        min-height: 44px;
+      }
+
+      .app {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 100%;
+      }
+
+      .banner {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        background: #f8faf8;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .banner-copy {
+        min-width: 0;
+      }
+
+      .banner h1 {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.3;
+      }
+
+      .banner p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .banner-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+        align-items: flex-start;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+        flex: 0 0 auto;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #7c8a84;
+        flex: 0 0 auto;
+      }
+
+      .status-chip[data-mode="ready"] .status-dot {
+        background: #1b7d59;
+      }
+
+      .status-chip[data-mode="error"] .status-dot {
+        background: var(--danger);
+      }
+
+      .status-chip[data-mode="working"] .status-dot {
+        background: var(--warning);
+      }
+
+      .surface {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 14px 16px 84px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .section {
+        padding: 14px 14px 16px;
+      }
+
+      .section + .section {
+        border-top: 1px solid var(--border);
+      }
+
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .section h2 {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.3;
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .section-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .lifecycle {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .lifecycle-step {
+        min-width: 0;
+        min-height: 68px;
+        padding: 10px 10px 11px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+      }
+
+      .lifecycle-step[data-active="true"] {
+        border-color: rgba(23, 98, 79, 0.18);
+        background: var(--panel-2);
+      }
+
+      .lifecycle-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .lifecycle-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: #c0ccc6;
+        flex: 0 0 auto;
+      }
+
+      .lifecycle-step[data-active="true"] .lifecycle-dot {
+        background: var(--accent);
+      }
+
+      .lifecycle-copy {
+        margin: 6px 0 0 17px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .summary-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .details {
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+      }
+
+      .details:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .details summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 44px;
+        list-style: none;
+        cursor: pointer;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0;
+      }
+
+      .details summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .details summary::after {
+        content: '+';
+        font-size: 18px;
+        line-height: 1;
+        color: var(--muted);
+      }
+
+      .details[open] summary::after {
+        content: '-';
+      }
+
+      .details-body {
+        padding: 0 0 14px;
+      }
+
+      .summary-row {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      .summary-label {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .summary-value {
+        min-width: 0;
+        font-size: 14px;
+        overflow-wrap: anywhere;
+      }
+
+      .summary-empty {
+        color: var(--muted);
+      }
+
+      .request-meta {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+        margin-top: 12px;
+      }
+
+      .field.compact {
+        margin-top: 0;
+      }
+
+      .type-select {
+        width: 100%;
+        min-height: 44px;
+        padding: 12px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+      }
+
+      .type-select:focus {
+        outline: 2px solid #0f766e;
+        outline-offset: 2px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+        margin-top: 12px;
+      }
+
+      .field:first-of-type {
+        margin-top: 0;
+      }
+
+      .field label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .field input,
+      .field textarea {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+        padding: 12px 12px;
+      }
+
+      .field textarea {
+        min-height: 180px;
+        resize: none;
+      }
+
+      .field input:focus,
+      .field textarea:focus,
+      .file-button:focus,
+      .type-option span:focus-within {
+        outline: 2px solid #0f766e;
+        outline-offset: 2px;
+      }
+
+      .attachment-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .attachment-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .attachment-compact {
+        display: grid;
+        gap: 10px;
+      }
+
+      .file-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 10px 14px;
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        background: #e4f1eb;
+        color: var(--accent-strong);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .file-button input {
+        display: none;
+      }
+
+      .tray {
+        display: grid;
+        gap: 8px;
+      }
+
+      .tray-empty {
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        color: var(--muted);
+        background: #fafcfa;
+      }
+
+      .attachment-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .attachment-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 44px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .attachment-name {
+        font-size: 14px;
+        overflow-wrap: anywhere;
+      }
+
+      .attachment-meta {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .remove-button,
+      .secondary-button,
+      .primary-button {
+        min-height: 44px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+
+      .remove-button {
+        color: var(--danger);
+      }
+
+      .primary-button {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .primary-button:disabled,
+      .secondary-button:disabled,
+      .remove-button:disabled,
+      .file-button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .actions {
+        position: sticky;
+        bottom: 0;
+        display: grid;
+        gap: 8px;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border);
+        background: rgba(239, 244, 241, 0.98);
+        backdrop-filter: blur(8px);
+      }
+
+      .actions-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .status-block {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fff;
+        color: var(--text);
+      }
+
+      .status-block[data-tone="error"] {
+        border-color: rgba(154, 52, 18, 0.35);
+        background: #fff7f2;
+      }
+
+      .status-block[data-tone="working"] {
+        border-color: rgba(138, 75, 8, 0.35);
+        background: #fffaf1;
+      }
+
+      .status-block[data-tone="ready"] {
+        border-color: rgba(23, 98, 79, 0.3);
+        background: #f1f8f4;
+      }
+
+      .status-block h3 {
+        margin: 0 0 4px;
+        font-size: 14px;
+      }
+
+      .status-block p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 540px) {
+        .banner,
+        .surface,
+        .actions {
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+
+        .lifecycle {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .lifecycle-step {
+          min-height: 52px;
+          padding: 10px;
+        }
+
+        .lifecycle-copy {
+          display: none;
+        }
+
+        .request-meta {
+          grid-template-columns: 1fr;
+        }
+
+        .summary-row {
+          grid-template-columns: 92px minmax(0, 1fr);
+        }
+
+        .actions-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="banner">
+        <div class="banner-copy">
+          <h1>Suggest a change</h1>
+          <p id="banner-copy">Start with the outcome you need.</p>
+        </div>
+        <div class="banner-actions">
+          <div class="status-chip" id="connection-chip" data-mode="loading" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="connection-text">Loading widget state</span>
+          </div>
+          <button type="button" class="secondary-button" id="close-button">Hide widget</button>
+        </div>
+      </header>
+
+      <div class="surface">
+        <div class="panel" id="app-panel">
+          <div class="section" id="loading-state">
+            <h2>Connection</h2>
+            <div class="status-block" data-tone="working">
+              <h3>Waiting for host data</h3>
+              <p>The host page will pass the project, user, and current page context here.</p>
+            </div>
+          </div>
+
+          <div class="section hidden" id="error-state">
+            <h2>Connection error</h2>
+            <div class="status-block" data-tone="error">
+              <h3 id="error-title">Widget could not connect</h3>
+              <p id="error-copy">No widget payload arrived.</p>
+            </div>
+          </div>
+
+          <section class="section hidden" id="lifecycle-section" aria-labelledby="lifecycle-title">
+            <div class="section-head">
+              <h2 id="lifecycle-title">Lifecycle</h2>
+              <p id="lifecycle-copy">Compose first. The next stages are spec, progress, preview, and voting.</p>
+            </div>
+            <ol class="lifecycle" id="lifecycle-list">
+              <li class="lifecycle-step" data-step="compose" data-active="true" aria-current="step">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Compose</span></div>
+                <p class="lifecycle-copy">Write the request and attach anything useful.</p>
+              </li>
+              <li class="lifecycle-step" data-step="sending">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Sending</span></div>
+                <p class="lifecycle-copy">Posting the contribution to Crowdship.</p>
+              </li>
+              <li class="lifecycle-step" data-step="spec">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Spec</span></div>
+                <p class="lifecycle-copy">A short spec is prepared for approval.</p>
+              </li>
+              <li class="lifecycle-step" data-step="progress">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Progress</span></div>
+                <p class="lifecycle-copy">Implementation status comes from real work.</p>
+              </li>
+              <li class="lifecycle-step" data-step="preview">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Preview</span></div>
+                <p class="lifecycle-copy">A live preview appears when it is ready.</p>
+              </li>
+              <li class="lifecycle-step" data-step="voting">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Voting</span></div>
+                <p class="lifecycle-copy">The request opens up for broader feedback.</p>
+              </li>
+            </ol>
+          </section>
+
+          <form id="compose-form" class="hidden" novalidate>
+            <div class="section">
+              <div class="field">
+                <label for="request-body">What should this product do better?</label>
+                <textarea id="request-body" name="body" maxlength="4000" placeholder="Tell us what should change, and what outcome you need."></textarea>
+              </div>
+
+              <input id="request-title" name="title" type="hidden" />
+
+              <div class="request-meta">
+                <label class="field compact" for="request-kind">
+                  <span>Request type</span>
+                  <select id="request-kind" name="kind" class="type-select" aria-label="Request type">
+                    <option value="feature_request">Feature request</option>
+                    <option value="bug_report">Bug report</option>
+                    <option value="ux_feedback">UX feedback</option>
+                  </select>
+                </label>
+                <div class="attachment-head compact">
+                  <p>Attachments</p>
+                  <label class="file-button" for="attachment-picker">
+                    Add files
+                    <input id="attachment-picker" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.csv,.txt,image/png,image/jpeg,image/webp,application/pdf,text/plain,text/csv" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="attachment-compact">
+                <div class="tray" aria-live="polite">
+                  <div class="tray-empty" id="tray-empty">No attachments yet.</div>
+                  <div class="attachment-list" id="attachment-list"></div>
+                </div>
+              </div>
+
+              <details class="details">
+                <summary>Context</summary>
+                <div class="details-body">
+                  <dl class="summary-grid" id="context-summary" aria-live="polite"></dl>
+                </div>
+              </details>
+            </div>
+
+            <div class="actions">
+              <div class="status-block hidden" id="submission-state" aria-live="polite"></div>
+              <div class="actions-row">
+                <button type="submit" class="primary-button" id="start-button">Send request</button>
+                <button type="button" class="secondary-button" id="reset-button">Clear draft</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var state = {
+          ready: false,
+          open: false,
+          config: null,
+          user: null,
+          context: {},
+          request: { type: 'feature_request', title: 'Suggest a change', body: '' },
+          attachments: [],
+          submitting: false,
+          phase: 'compose',
+        };
+
+        var connectionChip = document.getElementById('connection-chip');
+        var connectionText = document.getElementById('connection-text');
+        var bannerCopy = document.getElementById('banner-copy');
+        var loadingState = document.getElementById('loading-state');
+        var errorState = document.getElementById('error-state');
+        var errorTitle = document.getElementById('error-title');
+        var errorCopy = document.getElementById('error-copy');
+        var lifecycleSection = document.getElementById('lifecycle-section');
+        var lifecycleList = document.getElementById('lifecycle-list');
+        var composeForm = document.getElementById('compose-form');
+        var contextSummary = document.getElementById('context-summary');
+        var titleInput = document.getElementById('request-title');
+        var bodyInput = document.getElementById('request-body');
+        var kindSelect = document.getElementById('request-kind');
+        var trayEmpty = document.getElementById('tray-empty');
+        var attachmentList = document.getElementById('attachment-list');
+        var attachmentPicker = document.getElementById('attachment-picker');
+        var submissionState = document.getElementById('submission-state');
+        var startButton = document.getElementById('start-button');
+        var resetButton = document.getElementById('reset-button');
+        var closeButton = document.getElementById('close-button');
+        var loadTimeout = window.setTimeout(function () {
+          if (!state.ready) {
+            showError('Widget connection timed out', 'The host page did not send widget state.');
+          }
+        }, 5000);
+
+        function formatBytes(bytes) {
+          if (!bytes && bytes !== 0) return '';
+          var units = ['B', 'KB', 'MB', 'GB'];
+          var value = bytes;
+          var index = 0;
+          while (value >= 1024 && index < units.length - 1) {
+            value /= 1024;
+            index += 1;
+          }
+          return (index === 0 ? value : value.toFixed(1)) + ' ' + units[index];
+        }
+
+        function escapeHtml(text) {
+          return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        }
+
+        function setChip(mode, text) {
+          connectionChip.setAttribute('data-mode', mode);
+          connectionText.textContent = text;
+        }
+
+        function setStatus(kind, title, copy) {
+          submissionState.classList.remove('hidden');
+          submissionState.setAttribute('data-tone', kind);
+          submissionState.innerHTML = '<h3>' + escapeHtml(title) + '</h3><p>' + escapeHtml(copy) + '</p>';
+        }
+
+        function setPhase(phase) {
+          var active = phase || 'compose';
+          state.phase = active;
+          var steps = lifecycleList ? lifecycleList.querySelectorAll('.lifecycle-step') : [];
+          Array.prototype.forEach.call(steps, function (step) {
+            var stepName = step.getAttribute('data-step');
+            var isActive = stepName === active;
+            step.setAttribute('data-active', isActive ? 'true' : 'false');
+            if (isActive) {
+              step.setAttribute('aria-current', 'step');
+            } else {
+              step.removeAttribute('aria-current');
+            }
+          });
+          if (active === 'sending') {
+            lifecycleSection.classList.remove('hidden');
+            bannerCopy.textContent = 'Posting your request now.';
+            setChip('working', 'Sending request');
+            return;
+          }
+          if (active === 'spec') {
+            lifecycleSection.classList.remove('hidden');
+            bannerCopy.textContent = 'Next is a short spec, then progress, preview, and voting.';
+            setChip('ready', 'Request received');
+            return;
+          }
+          if (active === 'error') {
+            lifecycleSection.classList.add('hidden');
+            setChip('error', 'Connection error');
+            return;
+          }
+          lifecycleSection.classList.add('hidden');
+          bannerCopy.textContent = state.open ? 'Describe the change and attach proof if needed.' : 'Start with the outcome you need.';
+          setChip('ready', 'Ready to compose');
+        }
+
+        function clearStatus() {
+          submissionState.classList.add('hidden');
+          submissionState.innerHTML = '';
+        }
+
+        function renderContext() {
+          var entries = [];
+          var config = state.config || {};
+          var user = state.user || {};
+          var context = state.context || {};
+
+          entries.push(['Project', config.project || 'Not provided']);
+          entries.push(['Environment', config.environment || 'production']);
+          entries.push(['User', user.id || user.email || user.role || 'Not shared']);
+          if (context.route) entries.push(['Route', context.route]);
+          if (context.url) entries.push(['URL', context.url]);
+          if (context.appVersion) entries.push(['App version', context.appVersion]);
+          if (context.selectedObjectType) {
+            entries.push(['Selected object', [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')]);
+          }
+          if (context.locale) entries.push(['Locale', context.locale]);
+          if (context.timezone) entries.push(['Timezone', context.timezone]);
+
+          if (!entries.length) {
+            contextSummary.innerHTML = '<div class="summary-empty">No shared context.</div>';
+            return;
+          }
+
+          contextSummary.innerHTML = entries
+            .map(function (pair) {
+              return (
+                '<div class="summary-row">' +
+                '<dt class="summary-label">' + escapeHtml(pair[0]) + '</dt>' +
+                '<dd class="summary-value">' + escapeHtml(pair[1]) + '</dd>' +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+
+        function renderAttachments() {
+          if (!state.attachments.length) {
+            trayEmpty.classList.remove('hidden');
+            attachmentList.innerHTML = '';
+            return;
+          }
+
+          trayEmpty.classList.add('hidden');
+          attachmentList.innerHTML = state.attachments
+            .map(function (item, index) {
+              return (
+                '<div class="attachment-item">' +
+                '<div>' +
+                '<span class="attachment-name">' + escapeHtml(item.name) + '</span>' +
+                '<span class="attachment-meta">' + escapeHtml(item.kind) + (item.size ? ' - ' + escapeHtml(item.size) : '') + '</span>' +
+                '</div>' +
+                '<button type="button" class="remove-button" data-index="' + index + '" aria-label="Remove ' + escapeHtml(item.name) + '">Remove</button>' +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+
+        function applyState(payload) {
+          if (!payload) return;
+          state.ready = true;
+          state.config = payload.config || state.config;
+          state.user = payload.user || state.user;
+          state.context = payload.context || state.context;
+          state.request = payload.request || state.request;
+          state.open = !!payload.isOpen;
+
+          clearTimeout(loadTimeout);
+          loadingState.classList.add('hidden');
+          errorState.classList.add('hidden');
+          composeForm.classList.remove('hidden');
+          bannerCopy.textContent = state.open ? 'Describe the change and attach proof if needed.' : 'Start with the outcome you need.';
+          bodyInput.value = state.request.body || '';
+          titleInput.value = state.request.title || '';
+          kindSelect.value = state.request.type || 'feature_request';
+          renderContext();
+          renderAttachments();
+          setPhase(state.submitting ? 'sending' : 'compose');
+          updateDerivedTitle();
+        }
+
+        function showError(title, copy) {
+          state.ready = false;
+          loadingState.classList.add('hidden');
+          errorState.classList.remove('hidden');
+          lifecycleSection.classList.add('hidden');
+          composeForm.classList.add('hidden');
+          errorTitle.textContent = title;
+          errorCopy.textContent = copy;
+          setPhase('error');
+          bannerCopy.textContent = copy;
+        }
+
+        function serializeBody() {
+          var title = titleInput.value.trim();
+          var body = bodyInput.value.trim();
+          var kind = kindSelect.value;
+          var payload = {
+            project: state.config && state.config.project,
+            environment: state.config && state.config.environment,
+            type: kind,
+            title: title,
+            body: body,
+            route: state.context && state.context.route,
+            url: state.context && state.context.url,
+            appVersion: state.context && state.context.appVersion,
+            user: state.user || {},
+            context: state.context || {},
+            client: {
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+              locale: navigator.language || '',
+            },
+          };
+          return payload;
+        }
+
+        function buildFormData(payload) {
+          var formData = new FormData();
+          Object.keys(payload).forEach(function (key) {
+            var value = payload[key];
+            if (value == null) return;
+            if (typeof value === 'object') {
+              formData.append(key, JSON.stringify(value));
+            } else {
+              formData.append(key, String(value));
+            }
+          });
+          state.attachments.forEach(function (item) {
+            formData.append('attachments', item.file, item.file.name);
+          });
+          return formData;
+        }
+
+        function deriveTitleFromBody(bodyText) {
+          var text = (bodyText || '').trim().replace(/\s+/g, ' ');
+          if (!text) {
+            return state.request && state.request.title ? state.request.title : 'Product change request';
+          }
+          if (text.length <= 90) {
+            return text;
+          }
+          return text.slice(0, 87).replace(/\s+\S*$/, '') + '...';
+        }
+
+        function updateDerivedTitle() {
+          var fallback = state.request && state.request.title ? state.request.title : '';
+          if (fallback && fallback !== 'Suggest a change') {
+            titleInput.value = fallback;
+            return;
+          }
+          var derived = bodyInput.value.trim() ? deriveTitleFromBody(bodyInput.value) : fallback;
+          titleInput.value = derived || 'Product change request';
+        }
+
+        function validate() {
+          var body = bodyInput.value.trim();
+          if (!body) {
+            setStatus('error', 'Add the request', 'Tell us what should improve before sending it.');
+            return false;
+          }
+          if (!state.config || !state.config.project) {
+            setStatus('error', 'Missing project', 'The host page did not provide a project slug.');
+            return false;
+          }
+          return true;
+        }
+
+        function submitContribution(event) {
+          event.preventDefault();
+          if (state.submitting) return;
+          if (!validate()) return;
+
+          clearStatus();
+          state.submitting = true;
+          startButton.disabled = true;
+          resetButton.disabled = true;
+          attachmentPicker.disabled = true;
+          setPhase('sending');
+          setStatus('working', 'Sending request', 'Crowdship is posting this contribution to the server.');
+
+          var payload = serializeBody();
+          var body = state.attachments.length ? buildFormData(payload) : JSON.stringify(payload);
+          var headers = state.attachments.length ? undefined : { 'Content-Type': 'application/json' };
+
+          fetch('/api/v1/contributions', {
+            method: 'POST',
+            body: body,
+            headers: headers,
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              state.submitting = false;
+              startButton.disabled = false;
+              resetButton.disabled = false;
+              attachmentPicker.disabled = false;
+
+              var response = result.response;
+              if (!response.ok) {
+                setPhase('error');
+                bannerCopy.textContent = 'Review the error and try again.';
+                setStatus('error', 'Request failed', 'Server returned ' + response.status + ' ' + response.statusText + (result.text ? ': ' + result.text.slice(0, 180) : '.'));
+                return;
+              }
+
+              setPhase('spec');
+              setStatus('ready', 'Request received', 'The server accepted the contribution. Next is a short spec, then implementation progress, preview, and voting.');
+            })
+            .catch(function (error) {
+              state.submitting = false;
+              startButton.disabled = false;
+              resetButton.disabled = false;
+              attachmentPicker.disabled = false;
+              setPhase('error');
+              bannerCopy.textContent = 'Review the error and try again.';
+              setStatus('error', 'Request not sent', error && error.message ? error.message : 'The browser could not reach the server.');
+            });
+        }
+
+        function addAttachments(files) {
+          Array.prototype.forEach.call(files, function (file) {
+            state.attachments.push({
+              name: file.name,
+              kind: file.type || 'file',
+              size: formatBytes(file.size),
+              file: file,
+            });
+          });
+          renderAttachments();
+        }
+
+        function clearDraft() {
+          bodyInput.value = '';
+          titleInput.value = state.request && state.request.title ? state.request.title : 'Product change request';
+          kindSelect.value = 'feature_request';
+          attachmentPicker.value = '';
+          state.attachments = [];
+          renderAttachments();
+          clearStatus();
+        }
+
+        attachmentPicker.addEventListener('change', function () {
+          if (attachmentPicker.files && attachmentPicker.files.length) {
+            addAttachments(attachmentPicker.files);
+          }
+          attachmentPicker.value = '';
+        });
+
+        attachmentList.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          var index = target.getAttribute('data-index');
+          if (index == null) return;
+          state.attachments.splice(Number(index), 1);
+          renderAttachments();
+        });
+
+        bodyInput.addEventListener('input', function () {
+          updateDerivedTitle();
+        });
+
+        resetButton.addEventListener('click', function () {
+          clearDraft();
+        });
+
+        closeButton.addEventListener('click', function () {
+          window.parent.postMessage({ source: 'crowdship', type: 'crowdship:close-request' }, '*');
+        });
+
+        composeForm.addEventListener('submit', submitContribution);
+
+        window.addEventListener('message', function (event) {
+          var data = event.data || {};
+          if (data.source !== 'crowdship') return;
+          if (data.type === 'crowdship:state' || data.type === 'crowdship:init') {
+            applyState(data.payload);
+            return;
+          }
+          if (data.type === 'crowdship:close') {
+            window.close();
+          }
+        });
+
+        window.parent.postMessage({ source: 'crowdship', type: 'crowdship:ready' }, '*');
+      })();
+    </script>
+  </body>
+</html>

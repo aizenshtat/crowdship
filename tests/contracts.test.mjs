@@ -24,7 +24,20 @@ test('quality infrastructure files exist', () => {
     'docs/agent-tooling.md',
     'docs/implementation-plan.md',
     'docs/ui-quality-contract.md',
+    'index.html',
+    'migrations/0001_phase_2_scaffold.sql',
+    'public/manifest.webmanifest',
+    'public/sw.js',
+    'public/widget/frame.html',
+    'public/widget/v1.js',
     'scripts/quality-check.sh',
+    'src/admin/App.tsx',
+    'src/admin/main.tsx',
+    'src/server/persistence.js',
+    'src/server/schema.js',
+    'src/shared/contracts.js',
+    'tsconfig.json',
+    'vite.config.ts',
   ].forEach(assertFile);
 });
 
@@ -71,9 +84,31 @@ test('package scripts expose local quality commands', () => {
   const pkg = JSON.parse(read('package.json'));
 
   assert.equal(pkg.private, true);
+  assert.equal(pkg.scripts.build, 'tsc --noEmit && vite build');
   assert.equal(pkg.scripts.quality, 'bash scripts/quality-check.sh');
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs');
-  assert.equal(pkg.scripts.lint, 'bash -n scripts/*.sh .githooks/pre-commit');
+  assert.equal(pkg.scripts.typecheck, 'tsc --noEmit');
+  assert.equal(pkg.scripts.lint, 'tsc --noEmit && bash -n scripts/*.sh .githooks/pre-commit');
+});
+
+test('phase 2 scaffold exposes real widget and admin boundaries', () => {
+  const admin = read('src/admin/App.tsx');
+  const widget = read('public/widget/v1.js');
+  const frame = read('public/widget/frame.html');
+  const manifest = JSON.parse(read('public/manifest.webmanifest'));
+
+  assert.match(admin, /Contribution intake/);
+  assert.match(admin, /fetch\('\/api\/v1\/contributions'/);
+  assert.match(admin, /Loading live contribution intake/);
+  assert.match(admin, /Pending owner review/);
+  assert.match(admin, /Pending backend endpoints/);
+  assert.match(admin, /Widget install snippet/);
+  assert.match(widget, /window\.Crowdship = api/);
+  assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
+  assert.match(frame, /Suggest a change/);
+  assert.match(frame, /What should this product do better\?/);
+  assert.match(frame, /\/api\/v1\/contributions/);
+  assert.equal(manifest.display, 'standalone');
 });
 
 test('sentry is documented as operational merge evidence', () => {
