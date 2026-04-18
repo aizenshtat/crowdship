@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="/var/www/${APP_DOMAIN}/html"
 BUILD_DIR="${REPO_ROOT}/dist"
 API_SERVICE="crowdship-api.service"
+WORKER_SERVICE="crowdship-worker.service"
 API_ENV_FILE="${API_ENV_FILE:-/etc/crowdship/crowdship-api.env}"
 MIGRATION_SCRIPT="${REPO_ROOT}/scripts/run-migrations.sh"
 
@@ -39,6 +40,12 @@ if systemctl cat "$API_SERVICE" >/dev/null 2>&1; then
     systemctl restart "$API_SERVICE"
 else
     echo "Skipping ${API_SERVICE}; unit is not installed."
+fi
+
+if systemctl cat "$WORKER_SERVICE" >/dev/null 2>&1; then
+    systemctl restart "$WORKER_SERVICE"
+else
+    echo "Skipping ${WORKER_SERVICE}; unit is not installed."
 fi
 
 echo "Published ${APP_DOMAIN} to ${TARGET}"

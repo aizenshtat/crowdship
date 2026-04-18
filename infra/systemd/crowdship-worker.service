@@ -1,0 +1,17 @@
+[Unit]
+Description=Crowdship Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/crowdship
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/crowdship/crowdship-worker.env
+ExecStart=/usr/bin/node /root/crowdship/src/worker/runtime.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

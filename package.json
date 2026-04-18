@@ -12,7 +12,8 @@
     "quality": "bash scripts/quality-check.sh",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit && bash -n scripts/*.sh .githooks/pre-commit"
+    "lint": "tsc --noEmit && bash -n scripts/*.sh .githooks/pre-commit",
+    "worker": "node src/worker/runtime.js"
   },
   "dependencies": {
     "@sentry/browser": "^10.49.0",
