@@ -481,6 +481,106 @@
         align-items: center;
       }
 
+      .review-card {
+        display: grid;
+        gap: 14px;
+      }
+
+      .review-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .review-kicker {
+        margin: 0 0 4px;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .review-head h3 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      .review-section {
+        display: grid;
+        gap: 6px;
+      }
+
+      .review-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .review-text {
+        margin: 0;
+        font-size: 14px;
+        color: var(--text);
+      }
+
+      .review-columns {
+        display: grid;
+        gap: 12px;
+      }
+
+      .review-list,
+      .stack-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+      }
+
+      .review-list li,
+      .stack-item {
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-2);
+        overflow-wrap: anywhere;
+      }
+
+      .stack-item-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .stack-item-title {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .stack-item-meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .stack-item-copy {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .review-actions {
+        display: grid;
+        gap: 8px;
+      }
+
+      .status-chip-inline {
+        min-height: 32px;
+        padding: 6px 10px;
+      }
+
       .status-block {
         border: 1px solid var(--border);
         border-radius: 8px;
@@ -564,6 +664,22 @@
         .actions-row {
           grid-template-columns: 1fr;
         }
+
+        .review-head,
+        .stack-item-head {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .review-columns {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (min-width: 541px) {
+        .review-columns {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
     </style>
   </head>
@@ -604,32 +720,20 @@
           <section class="section hidden" id="lifecycle-section" aria-labelledby="lifecycle-title">
             <div class="section-head">
               <h2 id="lifecycle-title">Lifecycle</h2>
-              <p id="lifecycle-copy">Compose first. The next stages are spec, progress, preview, and voting.</p>
+              <p id="lifecycle-copy">Move from request to a real spec decision.</p>
             </div>
             <ol class="lifecycle" id="lifecycle-list">
               <li class="lifecycle-step" data-step="compose" data-active="true" aria-current="step">
-                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Compose</span></div>
-                <p class="lifecycle-copy">Write the request and attach anything useful.</p>
-              </li>
-              <li class="lifecycle-step" data-step="sending">
-                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Sending</span></div>
-                <p class="lifecycle-copy">Posting the contribution to Crowdship.</p>
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Request</span></div>
+                <p class="lifecycle-copy">Describe the outcome and share attachment metadata.</p>
               </li>
               <li class="lifecycle-step" data-step="spec">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Spec</span></div>
-                <p class="lifecycle-copy">A short spec is prepared for approval.</p>
+                <p class="lifecycle-copy">Review the generated scope and ask for changes if needed.</p>
               </li>
-              <li class="lifecycle-step" data-step="progress">
-                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Progress</span></div>
-                <p class="lifecycle-copy">Implementation status comes from real work.</p>
-              </li>
-              <li class="lifecycle-step" data-step="preview">
-                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Preview</span></div>
-                <p class="lifecycle-copy">A live preview appears when it is ready.</p>
-              </li>
-              <li class="lifecycle-step" data-step="voting">
-                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Voting</span></div>
-                <p class="lifecycle-copy">The request opens up for broader feedback.</p>
+              <li class="lifecycle-step" data-step="approved">
+                <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Approved</span></div>
+                <p class="lifecycle-copy">The approved scope is stored for the next engineering step.</p>
               </li>
             </ol>
           </section>
@@ -684,6 +788,86 @@
               </div>
             </div>
           </form>
+
+          <section class="section hidden" id="review-section" aria-labelledby="review-title">
+            <div class="section-head">
+              <h2 id="review-title">Spec review</h2>
+              <p id="review-copy">Approve the scope or ask for changes.</p>
+            </div>
+            <div class="review-card">
+              <div class="review-head">
+                <div>
+                  <p class="review-kicker" id="review-state">Spec ready</p>
+                  <h3 id="review-heading">Review the first spec.</h3>
+                </div>
+                <div class="status-chip status-chip-inline" id="review-chip" data-mode="ready" aria-live="polite">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  <span id="review-chip-text">Waiting for approval</span>
+                </div>
+              </div>
+
+              <div class="review-section">
+                <div class="review-label">Goal</div>
+                <p class="review-text" id="spec-goal">No spec yet.</p>
+              </div>
+
+              <div class="review-section">
+                <div class="review-label">User problem</div>
+                <p class="review-text" id="spec-user-problem">No spec yet.</p>
+              </div>
+
+              <div class="review-columns">
+                <div class="review-section">
+                  <div class="review-label">Acceptance criteria</div>
+                  <ul class="review-list" id="spec-criteria"></ul>
+                </div>
+                <div class="review-section">
+                  <div class="review-label">Non-goals</div>
+                  <ul class="review-list" id="spec-non-goals"></ul>
+                </div>
+              </div>
+
+              <details class="details">
+                <summary>Attachments</summary>
+                <div class="details-body">
+                  <div class="stack-list" id="review-attachments"></div>
+                </div>
+              </details>
+
+              <details class="details">
+                <summary>Request context</summary>
+                <div class="details-body">
+                  <dl class="summary-grid" id="review-context"></dl>
+                </div>
+              </details>
+
+              <details class="details">
+                <summary>Conversation</summary>
+                <div class="details-body">
+                  <div class="stack-list" id="message-list"></div>
+                </div>
+              </details>
+
+              <div class="review-actions" id="review-actions">
+                <button type="button" class="primary-button" id="approve-button">Approve Spec</button>
+                <button type="button" class="secondary-button" id="refine-toggle-button">Refine Spec</button>
+              </div>
+
+              <div class="field hidden" id="refine-field">
+                <label for="refine-note">What should change?</label>
+                <textarea
+                  id="refine-note"
+                  maxlength="2000"
+                  placeholder="Tell Crowdship what to adjust before approving the scope."
+                ></textarea>
+              </div>
+
+              <div class="review-actions hidden" id="refine-actions">
+                <button type="button" class="primary-button" id="refine-submit-button">Send refinement</button>
+                <button type="button" class="secondary-button" id="refine-cancel-button">Keep current spec</button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -700,6 +884,8 @@
           attachments: [],
           submitting: false,
           phase: 'compose',
+          contributionDetail: null,
+          refineOpen: false,
         };
 
         var connectionChip = document.getElementById('connection-chip');
@@ -712,6 +898,27 @@
         var lifecycleSection = document.getElementById('lifecycle-section');
         var lifecycleList = document.getElementById('lifecycle-list');
         var composeForm = document.getElementById('compose-form');
+        var reviewSection = document.getElementById('review-section');
+        var reviewCopy = document.getElementById('review-copy');
+        var reviewState = document.getElementById('review-state');
+        var reviewHeading = document.getElementById('review-heading');
+        var reviewChip = document.getElementById('review-chip');
+        var reviewChipText = document.getElementById('review-chip-text');
+        var specGoal = document.getElementById('spec-goal');
+        var specUserProblem = document.getElementById('spec-user-problem');
+        var specCriteria = document.getElementById('spec-criteria');
+        var specNonGoals = document.getElementById('spec-non-goals');
+        var reviewAttachments = document.getElementById('review-attachments');
+        var reviewContext = document.getElementById('review-context');
+        var messageList = document.getElementById('message-list');
+        var reviewActions = document.getElementById('review-actions');
+        var approveButton = document.getElementById('approve-button');
+        var refineToggleButton = document.getElementById('refine-toggle-button');
+        var refineField = document.getElementById('refine-field');
+        var refineNote = document.getElementById('refine-note');
+        var refineActions = document.getElementById('refine-actions');
+        var refineSubmitButton = document.getElementById('refine-submit-button');
+        var refineCancelButton = document.getElementById('refine-cancel-button');
         var contextSummary = document.getElementById('context-summary');
         var titleInput = document.getElementById('request-title');
         var bodyInput = document.getElementById('request-body');
@@ -755,6 +962,11 @@
           connectionText.textContent = text;
         }
 
+        function setReviewChip(mode, text) {
+          reviewChip.setAttribute('data-mode', mode);
+          reviewChipText.textContent = text;
+        }
+
         function setStatus(kind, title, copy) {
           submissionState.classList.remove('hidden');
           submissionState.setAttribute('data-tone', kind);
@@ -775,16 +987,22 @@
               step.removeAttribute('aria-current');
             }
           });
-          if (active === 'sending') {
+          if (active === 'sending' || active === 'spec' || active === 'approved') {
             lifecycleSection.classList.remove('hidden');
+          }
+          if (active === 'sending') {
             bannerCopy.textContent = 'Posting your request now.';
             setChip('working', 'Sending request');
             return;
           }
           if (active === 'spec') {
-            lifecycleSection.classList.remove('hidden');
-            bannerCopy.textContent = 'Next is a short spec, then progress, preview, and voting.';
-            setChip('ready', 'Request received');
+            bannerCopy.textContent = 'Review the scope and ask for changes if needed.';
+            setChip('ready', 'Spec ready');
+            return;
+          }
+          if (active === 'approved') {
+            bannerCopy.textContent = 'The approved scope is stored for the next engineering step.';
+            setChip('ready', 'Spec approved');
             return;
           }
           if (active === 'error') {
@@ -800,6 +1018,24 @@
         function clearStatus() {
           submissionState.classList.add('hidden');
           submissionState.innerHTML = '';
+        }
+
+        function renderSummary(target, entries, emptyLabel) {
+          if (!entries.length) {
+            target.innerHTML = '<div class="summary-empty">' + escapeHtml(emptyLabel) + '</div>';
+            return;
+          }
+
+          target.innerHTML = entries
+            .map(function (pair) {
+              return (
+                '<div class="summary-row">' +
+                '<dt class="summary-label">' + escapeHtml(pair[0]) + '</dt>' +
+                '<dd class="summary-value">' + escapeHtml(pair[1]) + '</dd>' +
+                '</div>'
+              );
+            })
+            .join('');
         }
 
         function renderContext() {
@@ -820,21 +1056,7 @@
           if (context.locale) entries.push(['Locale', context.locale]);
           if (context.timezone) entries.push(['Timezone', context.timezone]);
 
-          if (!entries.length) {
-            contextSummary.innerHTML = '<div class="summary-empty">No shared context.</div>';
-            return;
-          }
-
-          contextSummary.innerHTML = entries
-            .map(function (pair) {
-              return (
-                '<div class="summary-row">' +
-                '<dt class="summary-label">' + escapeHtml(pair[0]) + '</dt>' +
-                '<dd class="summary-value">' + escapeHtml(pair[1]) + '</dd>' +
-                '</div>'
-              );
-            })
-            .join('');
+          renderSummary(contextSummary, entries, 'No shared context.');
         }
 
         function renderAttachments() {
@@ -860,6 +1082,147 @@
             .join('');
         }
 
+        function renderSimpleList(target, values, emptyText) {
+          if (!values.length) {
+            target.innerHTML = '<div class="summary-empty">' + escapeHtml(emptyText) + '</div>';
+            return;
+          }
+
+          target.innerHTML = values
+            .map(function (value) {
+              return '<li>' + escapeHtml(value) + '</li>';
+            })
+            .join('');
+        }
+
+        function renderStackList(target, items, emptyText) {
+          if (!items.length) {
+            target.innerHTML = '<div class="summary-empty">' + escapeHtml(emptyText) + '</div>';
+            return;
+          }
+
+          target.innerHTML = items
+            .map(function (item) {
+              return (
+                '<div class="stack-item">' +
+                '<div class="stack-item-head">' +
+                '<span class="stack-item-title">' + escapeHtml(item.title) + '</span>' +
+                '<span class="stack-item-meta">' + escapeHtml(item.meta) + '</span>' +
+                '</div>' +
+                (item.copy ? '<div class="stack-item-copy">' + escapeHtml(item.copy) + '</div>' : '') +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+
+        function normalizeReviewPhase(detail) {
+          return detail && detail.contribution && detail.contribution.state === 'spec_approved' ? 'approved' : 'spec';
+        }
+
+        function buildReviewContext(detail) {
+          var entries = [];
+          var contribution = detail && detail.contribution ? detail.contribution : {};
+          var payload = contribution.payload || {};
+          var context = payload.context || {};
+
+          entries.push(['Project', contribution.projectSlug || 'Not provided']);
+          entries.push(['Environment', contribution.environment || 'Not provided']);
+          if (payload.route) entries.push(['Route', payload.route]);
+          if (payload.url) entries.push(['URL', payload.url]);
+          if (payload.appVersion) entries.push(['App version', payload.appVersion]);
+          if (context.selectedObjectType || context.selectedObjectId) {
+            entries.push(['Selected object', [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')]);
+          }
+          if (context.activeFilters && Object.keys(context.activeFilters).length) {
+            entries.push([
+              'Filters',
+              Object.keys(context.activeFilters)
+                .map(function (key) {
+                  return key + ' ' + context.activeFilters[key];
+                })
+                .join(', '),
+            ]);
+          }
+          entries.push(['Created', contribution.createdAt || 'Not provided']);
+          return entries;
+        }
+
+        function renderReview() {
+          var detail = state.contributionDetail;
+          var currentSpec = detail && detail.spec ? detail.spec.current : null;
+          var attachments = detail ? detail.attachments || [] : [];
+          var conversation = detail ? detail.conversation || [] : [];
+          var isApproved = detail && detail.contribution && detail.contribution.state === 'spec_approved';
+
+          if (!detail || !currentSpec) {
+            reviewSection.classList.add('hidden');
+            return;
+          }
+
+          reviewSection.classList.remove('hidden');
+          composeForm.classList.add('hidden');
+          lifecycleSection.classList.remove('hidden');
+
+          reviewState.textContent = isApproved ? 'Spec approved' : 'Spec ready';
+          reviewHeading.textContent = isApproved
+            ? 'The approved scope is stored.'
+            : 'Review spec v' + currentSpec.versionNumber + '.';
+          reviewCopy.textContent = isApproved
+            ? 'No implementation job has started yet.'
+            : 'Approve the scope or ask for changes before any implementation work starts.';
+          setReviewChip(isApproved ? 'ready' : 'working', isApproved ? 'Approved' : 'Waiting for approval');
+          specGoal.textContent = currentSpec.goal || 'No goal recorded.';
+          specUserProblem.textContent = currentSpec.userProblem || 'No user problem recorded.';
+          renderSimpleList(specCriteria, currentSpec.acceptanceCriteria || [], 'No acceptance criteria.');
+          renderSimpleList(specNonGoals, currentSpec.nonGoals || [], 'No non-goals.');
+          renderSummary(reviewContext, buildReviewContext(detail), 'No request context.');
+          renderStackList(
+            reviewAttachments,
+            attachments.map(function (attachment) {
+              return {
+                title: attachment.filename,
+                meta: attachment.contentType,
+                copy: formatBytes(attachment.sizeBytes),
+              };
+            }),
+            'No attachment metadata recorded.'
+          );
+          renderStackList(
+            messageList,
+            conversation.map(function (message) {
+              return {
+                title: message.authorRole,
+                meta: message.createdAt,
+                copy: message.body,
+              };
+            }),
+            'No conversation recorded.'
+          );
+
+          reviewActions.classList.toggle('hidden', isApproved);
+          refineField.classList.toggle('hidden', isApproved || !state.refineOpen);
+          refineActions.classList.toggle('hidden', isApproved || !state.refineOpen);
+          approveButton.disabled = state.submitting;
+          refineToggleButton.disabled = state.submitting;
+          refineSubmitButton.disabled = state.submitting;
+          refineCancelButton.disabled = state.submitting;
+
+          if (!isApproved && !state.refineOpen) {
+            refineNote.value = '';
+          }
+
+          setPhase(normalizeReviewPhase(detail));
+        }
+
+        function showComposeSurface() {
+          reviewSection.classList.add('hidden');
+          composeForm.classList.remove('hidden');
+          renderContext();
+          renderAttachments();
+          setPhase(state.submitting ? 'sending' : 'compose');
+        }
+
         function applyState(payload) {
           if (!payload) return;
           state.ready = true;
@@ -872,15 +1235,17 @@
           clearTimeout(loadTimeout);
           loadingState.classList.add('hidden');
           errorState.classList.add('hidden');
-          composeForm.classList.remove('hidden');
           bannerCopy.textContent = state.open ? 'Describe the change and attach proof if needed.' : 'Start with the outcome you need.';
           bodyInput.value = state.request.body || '';
           titleInput.value = state.request.title || '';
           kindSelect.value = state.request.type || 'feature_request';
-          renderContext();
-          renderAttachments();
-          setPhase(state.submitting ? 'sending' : 'compose');
           updateDerivedTitle();
+
+          if (state.contributionDetail) {
+            renderReview();
+          } else {
+            showComposeSurface();
+          }
         }
 
         function showError(title, copy) {
@@ -889,6 +1254,7 @@
           errorState.classList.remove('hidden');
           lifecycleSection.classList.add('hidden');
           composeForm.classList.add('hidden');
+          reviewSection.classList.add('hidden');
           errorTitle.textContent = title;
           errorCopy.textContent = copy;
           setPhase('error');
@@ -914,25 +1280,16 @@
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
               locale: navigator.language || '',
             },
+            attachments: state.attachments.map(function (item) {
+              return {
+                filename: item.name,
+                contentType: item.kind || 'application/octet-stream',
+                kind: item.kind || 'file',
+                sizeBytes: item.sizeBytes || 0,
+              };
+            }),
           };
           return payload;
-        }
-
-        function buildFormData(payload) {
-          var formData = new FormData();
-          Object.keys(payload).forEach(function (key) {
-            var value = payload[key];
-            if (value == null) return;
-            if (typeof value === 'object') {
-              formData.append(key, JSON.stringify(value));
-            } else {
-              formData.append(key, String(value));
-            }
-          });
-          state.attachments.forEach(function (item) {
-            formData.append('attachments', item.file, item.file.name);
-          });
-          return formData;
         }
 
         function deriveTitleFromBody(bodyText) {
@@ -976,6 +1333,7 @@
 
           clearStatus();
           state.submitting = true;
+          state.refineOpen = false;
           startButton.disabled = true;
           resetButton.disabled = true;
           attachmentPicker.disabled = true;
@@ -983,13 +1341,11 @@
           setStatus('working', 'Sending request', 'Crowdship is posting this contribution to the server.');
 
           var payload = serializeBody();
-          var body = state.attachments.length ? buildFormData(payload) : JSON.stringify(payload);
-          var headers = state.attachments.length ? undefined : { 'Content-Type': 'application/json' };
 
           fetch('/api/v1/contributions', {
             method: 'POST',
-            body: body,
-            headers: headers,
+            body: JSON.stringify(payload),
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'omit',
             cache: 'no-store',
             referrerPolicy: 'no-referrer',
@@ -1006,6 +1362,18 @@
               attachmentPicker.disabled = false;
 
               var response = result.response;
+              var payload = null;
+              if (result.text) {
+                try {
+                  payload = JSON.parse(result.text);
+                } catch (error) {
+                  setPhase('error');
+                  bannerCopy.textContent = 'Review the error and try again.';
+                  setStatus('error', 'Request failed', 'Server returned invalid JSON.');
+                  return;
+                }
+              }
+
               if (!response.ok) {
                 setPhase('error');
                 bannerCopy.textContent = 'Review the error and try again.';
@@ -1013,8 +1381,12 @@
                 return;
               }
 
-              setPhase('spec');
-              setStatus('ready', 'Request received', 'The server accepted the contribution. Next is a short spec, then implementation progress, preview, and voting.');
+              clearStatus();
+              state.attachments = [];
+              attachmentPicker.value = '';
+              renderAttachments();
+              state.contributionDetail = payload;
+              renderReview();
             })
             .catch(function (error) {
               state.submitting = false;
@@ -1033,7 +1405,7 @@
               name: file.name,
               kind: file.type || 'file',
               size: formatBytes(file.size),
-              file: file,
+              sizeBytes: file.size,
             });
           });
           renderAttachments();
@@ -1047,6 +1419,74 @@
           state.attachments = [];
           renderAttachments();
           clearStatus();
+        }
+
+        function submitSpecDecision(decision) {
+          if (state.submitting || !state.contributionDetail || !state.contributionDetail.contribution) return;
+
+          if (decision === 'refine' && !refineNote.value.trim()) {
+            setReviewChip('error', 'Refinement note required');
+            reviewCopy.textContent = 'Tell Crowdship what to change before asking for a new spec version.';
+            return;
+          }
+
+          state.submitting = true;
+          renderReview();
+          setReviewChip('working', decision === 'approve' ? 'Approving spec' : 'Sending refinement');
+          reviewCopy.textContent = decision === 'approve'
+            ? 'Storing the approved scope.'
+            : 'Generating the next spec version.';
+
+          fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id) + '/spec-approval', {
+            method: 'POST',
+            body: JSON.stringify({
+              decision: decision,
+              note: decision === 'refine' ? refineNote.value.trim() : null,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              state.submitting = false;
+              var response = result.response;
+              var payload = null;
+
+              if (result.text) {
+                try {
+                  payload = JSON.parse(result.text);
+                } catch (error) {
+                  renderReview();
+                  setReviewChip('error', 'Action failed');
+                  reviewCopy.textContent = 'The server returned invalid JSON.';
+                  return;
+                }
+              }
+
+              if (!response.ok) {
+                renderReview();
+                setReviewChip('error', 'Action failed');
+                reviewCopy.textContent = 'Server returned ' + response.status + ' ' + response.statusText + (result.text ? ': ' + result.text.slice(0, 180) : '.');
+                return;
+              }
+
+              state.refineOpen = false;
+              refineNote.value = '';
+              state.contributionDetail = payload;
+              renderReview();
+            })
+            .catch(function (error) {
+              state.submitting = false;
+              renderReview();
+              setReviewChip('error', 'Action failed');
+              reviewCopy.textContent = error && error.message ? error.message : 'The browser could not reach the server.';
+            });
         }
 
         attachmentPicker.addEventListener('change', function () {
@@ -1071,6 +1511,26 @@
 
         resetButton.addEventListener('click', function () {
           clearDraft();
+        });
+
+        approveButton.addEventListener('click', function () {
+          submitSpecDecision('approve');
+        });
+
+        refineToggleButton.addEventListener('click', function () {
+          state.refineOpen = true;
+          renderReview();
+          refineNote.focus();
+        });
+
+        refineSubmitButton.addEventListener('click', function () {
+          submitSpecDecision('refine');
+        });
+
+        refineCancelButton.addEventListener('click', function () {
+          state.refineOpen = false;
+          refineNote.value = '';
+          renderReview();
         });
 
         closeButton.addEventListener('click', function () {
