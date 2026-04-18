@@ -27,9 +27,9 @@ All user-facing interactions for a contribution happen through the widget:
   async
   src="https://crowdship.aizenshtat.eu/widget/v1.js"
   data-crowdship-project="example"
-  data-crowdship-environment="demo"
-  data-crowdship-user-id="demo-user-123"
-  data-crowdship-user-email="demo@example.com"
+  data-crowdship-environment="production"
+  data-crowdship-user-id="customer-123"
+  data-crowdship-user-email="customer@example.com"
   data-crowdship-user-role="customer"
 ></script>
 ```
@@ -41,7 +41,7 @@ These fields are safe to expose in client-side HTML:
 | Field | Required | Description |
 | --- | --- | --- |
 | `data-crowdship-project` | Yes | Public project slug. |
-| `data-crowdship-environment` | No | `demo`, `staging`, or `production`. |
+| `data-crowdship-environment` | No | `development`, `staging`, or `production`. |
 | `data-crowdship-user-id` | No | Host app user identifier. |
 | `data-crowdship-user-email` | No | User email, if the host app chooses to share it. |
 | `data-crowdship-user-role` | No | Role such as `customer`, `admin`, `free`, or `paid`. |
@@ -54,8 +54,8 @@ The widget may expose a browser API:
 
 ```js
 window.Crowdship.identify({
-  id: "demo-user-123",
-  email: "demo@example.com",
+  id: "customer-123",
+  email: "customer@example.com",
   role: "customer"
 });
 
@@ -63,7 +63,7 @@ window.Crowdship.setContext({
   route: "/reports",
   appVersion: "2026.04.18",
   selectedObjectType: "report",
-  selectedObjectId: "report-demo-7"
+  selectedObjectId: "report-7"
 });
 
 window.Crowdship.open({
@@ -87,7 +87,7 @@ window.Crowdship.open({
 ```json
 {
   "project": "example",
-  "environment": "demo",
+  "environment": "production",
   "type": "feature_request",
   "title": "Export this report as CSV",
   "body": "I need to send weekly report data to finance.",
@@ -95,13 +95,13 @@ window.Crowdship.open({
   "url": "https://example.aizenshtat.eu/reports",
   "appVersion": "2026.04.18",
   "user": {
-    "id": "demo-user-123",
-    "email": "demo@example.com",
+    "id": "customer-123",
+    "email": "customer@example.com",
     "role": "customer"
   },
   "context": {
     "selectedObjectType": "report",
-    "selectedObjectId": "report-demo-7"
+    "selectedObjectId": "report-7"
   },
   "client": {
     "timezone": "Europe/Vienna",

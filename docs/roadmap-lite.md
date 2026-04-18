@@ -9,7 +9,7 @@ Status: complete
 - Nginx serves placeholders.
 - TLS is configured.
 - Sentry organization and projects exist.
-- Lightweight demo contract exists.
+- Lightweight product contract exists.
 
 ## Phase 1: Example External App
 

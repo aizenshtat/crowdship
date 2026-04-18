@@ -1,4 +1,4 @@
-# Demo Script
+# Product Walkthrough
 
 ## Setup
 
@@ -39,7 +39,7 @@ The request is converted into structured product intent:
 
 Explain that the contributor never saw the private source code.
 
-## Demo Contribution
+## Seed Contribution
 
 ```text
 Title: Export filtered reports as CSV
@@ -75,7 +75,7 @@ Non-goals:
 
 ## Required Real Artifacts
 
-The demo is incomplete unless it can show:
+The walkthrough is incomplete unless it can show:
 
 - Contribution ID in Crowdship.
 - Chat transcript.
@@ -88,6 +88,6 @@ The demo is incomplete unless it can show:
 - Voting state.
 - Admin merge decision.
 
-## Judge Message
+## Core Message
 
 Crowdship turns customers from passive feedback sources into structured product contributors, while preserving the owner-controlled code boundary that makes `cc-workspace` safe for private work.

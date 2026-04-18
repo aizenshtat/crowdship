@@ -77,3 +77,19 @@ When a contribution is completed, Crowdship generates a short user-facing explan
 - What was intentionally left out.
 
 This explanation is sent to the requester, voters, and commenters.
+
+## Core Review Evidence
+
+When a contribution enters `core_review`, Crowdship should give maintainers a compact evidence panel:
+
+- Approved spec version.
+- Requester preview approval.
+- Vote and comment summary.
+- Branch, PR, CI run, and preview URL.
+- Test and build status.
+- Sentry release for the preview commit.
+- New unhandled Sentry issues for the contribution.
+- Known unrelated Sentry issues.
+- Last operational check timestamp.
+
+Sentry evidence should speed up review by answering whether the preview introduced obvious runtime regressions. It must not replace code review, product review, security review, or maintainer judgment.

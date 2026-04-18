@@ -19,7 +19,7 @@ Blocked:
 - fake progress bars
 - placeholder preview links
 - simulated agent logs
-- demo-only votes or comments in production paths
+- sample-only votes or comments in production paths
 - optimistic "deployed" states before health checks pass
 
 ## Surfaces

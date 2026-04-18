@@ -27,7 +27,7 @@ test('quality infrastructure files exist', () => {
   ].forEach(assertFile);
 });
 
-test('ui contract preserves the hackathon quality bar', () => {
+test('ui contract preserves the product quality bar', () => {
   const contract = read('docs/ui-quality-contract.md');
 
   assert.match(contract, /No Simulation Rule/);
@@ -56,4 +56,17 @@ test('package scripts expose local quality commands', () => {
   assert.equal(pkg.scripts.quality, 'bash scripts/quality-check.sh');
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs');
   assert.equal(pkg.scripts.lint, 'bash -n scripts/*.sh .githooks/pre-commit');
+});
+
+test('sentry is documented as operational merge evidence', () => {
+  const sentry = read('docs/sentry.md');
+  const preview = read('docs/preview-cicd.md');
+  const lifecycle = read('docs/contribution-lifecycle.md');
+
+  assert.match(sentry, /Merge-Readiness Evidence/);
+  assert.match(sentry, /contribution_id/);
+  assert.match(sentry, /Source map/iu);
+  assert.match(preview, /No new unhandled Sentry issues/);
+  assert.match(preview, /merge-readiness signal/);
+  assert.match(lifecycle, /Core Review Evidence/);
 });

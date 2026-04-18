@@ -1,6 +1,6 @@
 # Crowdship
 
-Infrastructure placeholder for the hackathon product.
+Bootstrap infrastructure and product contracts for Crowdship.
 
 Crowdship is intended to complement `cc-workspace`: where `cc-workspace` lets employees create apps with internal context, Crowdship will let users and customers contribute useful product changes without exposing the underlying codebase.
 
@@ -17,7 +17,7 @@ This repository intentionally contains only bootstrap infrastructure:
 - Contribution lifecycle at `docs/contribution-lifecycle.md`
 - Implementation agent contract at `docs/implementation-agent.md`
 - Preview CI/CD contract at `docs/preview-cicd.md`
-- Demo script at `docs/demo-script.md`
+- Product walkthrough at `docs/demo-script.md`
 - Security model at `docs/security-model.md`
 - Sentry project notes at `docs/sentry.md`
 - GitHub Actions configuration at `docs/github-configuration.md`
@@ -43,7 +43,7 @@ git config core.hooksPath .githooks
 
 ## Public Domain
 
-Production placeholder:
+Production bootstrap page:
 
 ```text
 https://crowdship.aizenshtat.eu

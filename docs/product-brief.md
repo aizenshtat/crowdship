@@ -13,13 +13,13 @@ The key difference is trust boundary:
 - `cc-workspace`: internal builders can use internal code and data.
 - `crowdship`: external contributors can describe needs, context, votes, and examples, but never see the codebase unless the owner explicitly exposes something.
 
-## Primary Demo
+## Primary Scenario
 
 An external SaaS-style app embeds the Crowdship widget. A user notices a missing workflow, opens the widget, submits a feature request with page context, and the product owner receives a structured contribution that can become a spec, issue, or agent task.
 
-The demo must make one thing obvious: users can move product work forward without becoming repo collaborators.
+The first scenario must make one thing obvious: users can move product work forward without becoming repo collaborators.
 
-The demo must be real. No simulated agent progress, fake PRs, fake preview links, or mocked deployment states. The hackathon scope can be narrow, but every visible state transition should be backed by a real persisted record, branch, pull request, CI run, or deployed preview.
+The scenario must be real. No simulated agent progress, fake PRs, fake preview links, or mocked deployment states. The initial scope can be narrow, but every visible state transition should be backed by a real persisted record, branch, pull request, CI run, or deployed preview.
 
 ## Personas
 
@@ -54,7 +54,7 @@ The demo must be real. No simulated agent progress, fake PRs, fake preview links
 - Product owners can review, triage, configure automation, and merge promoted contributions.
 - No source code, secrets, tokens, private traces, or internal data are collected by default.
 
-## Non-Goals For The Hackathon Demo
+## Product Non-Goals
 
 - Full marketplace.
 - Full billing.

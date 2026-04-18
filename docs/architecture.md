@@ -59,6 +59,7 @@ example.aizenshtat.eu
 - Pushes the branch.
 - Opens or updates the pull request.
 - Records progress events.
+- Creates Sentry release metadata or records the CI release result.
 
 ### Example App
 
@@ -80,8 +81,20 @@ Crowdship owns contribution data. The external app owner owns source code. The c
 | Contribution API | Durable intake and chat. |
 | GitHub API | Branches, commits, PRs, CI status. |
 | Preview deploy | Requester and voters test working changes. |
-| Sentry | Runtime error visibility for Crowdship and example app. |
+| Sentry | Runtime error visibility, release tracking, source maps, and merge-readiness evidence. |
 | OpenAI API | Clarification, spec generation, implementation support. |
+
+## Observability Flow
+
+Sentry receives runtime errors and release data from Crowdship and the external app. Crowdship stores only safe observability metadata:
+
+- Sentry release.
+- Filtered issue URL.
+- New unhandled preview error count.
+- Failed preview session count when available.
+- Last checked timestamp.
+
+Crowdship uses that metadata in admin/core review screens to show whether a preview appears operationally clean. Sentry must not receive prompts, chat contents, attachments, source code, credentials, cookies, auth headers, private customer records, or raw API responses.
 
 ## Non-Simulated Requirement
 
