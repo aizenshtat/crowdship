@@ -16,3 +16,6 @@ jobs:
           test -f infra/nginx/crowdship.aizenshtat.eu.conf
           grep -q "crowdship.aizenshtat.eu" README.md
           grep -q "Product implementation has not started yet" README.md
+          grep -q "No Simulation Rule" docs/preview-cicd.md
+          grep -q "spec_pending_approval" docs/contribution-lifecycle.md
+          grep -q "Implementation Worker" docs/architecture.md

@@ -54,3 +54,44 @@ Future code automation should require explicit owner authorization:
 4. Only then can an internal builder or agent work against the private repo.
 
 External contributors do not receive repo access as part of this flow.
+
+## Implementation Automation Boundary
+
+Users can start product intent. They do not directly start arbitrary code execution.
+
+For a project to run implementation jobs, the project owner must configure:
+
+- Repository connection.
+- Allowed target repository.
+- Branch naming policy.
+- Preview deployment policy.
+- Whether approved specs auto-start implementation or require admin approval.
+- Maximum job runtime.
+- Allowed agent capabilities.
+
+The implementation worker uses owner-controlled credentials. It must write only to a feature branch and open a pull request. Production deployment remains controlled by the repository's merge and CI/CD rules.
+
+## Public Preview Boundary
+
+Preview deployments are public enough for requesters and voters to test. They must not expose admin secrets, debug routes, CI tokens, or private source. Preview URLs should be tied to contribution IDs and PR branches.
+
+## Audit Requirements
+
+Persist these events:
+
+- Contribution created.
+- Attachment uploaded.
+- Agent question asked.
+- User answer received.
+- Spec generated.
+- Spec approved.
+- Implementation job queued.
+- Branch created.
+- PR opened.
+- CI run started and finished.
+- Preview deployed.
+- Requester approved or requested changes.
+- Voting opened.
+- Comment disposition changed.
+- Admin flagged, merged, rejected, or requested changes.
+- Production deploy completed.

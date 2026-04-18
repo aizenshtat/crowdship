@@ -12,7 +12,11 @@ This repository intentionally contains only bootstrap infrastructure:
 - Nginx host template at `infra/nginx/`
 - Local deploy helper at `scripts/deploy-static.sh`
 - Product brief at `docs/product-brief.md`
+- Architecture at `docs/architecture.md`
 - Widget contract at `docs/widget-contract.md`
+- Contribution lifecycle at `docs/contribution-lifecycle.md`
+- Implementation agent contract at `docs/implementation-agent.md`
+- Preview CI/CD contract at `docs/preview-cicd.md`
 - Demo script at `docs/demo-script.md`
 - Security model at `docs/security-model.md`
 - Sentry project notes at `docs/sentry.md`

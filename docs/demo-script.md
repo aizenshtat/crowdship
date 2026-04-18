@@ -4,7 +4,8 @@
 
 - `example.aizenshtat.eu` acts as a customer-owned external app.
 - `crowdship.aizenshtat.eu` owns the widget and contribution workflow.
-- The example app embeds a future Crowdship widget.
+- The example app embeds the Crowdship widget.
+- Every visible progress state is real: persisted contribution, agent transcript, branch, PR, CI run, preview deploy, and merge.
 
 ## Story
 
@@ -12,15 +13,31 @@
 2. Hit a realistic product limitation, such as needing to export a report or request a workflow change.
 3. Open the Crowdship widget inside the app.
 4. Submit a feature request with page context.
-5. Switch to the owner view in Crowdship.
-6. Show the request converted into structured product intent:
+5. Answer the agent's structured clarification questions.
+6. Approve the generated specification.
+7. Watch the implementation job create a real branch and PR in the example repo.
+8. Wait for CI/CD to deploy a real preview URL.
+9. Test the preview from inside the widget.
+10. Approve the preview or request a revision through chat.
+11. Put the approved feature candidate out for voting.
+12. Show other users voting and commenting on the working preview.
+13. Show the admin/core team view for merge review.
+14. Merge the PR and show production deployment.
+15. Notify the requester and voters with an AI-generated completion explanation.
+
+## Structured Output
+
+The request is converted into structured product intent:
    - summary
    - user problem
    - affected route
    - suggested acceptance criteria
    - risk notes
-7. Explain that the contributor never saw the private source code.
-8. Explain that the owner can later approve an agent workflow in their private environment.
+   - branch URL
+   - PR URL
+   - preview URL
+
+Explain that the contributor never saw the private source code.
 
 ## Demo Contribution
 
@@ -55,6 +72,21 @@ Non-goals:
 - XLSX support.
 - Permission changes.
 ```
+
+## Required Real Artifacts
+
+The demo is incomplete unless it can show:
+
+- Contribution ID in Crowdship.
+- Chat transcript.
+- Approved spec version.
+- Example repo branch.
+- Example repo PR.
+- Passing or failing CI result.
+- Preview URL.
+- Requester approval event.
+- Voting state.
+- Admin merge decision.
 
 ## Judge Message
 

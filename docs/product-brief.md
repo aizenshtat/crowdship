@@ -19,6 +19,8 @@ An external SaaS-style app embeds the Crowdship widget. A user notices a missing
 
 The demo must make one thing obvious: users can move product work forward without becoming repo collaborators.
 
+The demo must be real. No simulated agent progress, fake PRs, fake preview links, or mocked deployment states. The hackathon scope can be narrow, but every visible state transition should be backed by a real persisted record, branch, pull request, CI run, or deployed preview.
+
 ## Personas
 
 ### Product User
@@ -44,9 +46,12 @@ The demo must make one thing obvious: users can move product work forward withou
 
 - Embeddable widget served from `crowdship.aizenshtat.eu`.
 - Host apps can identify the project and pass safe page context.
-- Users can submit feature requests, bug reports, votes, comments, and UX notes.
+- Users can submit feature requests, bug reports, votes, comments, UX notes, screenshots, and attachments.
+- Users can chat with an agent that asks structured clarification questions before engineering work starts.
+- Users approve a short generated specification before any implementation job starts.
 - Contributions are tied to project, route, user identity, and app metadata.
-- Product owners can review, triage, and promote contributions.
+- Approved specifications can trigger a real implementation job that creates a branch, opens a pull request, and deploys a preview.
+- Product owners can review, triage, configure automation, and merge promoted contributions.
 - No source code, secrets, tokens, private traces, or internal data are collected by default.
 
 ## Non-Goals For The Hackathon Demo
@@ -64,4 +69,10 @@ The demo must make one thing obvious: users can move product work forward withou
 - The example app feels like a realistic external product.
 - The widget install path is clear.
 - A contribution produces structured output useful enough for engineering.
+- A contribution produces a real branch, PR, and preview URL when approved.
+- Requesters can continue the chat after seeing the preview and drive branch updates.
 - The story connects naturally to `cc-workspace`.
+
+## Core Promise
+
+Crowdship is not a feedback form. It is a user-facing contribution workflow that can take a request from vague product intent to an owner-reviewed, production-shipped feature candidate.

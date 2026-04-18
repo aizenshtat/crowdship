@@ -6,6 +6,20 @@ The Crowdship widget is the public integration surface for external products. It
 
 The widget must never require the host app to expose source code.
 
+All user-facing interactions for a contribution happen through the widget:
+
+- Initial request text.
+- Screenshot and attachment upload.
+- Clarification chat.
+- Structured questions and answer choices.
+- Short specification approval.
+- Implementation progress timeline.
+- Preview testing.
+- Revision requests.
+- Voting.
+- Comments and comment disposition.
+- Completion notification.
+
 ## Future Install Snippet
 
 ```html
@@ -96,6 +110,80 @@ window.Crowdship.open({
 }
 ```
 
+## Attachment Payload
+
+Attachments are uploaded before or during the chat. Each attachment is stored separately and referenced from chat/spec records.
+
+```json
+{
+  "contributionId": "ctrb_123",
+  "kind": "screenshot",
+  "filename": "reports-filtered-view.png",
+  "contentType": "image/png",
+  "sizeBytes": 381204,
+  "storageKey": "projects/example/contributions/ctrb_123/reports-filtered-view.png"
+}
+```
+
+Allowed attachment types for the first production slice:
+
+- PNG/JPEG/WebP screenshots.
+- Plain text.
+- PDF.
+- CSV.
+
+Executable files and archives are rejected.
+
+## Clarification Chat Contract
+
+The chat agent should behave like a product-focused plan mode. It asks structured questions when it needs missing details, then produces a concise specification.
+
+```json
+{
+  "messageType": "structured_question",
+  "question": "Should the export include all rows or only the currently filtered rows?",
+  "choices": [
+    {
+      "id": "filtered",
+      "label": "Only filtered rows"
+    },
+    {
+      "id": "all",
+      "label": "All rows"
+    }
+  ],
+  "allowFreeform": true
+}
+```
+
+The widget renders structured questions as clear choices while still allowing the user to add nuance in text.
+
+## Specification Approval
+
+The agent must present a short specification before any implementation job starts.
+
+```json
+{
+  "title": "Export filtered reports as CSV",
+  "goal": "Let users download the currently filtered report table as a CSV file.",
+  "userProblem": "Users manually copy filtered report data into spreadsheets for finance workflows.",
+  "acceptanceCriteria": [
+    "Reports page has an Export CSV action.",
+    "Export respects currently applied filters.",
+    "CSV includes visible table columns.",
+    "Empty result exports include headers.",
+    "Export failures show a recoverable error."
+  ],
+  "nonGoals": [
+    "Scheduled exports.",
+    "XLSX support.",
+    "Permission changes."
+  ]
+}
+```
+
+The user can approve the spec or continue chatting. Approval creates an immutable spec version. Later changes create newer spec versions.
+
 ## Host App Responsibilities
 
 - Pass only context that is safe for Crowdship to store.
@@ -112,6 +200,8 @@ window.Crowdship.open({
 - Redact obvious secrets before storage.
 - Store contribution payloads separately from owner credentials and repo access.
 - Promote contributions to engineering work only through owner-controlled actions.
+- Show real implementation progress from server-side jobs and CI, not simulated progress.
+- Show preview links only after a real deployment has completed.
 
 ## Future API Shape
 
@@ -120,6 +210,9 @@ POST /api/v1/contributions
 GET  /api/v1/projects/:project/public-config
 POST /api/v1/contributions/:id/votes
 POST /api/v1/contributions/:id/comments
+POST /api/v1/contributions/:id/attachments
+POST /api/v1/contributions/:id/spec-approval
+GET  /api/v1/contributions/:id/progress
 ```
 
 No endpoint should expose private source code to public widget users.
