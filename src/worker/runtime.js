@@ -40,10 +40,14 @@ function nowIso() {
 }
 
 async function runCommand(command, args, { cwd, env } = {}) {
+  const home = process.env.HOME || '/root';
   const { stdout, stderr } = await execFileAsync(command, args, {
     cwd,
     env: {
       ...process.env,
+      HOME: home,
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME || join(home, '.config'),
+      GH_CONFIG_DIR: process.env.GH_CONFIG_DIR || join(home, '.config', 'gh'),
       GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || 'Crowdship Worker',
       GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || 'crowdship@example.aizenshtat.eu',
       GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || 'Crowdship Worker',
