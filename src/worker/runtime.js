@@ -193,7 +193,9 @@ async function prepareWorktreeDependencies(worktreePath) {
     return null;
   }
 
-  const installArgs = existsSync(join(worktreePath, 'package-lock.json')) ? ['ci'] : ['install'];
+  const installArgs = existsSync(join(worktreePath, 'package-lock.json'))
+    ? ['ci', '--include=dev']
+    : ['install', '--include=dev'];
   await runCommand('npm', installArgs, {
     cwd: worktreePath,
   });
