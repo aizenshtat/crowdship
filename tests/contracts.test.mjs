@@ -31,6 +31,9 @@ test('ui contract preserves the product quality bar', () => {
   const contract = read('docs/ui-quality-contract.md');
 
   assert.match(contract, /No Simulation Rule/);
+  assert.match(contract, /Mobile-First And PWA/);
+  assert.match(contract, /Home Screen/);
+  assert.match(contract, /Web Push/);
   assert.match(contract, /1440x900/);
   assert.match(contract, /390x844/);
   assert.match(contract, /Keyboard/);
@@ -41,12 +44,15 @@ test('ui contract preserves the product quality bar', () => {
 test('agent skill requires concrete user-facing gates', () => {
   const skill = read('.agents/skills/crowdship-ui-ux/SKILL.md');
   const gates = read('.agents/skills/crowdship-ui-ux/references/quality-gates.md');
+  const visual = read('.agents/skills/crowdship-ui-ux/references/visual-language.md');
 
   assert.match(skill, /No simulation/);
   assert.match(skill, /Playwright/);
   assert.match(gates, /Desktop screenshot/);
   assert.match(gates, /Mobile screenshot/);
   assert.match(gates, /No secret values/);
+  assert.match(gates, /Virtual keyboard/);
+  assert.match(visual, /Mobile-First Layout/);
 });
 
 test('package scripts expose local quality commands', () => {

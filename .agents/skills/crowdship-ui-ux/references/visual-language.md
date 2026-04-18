@@ -31,6 +31,19 @@ Prefer:
 - Every dynamic list needs stable row geometry.
 - Every fixed control cluster needs stable height.
 
+## Mobile-First Layout
+
+Design mobile first for both the user widget and the admin dashboard.
+
+- Start at 390x844 and 360x720 before desktop.
+- Prefer full-screen or bottom-sheet mobile flows for widget chat, spec approval, preview review, voting, and comments.
+- Keep primary actions reachable by thumb and visible in decision states.
+- Use at least 44px touch targets.
+- Avoid hover-only affordances.
+- Avoid dense desktop tables as the only admin view; provide stacked mobile review cards.
+- Keep Sentry evidence, CI status, preview link, and requester approval readable on a phone.
+- Handle virtual keyboard resize without losing chat context or hiding the send action.
+
 ## Typography
 
 Use no more than four font sizes per implemented surface:

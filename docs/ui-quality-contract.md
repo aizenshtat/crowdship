@@ -47,6 +47,34 @@ Each surface must define empty, loading, error, blocked, and success states befo
 - Keyboard access is mandatory for widget open, compose, approval, voting, and admin actions.
 - Destructive or irreversible actions need explicit language and a confirmation step.
 
+## Mobile-First And PWA
+
+Crowdship should be comfortable from a phone before it is optimized for desktop. The widget will often be opened from a mobile product screen, and the admin/core review dashboard should be usable from a phone when maintainers need to approve, reject, or inspect a preview away from a laptop.
+
+Mobile-first requirements:
+
+- Design the widget flow at 390x844 before expanding to desktop.
+- Keep the launcher reachable by thumb without covering host-app primary actions.
+- Use bottom-sheet or full-screen mobile patterns for request compose, chat, spec approval, preview review, voting, and comments.
+- Keep all primary decision actions visible without horizontal scrolling.
+- Make attachment upload, screenshot review, and removal comfortable with touch.
+- Use minimum 44px touch targets for primary controls, icon buttons, chips, and timeline actions.
+- Keep chat input stable when the virtual keyboard opens.
+- Preserve progress context when users background the browser or return from opening a preview link.
+- Let admins review contribution details, Sentry evidence, preview status, and merge-readiness from mobile.
+
+PWA direction:
+
+- Crowdship admin should be installable as a PWA with a manifest, icons, `display: standalone`, service worker, offline shell, and app-safe routing.
+- The installed PWA should support Home Screen bookmarking so iPhone users can launch Crowdship like an app without an app store.
+- Push notifications should be used for meaningful contribution events: spec needs approval, preview ready, revision requested, voting threshold reached, core review needed, production shipped.
+- On iOS/iPadOS, Web Push is for Home Screen web apps and notification permission must be requested from a direct user interaction.
+- No silent push assumptions: notifications must be user-visible and respectful.
+- Notification settings must include quiet modes and per-project controls.
+- Badge counts should represent actionable items, not vanity activity.
+
+Do not hide critical workflows behind desktop-only tables, hover-only controls, or wide dashboards.
+
 ## Visual Principles
 
 - Use crisp surfaces, restrained contrast, and high information clarity.
@@ -71,6 +99,15 @@ Before user-facing UI is considered done, run:
 - Error state
 - Secret scan of rendered HTML and console output
 
+Mobile/PWA checks:
+
+- Mobile admin review at 390x844.
+- Widget with virtual keyboard open.
+- Widget after returning from preview.
+- Installable manifest and service worker once the PWA shell exists.
+- Notification permission prompt triggered only by a user action.
+- Badge count clears when actionable items are resolved.
+
 ## CI And Local Enforcement
 
 The repository enforces baseline quality with:
@@ -82,3 +119,9 @@ The repository enforces baseline quality with:
 - GitHub Actions quality workflow
 
 Playwright visual checks will become mandatory as soon as the first real UI implementation lands.
+
+## Platform References
+
+- WebKit: [Web Push for Web Apps on iOS and iPadOS](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+- Apple Developer: [Sending web push notifications in web apps and browsers](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
+- MDN: [Installing Progressive Web Apps](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Installing).
