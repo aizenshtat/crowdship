@@ -20,17 +20,20 @@ test('quality infrastructure files exist', () => {
     '.agents/skills/crowdship-ui-ux/SKILL.md',
     '.agents/skills/crowdship-ui-ux/references/quality-gates.md',
     '.githooks/pre-commit',
+    '.env.example',
     '.github/workflows/smoke.yml',
     'docs/agent-tooling.md',
     'docs/implementation-plan.md',
     'docs/ui-quality-contract.md',
     'index.html',
     'migrations/0001_phase_2_scaffold.sql',
+    'migrations/0002_spec_version_uniqueness.sql',
     'public/manifest.webmanifest',
     'public/sw.js',
     'public/widget/frame.html',
     'public/widget/v1.js',
     'scripts/quality-check.sh',
+    'scripts/run-migrations.sh',
     'src/admin/App.tsx',
     'src/admin/main.tsx',
     'src/server/persistence.js',
@@ -85,6 +88,7 @@ test('package scripts expose local quality commands', () => {
 
   assert.equal(pkg.private, true);
   assert.equal(pkg.scripts.build, 'tsc --noEmit && vite build');
+  assert.equal(pkg.scripts['db:migrate'], 'bash scripts/run-migrations.sh');
   assert.equal(pkg.scripts.quality, 'bash scripts/quality-check.sh');
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs');
   assert.equal(pkg.scripts.typecheck, 'tsc --noEmit');

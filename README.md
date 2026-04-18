@@ -6,11 +6,14 @@ Crowdship is intended to complement `cc-workspace`: where `cc-workspace` lets em
 
 ## Current State
 
-This repository intentionally contains only bootstrap infrastructure:
+This repository currently contains the Crowdship bootstrap and the first live intake/spec approval slice:
 
 - Static public placeholder at `public/`
+- HTTP API runtime at `src/server/`
 - Nginx host template at `infra/nginx/`
 - Local deploy helper at `scripts/deploy-static.sh`
+- Postgres migration runner at `scripts/run-migrations.sh`
+- Durable schema history in `migrations/*.sql`
 - Product brief at `docs/product-brief.md`
 - Architecture at `docs/architecture.md`
 - Widget contract at `docs/widget-contract.md`
@@ -26,7 +29,7 @@ This repository intentionally contains only bootstrap infrastructure:
 - UI quality contract at `docs/ui-quality-contract.md`
 - Framework-neutral quality CI, tests, linting, and pre-commit guardrails
 
-Product implementation has not started yet.
+The API now expects durable Postgres persistence when `DATABASE_URL` is configured.
 
 ## Quality Checks
 
@@ -58,4 +61,26 @@ On the server:
 sudo ./scripts/deploy-static.sh
 ```
 
-The script publishes `public/` to `/var/www/crowdship.aizenshtat.eu/html`.
+Runtime configuration lives in:
+
+```text
+/etc/crowdship/crowdship-api.env
+```
+
+At minimum, set `DATABASE_URL` there for durable persistence. Set `REQUIRE_DATABASE=1` to make the API fail fast instead of falling back to in-memory storage when the database is unavailable. During deployment the script:
+
+1. builds the frontend into `dist/`
+2. publishes `dist/` to `/var/www/crowdship.aizenshtat.eu/html`
+3. loads `/etc/crowdship/crowdship-api.env` when present
+4. runs `scripts/run-migrations.sh` before restarting `crowdship-api.service`
+
+If no `DATABASE_URL` is configured, the migration step is skipped and the rest of the deploy continues.
+
+To run migrations manually:
+
+```bash
+set -a
+source /etc/crowdship/crowdship-api.env
+set +a
+./scripts/run-migrations.sh
+```
