@@ -15,6 +15,7 @@ Safe to expose in a browser:
 
 - Project slug.
 - Widget script URL.
+- Allowed origins already validated and reduced to the minimum widget-safe list.
 - Public Sentry DSN.
 - Public contribution form schema.
 - Non-sensitive route and app metadata.
@@ -23,6 +24,7 @@ Safe to expose in a browser:
 
 Never collected by default from the widget:
 
+- Owner-side runtime project config such as repository full name, repo path, default branch, preview deploy script, automation policy, and implementation profile.
 - Source code.
 - API tokens.
 - Session cookies.
@@ -30,6 +32,17 @@ Never collected by default from the widget:
 - Internal traces.
 - Database records.
 - Customer PII beyond fields the host app intentionally passes.
+
+## Project Configuration Boundary
+
+Project configuration is split into two categories:
+
+- Public widget config:
+  project slug, widget script URL, and the allowlisted origins needed to validate browser requests.
+- Owner-only runtime config:
+  repository target, branch defaults, preview URL template, production URL, execution mode, automation policy, and any runner-specific paths or scripts.
+
+The admin `Project settings` surface may edit both categories, but the widget and host app only receive the public subset. Runtime config must stay server-side and must not be embedded into the widget bootstrap or passed back to external contributors.
 
 ## Abuse Controls
 

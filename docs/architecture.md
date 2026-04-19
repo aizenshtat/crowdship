@@ -65,10 +65,12 @@ The current `example` deployment is a reference environment where one operator o
 - Serves the admin dashboard.
 - Serves the widget script and iframe UI.
 - Calls the Crowdship API.
+- Hosts the owner-controlled `Project settings` surface for live project config.
 
 ### Crowdship API
 
 - Validates widget origins.
+- Stores project records with a public widget config subset and an owner-only runtime config subset.
 - Stores contributions, attachments, chat messages, specs, votes, comments, progress events, PRs, and preview deployments.
 - Queues implementation jobs after approved specs.
 - Emits progress updates to the widget.
@@ -95,7 +97,7 @@ The current `example` deployment is a reference environment where one operator o
 
 ## Data Ownership
 
-Crowdship owns contribution data. The external app owner owns source code. The contributor owns their request and review decisions, but does not get source access.
+Crowdship owns contribution data and the server-side project contract used to validate widget traffic and queue implementation work. The external app owner owns source code, repository permissions, CI/CD, preview infrastructure, and production deployment. The contributor owns their request and review decisions, but does not get source access.
 
 ## Integration Points
 

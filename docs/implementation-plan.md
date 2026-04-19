@@ -70,7 +70,7 @@ Deliverables:
 - Admin dashboard shell.
 - API route structure.
 - Initial database schema.
-- Project/origin config.
+- Project/origin config, split between widget-safe public config and owner-only runtime config.
 - Sentry initialization.
 - PWA foundations for admin.
 
@@ -184,6 +184,8 @@ Do not parallelize:
 ## Current Deployment Note
 
 The hackathon reference deployment may use a shared operator-owned host for both `crowdship` and `example`. That is acceptable for proving the loop quickly, but the durable product target is documented in `docs/customer-onboarding.md`: customer-owned UI, customer-owned repository, customer-owned CI/CD, and either a scoped hosted integration or a customer-run worker.
+
+The live reference slice now includes a real admin `Project settings` surface for the `example` project. That is useful for the demo and for validating the config contract, but it does not change the durable ownership target above.
 
 ## Hackathon Demo Video Note
 

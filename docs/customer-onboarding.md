@@ -57,11 +57,13 @@ This mode increases setup complexity but preserves a stricter trust boundary for
 Every durable customer deployment should have:
 
 - Widget snippet in the customer app shell.
-- Crowdship project configuration: project slug, allowed origins, preview URL pattern, production URL, base branch, and automation policy.
+- Crowdship project configuration: project slug, allowed origins, widget script URL, target repository, default branch, preview URL pattern, production URL, and automation policy.
 - Repository authorization scoped to the target repository or org.
 - CI workflow templates for preview and production.
 - Secrets stored in customer-controlled secret managers or GitHub Actions secrets, not on the Crowdship host.
 - A documented way for Crowdship to learn PR status, CI conclusion, preview URL, and merge outcome.
+
+In the current admin shell this setup lives under `Settings -> Project settings`. That surface is the operator or owner-controlled contract for one project. It is not part of the public widget payload.
 
 ## Install Steps
 
@@ -74,12 +76,20 @@ The customer adds the public script to their UI shell and passes only safe conte
 Minimum project fields:
 
 - Project slug
+- Widget script URL
 - Allowed origins
 - Target repository
 - Default branch
 - Preview URL pattern
 - Production URL
 - Automation policy
+
+Recommended split:
+
+- Public widget-safe config:
+  project slug, widget script URL, allowed origins.
+- Owner-only runtime config:
+  target repository, default branch, preview deploy script or CI callback contract, preview URL pattern, production URL, automation policy, implementation profile.
 
 ### 3. Connect repository automation
 
