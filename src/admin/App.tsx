@@ -825,12 +825,28 @@ function canOpenVoting(detail: ContributionDetail) {
   return detail.contribution.state === 'ready_for_voting';
 }
 
+function canFlagCoreReview(detail: ContributionDetail) {
+  return ['ready_for_voting', 'voting_open'].includes(detail.contribution.state);
+}
+
+function canStartCoreReview(detail: ContributionDetail) {
+  return ['core_team_flagged', 'voting_open'].includes(detail.contribution.state);
+}
+
 function canMarkMerged(detail: ContributionDetail) {
-  if (detail.contribution.state === 'merged') {
+  if (['merged', 'production_deploying', 'completed'].includes(detail.contribution.state)) {
     return false;
   }
 
   return detail.review?.pullRequests.some((pullRequest) => pullRequest.status === 'merged') ?? false;
+}
+
+function canStartProductionDeploy(detail: ContributionDetail) {
+  return detail.contribution.state === 'merged';
+}
+
+function canMarkCompleted(detail: ContributionDetail) {
+  return ['merged', 'production_deploying'].includes(detail.contribution.state);
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -1309,7 +1325,11 @@ function ContributionDetailDrawer({
   onClose,
   onQueueImplementation,
   onOpenVoting,
+  onFlagCoreReview,
+  onStartCoreReview,
   onMarkMerged,
+  onStartProductionDeploy,
+  onMarkCompleted,
   onRefreshPreviewEvidence,
   reviewActionState,
   reviewActionMessage,
@@ -1327,7 +1347,11 @@ function ContributionDetailDrawer({
   onClose: () => void;
   onQueueImplementation: () => void;
   onOpenVoting: () => void;
+  onFlagCoreReview: () => void;
+  onStartCoreReview: () => void;
   onMarkMerged: () => void;
+  onStartProductionDeploy: () => void;
+  onMarkCompleted: () => void;
   onRefreshPreviewEvidence: () => void;
   reviewActionState: 'idle' | 'loading' | 'error' | 'success';
   reviewActionMessage: string;
@@ -1429,6 +1453,26 @@ function ContributionDetailDrawer({
                     {reviewActionState === 'loading' ? 'Opening…' : 'Open voting'}
                   </button>
                 ) : null}
+                {canFlagCoreReview(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onFlagCoreReview}
+                  >
+                    {reviewActionState === 'loading' ? 'Flagging…' : 'Flag core review'}
+                  </button>
+                ) : null}
+                {canStartCoreReview(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onStartCoreReview}
+                  >
+                    {reviewActionState === 'loading' ? 'Starting…' : 'Start core review'}
+                  </button>
+                ) : null}
                 {canMarkMerged(detail) ? (
                   <button
                     className="primary-button"
@@ -1437,6 +1481,26 @@ function ContributionDetailDrawer({
                     onClick={onMarkMerged}
                   >
                     {reviewActionState === 'loading' ? 'Recording…' : 'Mark merged'}
+                  </button>
+                ) : null}
+                {canStartProductionDeploy(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onStartProductionDeploy}
+                  >
+                    {reviewActionState === 'loading' ? 'Starting…' : 'Start production deploy'}
+                  </button>
+                ) : null}
+                {canMarkCompleted(detail) ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onMarkCompleted}
+                  >
+                    {reviewActionState === 'loading' ? 'Closing…' : 'Mark completed'}
                   </button>
                 ) : null}
               </div>
@@ -2821,11 +2885,39 @@ export function App() {
               'Voting opened.',
             )
           }
+          onFlagCoreReview={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/flag-core-review`,
+              {},
+              'Contribution flagged for core review.',
+            )
+          }
+          onStartCoreReview={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/start-core-review`,
+              {},
+              'Core review started.',
+            )
+          }
           onMarkMerged={() =>
             void submitReviewAction(
               `/api/v1/contributions/${selectedContributionId}/mark-merged`,
               {},
               'Merged state recorded.',
+            )
+          }
+          onStartProductionDeploy={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/start-production-deploy`,
+              {},
+              'Production deploy started.',
+            )
+          }
+          onMarkCompleted={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/complete`,
+              {},
+              'Contribution marked completed.',
             )
           }
           onRefreshPreviewEvidence={() => {

@@ -83,6 +83,10 @@ export const APPROVED_PREVIEW_PROGRESS_EVENT_KIND = 'preview_approved';
 export const REQUESTED_PREVIEW_CHANGES_PROGRESS_EVENT_KIND = 'preview_changes_requested';
 export const OPENED_VOTING_PROGRESS_EVENT_KIND = 'voting_opened';
 export const MARKED_MERGED_PROGRESS_EVENT_KIND = 'merged_recorded';
+export const FLAGGED_CORE_REVIEW_PROGRESS_EVENT_KIND = 'core_review_flagged';
+export const STARTED_CORE_REVIEW_PROGRESS_EVENT_KIND = 'core_review_started';
+export const STARTED_PRODUCTION_DEPLOY_PROGRESS_EVENT_KIND = 'production_deploying';
+export const COMPLETED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'completed_recorded';
 
 const PROJECT_SEED_RECORD_LIST = Object.freeze([
   Object.freeze({
@@ -194,6 +198,16 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     method: 'POST',
+    path: '/api/v1/contributions/:id/flag-core-review',
+    handler: 'postFlagCoreReview',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/start-core-review',
+    handler: 'postStartCoreReview',
+  }),
+  Object.freeze({
+    method: 'POST',
     path: '/api/v1/contributions/:id/votes',
     handler: 'postVote',
   }),
@@ -206,6 +220,16 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     method: 'POST',
     path: '/api/v1/contributions/:id/mark-merged',
     handler: 'postMarkMerged',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/start-production-deploy',
+    handler: 'postStartProductionDeploy',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/complete',
+    handler: 'postCompleteContribution',
   }),
 ]);
 

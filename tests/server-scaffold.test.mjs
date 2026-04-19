@@ -299,9 +299,13 @@ test('api route structure includes the required public endpoints', () => {
       'GET /api/v1/contributions/:id/preview-evidence',
       'POST /api/v1/contributions/:id/preview-review',
       'POST /api/v1/contributions/:id/open-voting',
+      'POST /api/v1/contributions/:id/flag-core-review',
+      'POST /api/v1/contributions/:id/start-core-review',
       'POST /api/v1/contributions/:id/votes',
       'POST /api/v1/contributions/:id/comments',
       'POST /api/v1/contributions/:id/mark-merged',
+      'POST /api/v1/contributions/:id/start-production-deploy',
+      'POST /api/v1/contributions/:id/complete',
     ],
   );
 });
@@ -1134,6 +1138,26 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(comment.status, 201);
     assert.equal(comment.body.review.comments.length, 1);
 
+    const flagged = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/flag-core-review`,
+      body: {},
+    });
+
+    assert.equal(flagged.status, 200);
+    assert.equal(flagged.body.contribution.state, 'core_team_flagged');
+
+    const coreReview = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/start-core-review`,
+      body: {},
+    });
+
+    assert.equal(coreReview.status, 200);
+    assert.equal(coreReview.body.contribution.state, 'core_review');
+
     const mergedPullRequest = await requestJson({
       port: address.port,
       method: 'POST',
@@ -1160,6 +1184,28 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(merged.body.contribution.state, 'merged');
     assert.equal(merged.body.review.pullRequests.length, 2);
     assert.equal(merged.body.lifecycle.events.at(-1).kind, 'merged_recorded');
+
+    const productionDeploy = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/start-production-deploy`,
+      body: {},
+    });
+
+    assert.equal(productionDeploy.status, 200);
+    assert.equal(productionDeploy.body.contribution.state, 'production_deploying');
+
+    const completed = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/complete`,
+      body: {},
+    });
+
+    assert.equal(completed.status, 200);
+    assert.equal(completed.body.contribution.state, 'completed');
+    assert.equal(completed.body.lifecycle.events.at(-1).kind, 'completed_recorded');
+    assert.equal(completed.body.conversation.at(-1).messageType, 'completion_summary');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto';
 import {
   AGENT_QUEUED_CONTRIBUTION_STATE,
   API_ROUTE_DEFINITIONS,
+  COMPLETED_CONTRIBUTION_PROGRESS_EVENT_KIND,
   APPROVED_SPEC_PROGRESS_EVENT_KIND,
   APPROVED_PREVIEW_PROGRESS_EVENT_KIND,
   CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND,
   CREATED_CONTRIBUTION_PROGRESS_EVENT_KIND,
   CONTRIBUTION_STATES,
+  FLAGGED_CORE_REVIEW_PROGRESS_EVENT_KIND,
   GENERATED_SPEC_PROGRESS_EVENT_KIND,
   IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
   INITIAL_CONTRIBUTION_STATE,
@@ -27,6 +29,8 @@ import {
   REVISION_REQUESTED_CONTRIBUTION_STATE,
   SPEC_APPROVED_CONTRIBUTION_STATE,
   SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+  STARTED_CORE_REVIEW_PROGRESS_EVENT_KIND,
+  STARTED_PRODUCTION_DEPLOY_PROGRESS_EVENT_KIND,
   VOTING_OPEN_CONTRIBUTION_STATE,
   validateCommentPayload,
   validateContributionCreatePayload,
@@ -409,6 +413,32 @@ function buildNonGoals(contribution) {
   }
 
   return nonGoals.slice(0, 3);
+}
+
+function readOptionalLifecycleNote(body) {
+  if (!isPlainObject(body)) {
+    return '';
+  }
+
+  return normalizeOptionalString(body.note);
+}
+
+function buildCompletionSummary(detail, mergedPullRequest, note = '') {
+  const route = normalizeOptionalString(detail?.contribution?.payload?.route);
+  const title = normalizeOptionalString(detail?.contribution?.title) || 'This change';
+  const summaryLines = [`${title} is now live${route ? ` on ${route}` : ''}.`];
+
+  if (mergedPullRequest?.number) {
+    summaryLines.push(`It shipped from PR #${mergedPullRequest.number}.`);
+  }
+
+  if (note) {
+    summaryLines.push(formatSentence(note, note));
+  } else {
+    summaryLines.push('The approved preview and review notes are now reflected in production.');
+  }
+
+  return summaryLines.join(' ');
 }
 
 function buildSpecVersionRecord({
@@ -1983,6 +2013,160 @@ export function createOpenVotingHandler({
   };
 }
 
+export function createFlagCoreReviewHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Core review persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (!['ready_for_voting', VOTING_OPEN_CONTRIBUTION_STATE, 'core_team_flagged'].includes(detail.contribution.state)) {
+      return buildResponse(409, {
+        error: 'core_review_flag_not_allowed',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const note = readOptionalLifecycleNote(body);
+    const nextState = advanceContributionState(detail.contribution.state, 'core_team_flagged');
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: FLAGGED_CORE_REVIEW_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: note ? `Flagged for core review. Note: ${note}` : 'Flagged for core review.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+      },
+      createdAt,
+    };
+    const comments = note
+      ? [
+          {
+            id: idFactory(),
+            contributionId,
+            authorUserId: null,
+            authorRole: 'admin',
+            body: note,
+            disposition: 'action_required',
+            metadata: null,
+            createdAt,
+          },
+        ]
+      : [];
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      comments,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createStartCoreReviewHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Core review persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (!['core_team_flagged', VOTING_OPEN_CONTRIBUTION_STATE, 'core_review'].includes(detail.contribution.state)) {
+      return buildResponse(409, {
+        error: 'core_review_not_ready',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const note = readOptionalLifecycleNote(body);
+    const nextState = advanceContributionState(detail.contribution.state, 'core_review');
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: STARTED_CORE_REVIEW_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: note ? `Core review started. Note: ${note}` : 'Core review started.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+      },
+      createdAt,
+    };
+    const comments = note
+      ? [
+          {
+            id: idFactory(),
+            contributionId,
+            authorUserId: null,
+            authorRole: 'core_team',
+            body: note,
+            disposition: 'note',
+            metadata: null,
+            createdAt,
+          },
+        ]
+      : [];
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      comments,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
 export function createPreviewReviewHandler({
   database,
   idFactory = randomUUID,
@@ -2337,6 +2521,168 @@ export function createMarkMergedHandler({
   };
 }
 
+export function createStartProductionDeployHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Production deploy persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const mergedPullRequest = getLatestByCreatedAt(asArray(detail.pullRequests).filter((pullRequest) => pullRequest.status === 'merged'));
+
+    if (!mergedPullRequest) {
+      return buildResponse(409, {
+        error: 'merged_pull_request_required',
+        contributionId,
+      });
+    }
+
+    if (!['merged', 'production_deploying'].includes(detail.contribution.state)) {
+      return buildResponse(409, {
+        error: 'production_deploy_not_ready',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const note = readOptionalLifecycleNote(body);
+    const nextState = advanceContributionState(detail.contribution.state, 'production_deploying');
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: STARTED_PRODUCTION_DEPLOY_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: note ? `Production deploy started. Note: ${note}` : 'Production deploy started.',
+      externalUrl: mergedPullRequest.url,
+      payload: {
+        contributionId,
+        pullRequestId: mergedPullRequest.id,
+        repositoryFullName: mergedPullRequest.repositoryFullName,
+        number: mergedPullRequest.number,
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
+export function createCompleteContributionHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Completion persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const mergedPullRequest = getLatestByCreatedAt(asArray(detail.pullRequests).filter((pullRequest) => pullRequest.status === 'merged'));
+
+    if (!mergedPullRequest) {
+      return buildResponse(409, {
+        error: 'merged_pull_request_required',
+        contributionId,
+      });
+    }
+
+    if (!['merged', 'production_deploying', 'completed'].includes(detail.contribution.state)) {
+      return buildResponse(409, {
+        error: 'completion_not_ready',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const note = readOptionalLifecycleNote(body);
+    const summary = buildCompletionSummary(detail, mergedPullRequest, note);
+    const nextState = advanceContributionState(detail.contribution.state, 'completed');
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: COMPLETED_CONTRIBUTION_PROGRESS_EVENT_KIND,
+      status: nextState,
+      message: 'Contribution completed.',
+      externalUrl: mergedPullRequest.url,
+      payload: {
+        contributionId,
+        pullRequestId: mergedPullRequest.id,
+        repositoryFullName: mergedPullRequest.repositoryFullName,
+        number: mergedPullRequest.number,
+        summary,
+      },
+      createdAt,
+    };
+    const completionMessage = createAgentMessage({
+      id: idFactory(),
+      contributionId,
+      body: summary,
+      createdAt,
+      metadata: {
+        pullRequestNumber: mergedPullRequest.number,
+        repositoryFullName: mergedPullRequest.repositoryFullName,
+      },
+      messageType: 'completion_summary',
+    });
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      messages: [completionMessage],
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
 export function createRouteHandlers(options = {}) {
   return {
     getHealth: createHealthHandler(options),
@@ -2358,8 +2704,12 @@ export function createRouteHandlers(options = {}) {
     postPreviewDeployment: createPreviewDeploymentHandler(options),
     postPreviewReview: createPreviewReviewHandler(options),
     postOpenVoting: createOpenVotingHandler(options),
+    postFlagCoreReview: createFlagCoreReviewHandler(options),
+    postStartCoreReview: createStartCoreReviewHandler(options),
     postVote: createVoteHandler(options),
     postComment: createCommentHandler(options),
     postMarkMerged: createMarkMergedHandler(options),
+    postStartProductionDeploy: createStartProductionDeployHandler(options),
+    postCompleteContribution: createCompleteContributionHandler(options),
   };
 }

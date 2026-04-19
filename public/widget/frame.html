@@ -2133,17 +2133,22 @@
                 title: 'Core review in progress',
                 copy: latestMessage,
               };
+            case 'production_deploying':
+              return {
+                tone: 'working',
+                title: 'Production deploying',
+                copy: latestMessage,
+              };
             case 'merged':
-            case 'completed':
               return {
                 tone: 'ready',
                 title: 'Merged',
                 copy: latestMessage,
               };
-            case 'production_deploying':
+            case 'completed':
               return {
-                tone: 'working',
-                title: 'Production deploying',
+                tone: 'ready',
+                title: 'Completed',
                 copy: latestMessage,
               };
             case 'rejected':
