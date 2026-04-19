@@ -178,6 +178,32 @@ type ReviewFormsState = {
   comment: { authorRole: string; body: string; disposition: string };
 };
 
+type ProjectSettingsRecord = {
+  slug: string;
+  name: string;
+  widgetScriptUrl: string;
+  allowedOrigins: string[];
+  productionUrl: string;
+  repositoryFullName: string;
+  defaultBranch: string;
+  previewBaseUrl: string;
+  previewPathTemplate: string;
+  executionMode: string;
+  repoPath: string;
+  previewDeployScript: string;
+  implementationProfile: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+type ProjectSettingsEnvelope = {
+  root: Record<string, unknown>;
+  wrapped: boolean;
+};
+
+type ProjectSettingsActionState = 'idle' | 'saving' | 'success' | 'error';
+type EditableProjectField = Exclude<keyof ProjectSettingsRecord, 'slug' | 'allowedOrigins' | 'createdAt' | 'updatedAt'>;
+
 const navSections: Array<{
   title: string;
   items: Array<{ id: AdminSection; label: string; blurb: string }>;
@@ -196,25 +222,232 @@ const navSections: Array<{
   },
 ];
 
-const projectConfig = [
-  { label: 'Project', value: 'example' },
-  { label: 'Owner host', value: 'crowdship.aizenshtat.eu' },
-  { label: 'Environment', value: 'production' },
-  { label: 'Widget script', value: 'https://crowdship.aizenshtat.eu/widget/v1.js' },
-] as const;
+const DEFAULT_PROJECT_SLUG = 'example';
 
-const originAllowlist = ['https://example.aizenshtat.eu', 'http://localhost:4173'] as const;
+function asObject(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
 
-const installSnippet = `<script
+function readStringValue(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
+function readStringList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === 'string' ? item : ''))
+    .filter((item) => item.length > 0);
+}
+
+function normalizeAllowedOrigins(origins: string[]) {
+  return origins
+    .map((origin) => origin.trim())
+    .filter((origin, index, list) => origin.length > 0 && list.indexOf(origin) === index);
+}
+
+function ensureEditableAllowedOrigins(origins: string[]) {
+  return origins.length > 0 ? origins : [''];
+}
+
+function createEmptyProjectSettings(projectSlug: string): ProjectSettingsRecord {
+  return {
+    slug: projectSlug,
+    name: '',
+    widgetScriptUrl: '',
+    allowedOrigins: [''],
+    productionUrl: '',
+    repositoryFullName: '',
+    defaultBranch: '',
+    previewBaseUrl: '',
+    previewPathTemplate: '',
+    executionMode: '',
+    repoPath: '',
+    previewDeployScript: '',
+    implementationProfile: '',
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
+function parseProjectSettingsResponse(
+  value: unknown,
+  fallbackSlug: string,
+): { envelope: ProjectSettingsEnvelope; project: ProjectSettingsRecord } {
+  const root = asObject(value);
+  const wrappedProject = asObject(root.project);
+  const wrapped = Object.keys(wrappedProject).length > 0;
+  const source = wrapped ? wrappedProject : root;
+  const publicConfig = asObject(source.publicConfig);
+  const runtimeConfig = asObject(source.runtimeConfig);
+  const repository = asObject(source.repository);
+  const preview = asObject(source.preview);
+  const automation = asObject(source.automation);
+  const sourceAllowedOrigins = readStringList(source.allowedOrigins);
+  const publicAllowedOrigins = readStringList(publicConfig.allowedOrigins);
+
+  return {
+    envelope: {
+      root,
+      wrapped,
+    },
+    project: {
+      slug: readStringValue(source.slug) || fallbackSlug,
+      name: readStringValue(source.name),
+      widgetScriptUrl: readStringValue(source.widgetScriptUrl) || readStringValue(publicConfig.widgetScriptUrl),
+      allowedOrigins: ensureEditableAllowedOrigins(
+        sourceAllowedOrigins.length > 0 ? sourceAllowedOrigins : publicAllowedOrigins,
+      ),
+      productionUrl:
+        readStringValue(source.productionUrl) ||
+        readStringValue(publicConfig.productionUrl) ||
+        readStringValue(runtimeConfig.productionBaseUrl),
+      repositoryFullName:
+        readStringValue(source.repositoryFullName) ||
+        readStringValue(repository.fullName) ||
+        readStringValue(runtimeConfig.repositoryFullName),
+      defaultBranch:
+        readStringValue(source.defaultBranch) ||
+        readStringValue(repository.defaultBranch) ||
+        readStringValue(runtimeConfig.defaultBranch),
+      previewBaseUrl:
+        readStringValue(source.previewBaseUrl) ||
+        readStringValue(source.previewBase) ||
+        readStringValue(runtimeConfig.previewBaseUrl) ||
+        readStringValue(preview.baseUrl) ||
+        readStringValue(preview.base),
+      previewPathTemplate:
+        readStringValue(source.previewPathTemplate) ||
+        readStringValue(source.previewTemplate) ||
+        readStringValue(runtimeConfig.previewUrlPattern) ||
+        readStringValue(preview.pathTemplate) ||
+        readStringValue(preview.template),
+      executionMode:
+        readStringValue(source.executionMode) ||
+        readStringValue(runtimeConfig.executionMode) ||
+        readStringValue(automation.executionMode),
+      repoPath:
+        readStringValue(source.repoPath) ||
+        readStringValue(runtimeConfig.repoPath) ||
+        readStringValue(repository.repoPath) ||
+        readStringValue(repository.path),
+      previewDeployScript:
+        readStringValue(source.previewDeployScript) ||
+        readStringValue(runtimeConfig.previewDeployScript) ||
+        readStringValue(preview.deployScript) ||
+        readStringValue(automation.previewDeployScript),
+      implementationProfile:
+        readStringValue(source.implementationProfile) ||
+        readStringValue(runtimeConfig.implementationProfile) ||
+        readStringValue(automation.implementationProfile),
+      createdAt: readStringValue(source.createdAt) || null,
+      updatedAt: readStringValue(source.updatedAt) || null,
+    },
+  };
+}
+
+function buildProjectSettingsPayload(envelope: ProjectSettingsEnvelope | null, project: ProjectSettingsRecord) {
+  const root = structuredClone(envelope?.root ?? {});
+  const target = envelope?.wrapped ? asObject(root.project) : root;
+  const publicConfig = asObject(target.publicConfig);
+  const runtimeConfig = asObject(target.runtimeConfig);
+  const allowedOrigins = normalizeAllowedOrigins(project.allowedOrigins);
+  const name = project.name.trim();
+  const widgetScriptUrl = project.widgetScriptUrl.trim();
+  const productionUrl = project.productionUrl.trim();
+  const repositoryFullName = project.repositoryFullName.trim();
+  const defaultBranch = project.defaultBranch.trim();
+  const previewBaseUrl = project.previewBaseUrl.trim();
+  const previewPathTemplate = project.previewPathTemplate.trim();
+  const executionMode = project.executionMode.trim();
+  const repoPath = project.repoPath.trim();
+  const previewDeployScript = project.previewDeployScript.trim();
+  const implementationProfile = project.implementationProfile.trim();
+
+  target.slug = project.slug;
+  target.name = name;
+  target.allowedOrigins = allowedOrigins;
+  target.publicConfig = {
+    ...publicConfig,
+    project: project.slug,
+    widgetScriptUrl,
+    allowedOrigins,
+  };
+  target.runtimeConfig = {
+    ...runtimeConfig,
+    executionMode,
+    repositoryFullName,
+    repoPath,
+    defaultBranch,
+    previewDeployScript,
+    previewBaseUrl,
+    previewUrlPattern: previewPathTemplate,
+    productionBaseUrl: productionUrl,
+    implementationProfile,
+  };
+
+  if (envelope?.wrapped) {
+    root.project = target;
+    return root;
+  }
+
+  return target;
+}
+
+function serializeProjectSettings(project: ProjectSettingsRecord) {
+  return JSON.stringify({
+    ...project,
+    allowedOrigins: normalizeAllowedOrigins(project.allowedOrigins),
+    createdAt: null,
+    updatedAt: null,
+  });
+}
+
+function buildInstallSnippet(project: ProjectSettingsRecord) {
+  const projectSlug = project.slug.trim() || DEFAULT_PROJECT_SLUG;
+  const widgetScriptUrl = project.widgetScriptUrl.trim() || 'https://crowdship.example/widget/v1.js';
+
+  return `<script
   async
-  src="https://crowdship.aizenshtat.eu/widget/v1.js"
-  data-crowdship-project="example"
+  src="${widgetScriptUrl}"
+  data-crowdship-project="${projectSlug}"
   data-crowdship-environment="production"
   data-crowdship-launcher="manual"
   data-crowdship-user-id="customer-123"
   data-crowdship-user-email="customer@example.com"
   data-crowdship-user-role="customer"
 ></script>`;
+}
+
+async function readApiError(response: Response, fallbackMessage: string) {
+  try {
+    const payload = (await response.json()) as { error?: unknown; message?: unknown };
+
+    if (typeof payload.message === 'string' && payload.message.trim().length > 0) {
+      return payload.message;
+    }
+
+    if (typeof payload.error === 'string' && payload.error.trim().length > 0) {
+      return payload.error;
+    }
+  } catch {
+    // Ignore malformed error bodies and fall back to the status code.
+  }
+
+  return `${fallbackMessage} (${response.status})`;
+}
+
+async function readJsonBody(response: Response) {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return null;
+  }
+
+  return JSON.parse(text) as unknown;
+}
 
 function statusLabel(state: ReadinessState) {
   switch (state) {
@@ -571,61 +804,281 @@ function BucketPill({ bucket }: { bucket: AdminBucket }) {
   return <span className={`pill ${bucketClassName(bucket)}`}>{bucketLabel(bucket)}</span>;
 }
 
-function SettingsView({ readiness }: { readiness: ReadinessItem[] }) {
+function SettingsView({
+  settingsStatus,
+  settingsError,
+  savedProjectSettings,
+  projectDraft,
+  projectActionState,
+  projectActionMessage,
+  isProjectDirty,
+  installSnippet,
+  onFieldChange,
+  onAllowedOriginChange,
+  onAddAllowedOrigin,
+  onRemoveAllowedOrigin,
+  onResetDraft,
+  onRetry,
+  onSubmit,
+}: {
+  settingsStatus: 'loading' | 'ready' | 'error';
+  settingsError: string;
+  savedProjectSettings: ProjectSettingsRecord | null;
+  projectDraft: ProjectSettingsRecord;
+  projectActionState: ProjectSettingsActionState;
+  projectActionMessage: string;
+  isProjectDirty: boolean;
+  installSnippet: string;
+  onFieldChange: (field: EditableProjectField, value: string) => void;
+  onAllowedOriginChange: (index: number, value: string) => void;
+  onAddAllowedOrigin: () => void;
+  onRemoveAllowedOrigin: (index: number) => void;
+  onResetDraft: () => void;
+  onRetry: () => void;
+  onSubmit: () => void;
+}) {
+  const settingsPillState: ReadinessState =
+    settingsStatus === 'error' ? 'empty' : settingsStatus === 'ready' && !isProjectDirty ? 'ready' : 'pending';
+  const bannerClassName =
+    projectActionState === 'saving'
+      ? 'review-action-banner review-action-banner-loading'
+      : projectActionState === 'success'
+        ? 'review-action-banner review-action-banner-success'
+        : projectActionState === 'error'
+          ? 'review-action-banner review-action-banner-error'
+          : 'review-action-banner';
+  const bannerMessage =
+    projectActionState === 'idle'
+      ? settingsStatus === 'loading'
+        ? 'Loading the saved project contract.'
+        : settingsStatus === 'error'
+          ? 'The saved project contract did not load cleanly.'
+          : isProjectDirty
+            ? 'Draft changes stay local until you publish them.'
+            : 'The settings below match the saved project record.'
+      : projectActionMessage;
+
+  if (settingsStatus === 'loading' && !savedProjectSettings) {
+    return (
+      <section className="section-stack">
+        <section className="surface-section">
+          <div className="empty-state">Loading project settings.</div>
+        </section>
+      </section>
+    );
+  }
+
+  if (settingsStatus === 'error' && !savedProjectSettings) {
+    return (
+      <section className="section-stack">
+        <section className="surface-section">
+          <div className="section-heading">
+            <div>
+              <h2>Project settings</h2>
+              <p>Owner-controlled install contract for the target app.</p>
+            </div>
+          </div>
+          <div className="empty-state">Could not load project settings: {settingsError}</div>
+          <div className="review-form-actions" style={{ marginTop: 12 }}>
+            <button className="secondary-button" type="button" onClick={onRetry}>
+              Retry load
+            </button>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
   return (
-    <section className="section-stack">
+    <form
+      className="section-stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
       <section className="surface-section">
         <div className="section-heading">
           <div>
             <h2>Project settings</h2>
             <p>Owner-controlled install contract for the target app.</p>
           </div>
+          <ReadinessPill state={settingsPillState} />
         </div>
-        <dl className="definition-list">
-          {projectConfig.map((item) => (
-            <div className="definition-row" key={item.label}>
-              <dt>{item.label}</dt>
-              <dd>{item.value}</dd>
-            </div>
-          ))}
+        <div aria-live="polite" className={bannerClassName}>
+          {bannerMessage}
+        </div>
+        <dl className="definition-list" style={{ marginTop: 12 }}>
+          <div className="definition-row">
+            <dt>Project</dt>
+            <dd>{projectDraft.slug}</dd>
+          </div>
+          <div className="definition-row">
+            <dt>Updated</dt>
+            <dd>{savedProjectSettings?.updatedAt ? formatTimestamp(savedProjectSettings.updatedAt) : 'Not available'}</dd>
+          </div>
+          <div className="definition-row">
+            <dt>Created</dt>
+            <dd>{savedProjectSettings?.createdAt ? formatTimestamp(savedProjectSettings.createdAt) : 'Not available'}</dd>
+          </div>
         </dl>
       </section>
 
       <section className="surface-section">
         <div className="section-heading">
           <div>
-            <h2>Origin allowlist</h2>
-            <p>Widget origins only.</p>
+            <h2>Install contract</h2>
+            <p>Stored values for the widget bootstrap and the production target.</p>
+          </div>
+        </div>
+        <div className="review-form-grid review-form-grid-three">
+          <label className="review-field">
+            <span>Project name</span>
+            <input value={projectDraft.name} onChange={(event) => onFieldChange('name', event.target.value)} />
+          </label>
+          <label className="review-field">
+            <span>Widget script URL</span>
+            <input
+              value={projectDraft.widgetScriptUrl}
+              onChange={(event) => onFieldChange('widgetScriptUrl', event.target.value)}
+            />
+          </label>
+          <label className="review-field">
+            <span>Production URL</span>
+            <input value={projectDraft.productionUrl} onChange={(event) => onFieldChange('productionUrl', event.target.value)} />
+          </label>
+        </div>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Allowed origins</h2>
+            <p>Origins that can open the widget for this project.</p>
           </div>
         </div>
         <ul className="origin-list">
-          {originAllowlist.map((origin) => (
-            <li className="origin-row" key={origin}>
-              <span className="origin-host">{origin}</span>
-              <span className="origin-state">Allowed</span>
+          {projectDraft.allowedOrigins.map((origin, index) => (
+            <li className="origin-row" key={`${index}-${origin}`}>
+              <label className="review-field" style={{ flex: 1 }}>
+                <span>{`Origin ${index + 1}`}</span>
+                <input value={origin} onChange={(event) => onAllowedOriginChange(index, event.target.value)} />
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={projectDraft.allowedOrigins.length === 1}
+                onClick={() => onRemoveAllowedOrigin(index)}
+              >
+                Remove origin
+              </button>
             </li>
           ))}
         </ul>
+        <div className="review-form-actions" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
+          <button className="secondary-button" type="button" onClick={onAddAllowedOrigin}>
+            Add origin
+          </button>
+        </div>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Automation</h2>
+            <p>Repository, preview, and implementation defaults for the worker path.</p>
+          </div>
+        </div>
+        <div className="review-form-grid review-form-grid-three">
+          <label className="review-field">
+            <span>Repository full name</span>
+            <input
+              value={projectDraft.repositoryFullName}
+              onChange={(event) => onFieldChange('repositoryFullName', event.target.value)}
+            />
+          </label>
+          <label className="review-field">
+            <span>Default branch</span>
+            <input value={projectDraft.defaultBranch} onChange={(event) => onFieldChange('defaultBranch', event.target.value)} />
+          </label>
+          <label className="review-field">
+            <span>Execution mode</span>
+            <input value={projectDraft.executionMode} onChange={(event) => onFieldChange('executionMode', event.target.value)} />
+          </label>
+          <label className="review-field">
+            <span>Preview base URL</span>
+            <input value={projectDraft.previewBaseUrl} onChange={(event) => onFieldChange('previewBaseUrl', event.target.value)} />
+          </label>
+          <label className="review-field">
+            <span>Preview template</span>
+            <input
+              value={projectDraft.previewPathTemplate}
+              onChange={(event) => onFieldChange('previewPathTemplate', event.target.value)}
+            />
+          </label>
+          <label className="review-field">
+            <span>Implementation profile</span>
+            <input
+              value={projectDraft.implementationProfile}
+              onChange={(event) => onFieldChange('implementationProfile', event.target.value)}
+            />
+          </label>
+          <label className="review-field review-field-wide">
+            <span>Repository path</span>
+            <input value={projectDraft.repoPath} onChange={(event) => onFieldChange('repoPath', event.target.value)} />
+          </label>
+          <label className="review-field review-field-wide">
+            <span>Preview deploy script</span>
+            <input
+              value={projectDraft.previewDeployScript}
+              onChange={(event) => onFieldChange('previewDeployScript', event.target.value)}
+            />
+          </label>
+        </div>
       </section>
 
       <section className="surface-section">
         <div className="section-heading">
           <div>
             <h2>Widget install snippet</h2>
-            <p>Paste into the host app.</p>
+            <p>The snippet below is generated from the current saved record.</p>
           </div>
-          <ReadinessPill state={readiness.some((item) => item.label === 'Contribution intake' && item.state === 'ready') ? 'ready' : 'pending'} />
+          <ReadinessPill state={savedProjectSettings ? (isProjectDirty ? 'pending' : 'ready') : 'empty'} />
         </div>
-        <div className="snippet-shell">
-          <div className="snippet-actions">
-            <CopyButton text={installSnippet} />
+        {savedProjectSettings ? (
+          <div className="snippet-shell">
+            <div className="snippet-actions">
+              <CopyButton text={installSnippet} />
+            </div>
+            <pre className="snippet-code">
+              <code>{installSnippet}</code>
+            </pre>
           </div>
-          <pre className="snippet-code">
-            <code>{installSnippet}</code>
-          </pre>
+        ) : (
+          <div className="empty-state compact">Load the project record before copying the install snippet.</div>
+        )}
+      </section>
+
+      <section className="surface-section">
+        <div className="review-form-actions" style={{ gap: 8 }}>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!savedProjectSettings || !isProjectDirty || projectActionState === 'saving'}
+            onClick={onResetDraft}
+          >
+            Reset draft
+          </button>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={settingsStatus !== 'ready' || !savedProjectSettings || !isProjectDirty || projectActionState === 'saving'}
+          >
+            {projectActionState === 'saving' ? 'Publishing…' : 'Publish settings'}
+          </button>
         </div>
       </section>
-    </section>
+    </form>
   );
 }
 
@@ -1480,6 +1933,7 @@ export function App() {
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim() ?? '';
   const initialContributionId =
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('contribution') : null;
+  const projectSettingsEndpoint = `/api/v1/projects/${encodeURIComponent(DEFAULT_PROJECT_SLUG)}`;
 
   const [activeSection, setActiveSection] = useState<AdminSection>('inbox');
   const [intakeQueue, setIntakeQueue] = useState<ContributionSummary[]>([]);
@@ -1491,6 +1945,13 @@ export function App() {
   const [detail, setDetail] = useState<ContributionDetail | null>(null);
   const [reviewActionState, setReviewActionState] = useState<'idle' | 'loading' | 'error' | 'success'>('idle');
   const [reviewActionMessage, setReviewActionMessage] = useState('');
+  const [projectSettingsStatus, setProjectSettingsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [projectSettingsError, setProjectSettingsError] = useState('');
+  const [projectSettingsEnvelope, setProjectSettingsEnvelope] = useState<ProjectSettingsEnvelope | null>(null);
+  const [savedProjectSettings, setSavedProjectSettings] = useState<ProjectSettingsRecord | null>(null);
+  const [projectDraft, setProjectDraft] = useState<ProjectSettingsRecord>(() => createEmptyProjectSettings(DEFAULT_PROJECT_SLUG));
+  const [projectActionState, setProjectActionState] = useState<ProjectSettingsActionState>('idle');
+  const [projectActionMessage, setProjectActionMessage] = useState('');
   const [reviewForms, setReviewForms] = useState({
     implementation: {
       repositoryFullName: '',
@@ -1518,6 +1979,40 @@ export function App() {
       disposition: 'note',
     },
   });
+
+  const clearProjectActionFeedback = useCallback(() => {
+    setProjectActionState('idle');
+    setProjectActionMessage('');
+  }, []);
+
+  const loadProjectSettings = useCallback(async () => {
+    setProjectSettingsStatus('loading');
+    setProjectSettingsError('');
+
+    try {
+      const response = await fetch(projectSettingsEndpoint, {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, 'Project settings request failed'));
+      }
+
+      const payload = await readJsonBody(response);
+      const parsed = parseProjectSettingsResponse(payload, DEFAULT_PROJECT_SLUG);
+
+      setProjectSettingsEnvelope(parsed.envelope);
+      setSavedProjectSettings(parsed.project);
+      setProjectDraft(parsed.project);
+      setProjectSettingsStatus('ready');
+      return parsed.project;
+    } catch (error) {
+      setProjectSettingsStatus('error');
+      setProjectSettingsError(error instanceof Error ? error.message : 'Could not load project settings.');
+      return null;
+    }
+  }, [projectSettingsEndpoint]);
 
   const loadContributions = useCallback(async () => {
     try {
@@ -1576,6 +2071,10 @@ export function App() {
     },
     [selectedContributionId],
   );
+
+  useEffect(() => {
+    void loadProjectSettings();
+  }, [loadProjectSettings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1701,6 +2200,103 @@ export function App() {
     });
   }, [detail]);
 
+  const updateProjectField = useCallback(
+    (field: EditableProjectField, value: string) => {
+      clearProjectActionFeedback();
+      setProjectDraft((current) => ({
+        ...current,
+        [field]: value,
+      }));
+    },
+    [clearProjectActionFeedback],
+  );
+
+  const updateAllowedOrigin = useCallback(
+    (index: number, value: string) => {
+      clearProjectActionFeedback();
+      setProjectDraft((current) => ({
+        ...current,
+        allowedOrigins: current.allowedOrigins.map((origin, originIndex) => (originIndex === index ? value : origin)),
+      }));
+    },
+    [clearProjectActionFeedback],
+  );
+
+  const addAllowedOrigin = useCallback(() => {
+    clearProjectActionFeedback();
+    setProjectDraft((current) => ({
+      ...current,
+      allowedOrigins: [...current.allowedOrigins, ''],
+    }));
+  }, [clearProjectActionFeedback]);
+
+  const removeAllowedOrigin = useCallback(
+    (index: number) => {
+      clearProjectActionFeedback();
+      setProjectDraft((current) => ({
+        ...current,
+        allowedOrigins:
+          current.allowedOrigins.length === 1
+            ? current.allowedOrigins
+            : current.allowedOrigins.filter((_, originIndex) => originIndex !== index),
+      }));
+    },
+    [clearProjectActionFeedback],
+  );
+
+  const resetProjectDraft = useCallback(() => {
+    if (!savedProjectSettings) {
+      return;
+    }
+
+    clearProjectActionFeedback();
+    setProjectDraft(savedProjectSettings);
+  }, [clearProjectActionFeedback, savedProjectSettings]);
+
+  const publishProjectSettings = useCallback(async () => {
+    setProjectActionState('saving');
+    setProjectActionMessage('Writing the project contract.');
+
+    try {
+      const response = await fetch(projectSettingsEndpoint, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(buildProjectSettingsPayload(projectSettingsEnvelope, projectDraft)),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, 'Project settings update failed'));
+      }
+
+      const payload = await readJsonBody(response);
+      const parsed =
+        payload == null
+          ? {
+              envelope: projectSettingsEnvelope ?? { root: {}, wrapped: false },
+              project: {
+                ...projectDraft,
+                allowedOrigins: normalizeAllowedOrigins(projectDraft.allowedOrigins),
+              },
+            }
+          : parseProjectSettingsResponse(payload, projectDraft.slug || DEFAULT_PROJECT_SLUG);
+
+      setProjectSettingsEnvelope(parsed.envelope);
+      setSavedProjectSettings(parsed.project);
+      setProjectDraft(parsed.project);
+      setProjectSettingsStatus('ready');
+      setProjectSettingsError('');
+      setProjectActionState('success');
+      setProjectActionMessage('Project settings published.');
+    } catch (error) {
+      setProjectActionState('error');
+      setProjectActionMessage(error instanceof Error ? error.message : 'Could not update project settings.');
+    }
+  }, [projectDraft, projectSettingsEndpoint, projectSettingsEnvelope]);
+
   async function submitReviewAction(path: string, body: Record<string, string>, successMessage: string) {
     if (!selectedContributionId) {
       return;
@@ -1803,6 +2399,14 @@ export function App() {
   }, [sortedContributions]);
 
   const selectedSummary = sortedContributions.find((item) => item.id === selectedContributionId) ?? null;
+  const isProjectDirty = useMemo(
+    () => (savedProjectSettings ? serializeProjectSettings(savedProjectSettings) !== serializeProjectSettings(projectDraft) : false),
+    [projectDraft, savedProjectSettings],
+  );
+  const installSnippet = useMemo(
+    () => (savedProjectSettings ? buildInstallSnippet(savedProjectSettings) : ''),
+    [savedProjectSettings],
+  );
 
   return (
     <main className="admin-shell">
@@ -1874,12 +2478,33 @@ export function App() {
           )}
         </header>
 
-        {intakeStatus === 'loading' ? (
+        {activeSection === 'settings' ? (
+          <SettingsView
+            settingsStatus={projectSettingsStatus}
+            settingsError={projectSettingsError}
+            savedProjectSettings={savedProjectSettings}
+            projectDraft={projectDraft}
+            projectActionState={projectActionState}
+            projectActionMessage={projectActionMessage}
+            isProjectDirty={isProjectDirty}
+            installSnippet={installSnippet}
+            onFieldChange={updateProjectField}
+            onAllowedOriginChange={updateAllowedOrigin}
+            onAddAllowedOrigin={addAllowedOrigin}
+            onRemoveAllowedOrigin={removeAllowedOrigin}
+            onResetDraft={resetProjectDraft}
+            onRetry={() => {
+              clearProjectActionFeedback();
+              void loadProjectSettings();
+            }}
+            onSubmit={() => {
+              void publishProjectSettings();
+            }}
+          />
+        ) : intakeStatus === 'loading' ? (
           <div className="empty-state">Loading live contribution intake.</div>
         ) : intakeStatus === 'error' ? (
           <div className="empty-state">Could not load live intake: {intakeError}</div>
-        ) : activeSection === 'settings' ? (
-          <SettingsView readiness={readiness} />
         ) : activeSection === 'operations' ? (
           <OperationsView
             readiness={readiness}
