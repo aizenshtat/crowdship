@@ -752,6 +752,18 @@ function getLatestPreviewDeployment(review?: ContributionReview | null) {
   return review?.previewDeployments.at(-1) ?? null;
 }
 
+function getImplementationMetadata(job?: ReviewImplementationJobRecord | null) {
+  return asObject(job?.metadata);
+}
+
+function getImplementationRuntimeConfig(job?: ReviewImplementationJobRecord | null) {
+  return asObject(getImplementationMetadata(job).projectRuntimeConfig);
+}
+
+function getImplementationVerification(job?: ReviewImplementationJobRecord | null) {
+  return readStringList(getImplementationMetadata(job).verification);
+}
+
 function canQueueImplementation(detail: ContributionDetail) {
   return ['spec_approved', 'revision_requested', 'implementation_failed', 'preview_failed'].includes(detail.contribution.state);
 }
@@ -1269,6 +1281,21 @@ function ContributionDetailDrawer({
   const latestPullRequest = getLatestPullRequest(review);
   const latestPreviewDeployment = getLatestPreviewDeployment(review);
   const voteSummary = review?.votes.summary ?? { approve: 0, block: 0, total: 0 };
+  const implementationMetadata = getImplementationMetadata(latestImplementationJob);
+  const runtimeConfig = getImplementationRuntimeConfig(latestImplementationJob);
+  const verificationCommands = getImplementationVerification(latestImplementationJob);
+  const workerBranchName =
+    readStringValue(implementationMetadata.branchName) || latestImplementationJob?.branchName || 'Branch pending';
+  const targetRepository =
+    readStringValue(runtimeConfig.repositoryFullName) ||
+    latestImplementationJob?.repositoryFullName ||
+    'Repository default';
+  const previewEvidenceUrl =
+    latestPreviewDeployment?.url || readStringValue(implementationMetadata.previewUrl) || null;
+  const executionMode = readStringValue(runtimeConfig.executionMode);
+  const implementationProfile = readStringValue(runtimeConfig.implementationProfile);
+  const runtimeDefaultBranch = readStringValue(runtimeConfig.defaultBranch);
+  const previewTemplate = readStringValue(runtimeConfig.previewUrlPattern);
 
   return (
     <div className="drawer-layer" role="presentation">
@@ -1456,11 +1483,16 @@ function ContributionDetailDrawer({
                     {latestImplementationJob ? (
                       <>
                         <div className="stack-item-head">
-                          <span className="stack-item-title">{latestImplementationJob.branchName ?? 'Branch pending'}</span>
+                          <span className="stack-item-title">{workerBranchName}</span>
                           <span className={`pill ${reviewPillClassName(latestImplementationJob.status)}`}>{reviewStatusLabel(latestImplementationJob.status)}</span>
                         </div>
                         <div className="stack-item-copy">
-                          {latestImplementationJob.repositoryFullName ?? 'Repository default'} / created {formatTimestamp(latestImplementationJob.createdAt)}
+                          {targetRepository} / created {formatTimestamp(latestImplementationJob.createdAt)}
+                        </div>
+                        <div className="stack-item-copy">
+                          {verificationCommands.length > 0
+                            ? `${verificationCommands.length} verification step${verificationCommands.length === 1 ? '' : 's'} passed.`
+                            : 'Verification has not been recorded yet.'}
                         </div>
                         {latestImplementationJob.errorSummary ? <div className="row-alert">{latestImplementationJob.errorSummary}</div> : null}
                       </>
@@ -1491,6 +1523,29 @@ function ContributionDetailDrawer({
                     ) : (
                       <div className="stack-item-copy">No preview deployment has been recorded.</div>
                     )}
+                  </div>
+
+                  <div className="record-card">
+                    <div className="record-card-title">Automation evidence</div>
+                    <div className="stack-item-copy">
+                      Target {targetRepository} / {runtimeDefaultBranch || 'default branch not recorded'}
+                    </div>
+                    <div className="stack-item-copy">
+                      Mode {[executionMode, implementationProfile].filter(Boolean).join(' / ') || 'Automation mode not recorded.'}
+                    </div>
+                    <div className="stack-item-copy">
+                      Verification {verificationCommands.length > 0 ? verificationCommands.join(' • ') : 'No verification commands recorded.'}
+                    </div>
+                    {previewEvidenceUrl ? (
+                      <div className="stack-item-copy">
+                        <a href={previewEvidenceUrl} rel="noreferrer" target="_blank">
+                          Preview smoke target
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="stack-item-copy">No preview smoke target has been recorded.</div>
+                    )}
+                    {previewTemplate ? <div className="stack-item-copy">Template {previewTemplate}</div> : null}
                   </div>
                 </div>
               </section>
