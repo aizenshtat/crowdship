@@ -33,6 +33,14 @@ const EXAMPLE_PREVIEW_DEPLOY_SCRIPT = process.env.EXAMPLE_PREVIEW_DEPLOY_SCRIPT 
 const CROWDSHIP_BASE_URL = process.env.CROWDSHIP_BASE_URL || 'https://crowdship.aizenshtat.eu';
 const EXAMPLE_BASE_URL = process.env.EXAMPLE_BASE_URL || 'https://example.aizenshtat.eu';
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeOptionalString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -178,18 +186,64 @@ async function emitProgress(database, contributionId, { nextState, kind, message
   });
 }
 
+function buildLegacyExampleRuntimeConfig(claimedJob) {
+  return {
+    executionMode: 'hosted',
+    automationPolicy: 'hosted_example',
+    repositoryFullName:
+      normalizeOptionalString(claimedJob.repository_full_name) || EXAMPLE_REPOSITORY_FULL_NAME,
+    repoPath: EXAMPLE_REPO_PATH,
+    defaultBranch: EXAMPLE_DEFAULT_BRANCH,
+    previewDeployScript: EXAMPLE_PREVIEW_DEPLOY_SCRIPT,
+    previewBaseUrl: EXAMPLE_BASE_URL,
+    previewUrlPattern: `${EXAMPLE_BASE_URL.replace(/\/+$/, '')}/previews/{contributionId}/`,
+    productionBaseUrl: EXAMPLE_BASE_URL,
+  };
+}
+
 function getProjectRepoConfig(detail, claimedJob) {
-  if (detail.contribution.projectSlug === 'example') {
+  const snapshot = claimedJob?.metadata?.projectRuntimeConfig;
+
+  if (isPlainObject(snapshot)) {
     return {
-      repoPath: EXAMPLE_REPO_PATH,
-      repositoryFullName: claimedJob.repository_full_name || EXAMPLE_REPOSITORY_FULL_NAME,
-      defaultBranch: EXAMPLE_DEFAULT_BRANCH,
-      previewDeployScript: EXAMPLE_PREVIEW_DEPLOY_SCRIPT,
-      baseUrl: EXAMPLE_BASE_URL,
+      ...structuredClone(snapshot),
+      repositoryFullName:
+        normalizeOptionalString(snapshot.repositoryFullName) ||
+        normalizeOptionalString(claimedJob.repository_full_name),
+      repoPath: normalizeOptionalString(snapshot.repoPath),
+      defaultBranch: normalizeOptionalString(snapshot.defaultBranch),
+      previewDeployScript: normalizeOptionalString(snapshot.previewDeployScript),
+      previewBaseUrl:
+        normalizeOptionalString(snapshot.previewBaseUrl) ||
+        normalizeOptionalString(snapshot.productionBaseUrl),
+      previewUrlPattern: normalizeOptionalString(snapshot.previewUrlPattern),
+      productionBaseUrl: normalizeOptionalString(snapshot.productionBaseUrl),
     };
   }
 
+  if (detail.contribution.projectSlug === 'example') {
+    return buildLegacyExampleRuntimeConfig(claimedJob);
+  }
+
   throw new Error(`Unsupported project slug for worker automation: ${detail.contribution.projectSlug}`);
+}
+
+function buildResolvedPreviewUrl(runtimeConfig, contributionId) {
+  const previewUrlPattern = normalizeOptionalString(runtimeConfig.previewUrlPattern);
+
+  if (previewUrlPattern) {
+    return previewUrlPattern.replaceAll('{contributionId}', encodeURIComponent(contributionId));
+  }
+
+  const previewBaseUrl =
+    normalizeOptionalString(runtimeConfig.previewBaseUrl) ||
+    normalizeOptionalString(runtimeConfig.productionBaseUrl);
+
+  if (!previewBaseUrl) {
+    return null;
+  }
+
+  return buildPreviewUrl(previewBaseUrl, contributionId);
 }
 
 async function ensureWorktree(repoPath, branchName, defaultBranch, worktreePath) {
@@ -357,16 +411,23 @@ async function ensurePullRequest(
   };
 }
 
-async function deployPreviewIfConfigured(contributionId, repoPath) {
-  if (!existsSync(EXAMPLE_PREVIEW_DEPLOY_SCRIPT)) {
+async function deployPreviewIfConfigured(contributionId, repoPath, runtimeConfig) {
+  const previewDeployScript = normalizeOptionalString(runtimeConfig.previewDeployScript);
+
+  if (!previewDeployScript || !existsSync(previewDeployScript)) {
     return null;
   }
 
-  await runCommand('bash', [EXAMPLE_PREVIEW_DEPLOY_SCRIPT, contributionId, repoPath], {
+  await runCommand('bash', [previewDeployScript, contributionId, repoPath], {
     cwd: repoPath,
   });
 
-  const previewUrl = buildPreviewUrl(EXAMPLE_BASE_URL, contributionId);
+  const previewUrl = buildResolvedPreviewUrl(runtimeConfig, contributionId);
+
+  if (!previewUrl) {
+    return null;
+  }
+
   const response = await fetch(previewUrl, {
     redirect: 'follow',
   });
@@ -403,6 +464,15 @@ export async function processClaimedJob(pool, database, claimedJob) {
     worktreePath = join(tmpdir(), `crowdship-${detail.contribution.id}`);
 
     repo = getProjectRepoConfig(detail, claimedJob);
+    if (!repo.repoPath) {
+      throw new Error(`Project runtime config is missing repoPath for ${detail.contribution.projectSlug}`);
+    }
+    if (!repo.repositoryFullName) {
+      throw new Error(`Project runtime config is missing repositoryFullName for ${detail.contribution.projectSlug}`);
+    }
+    if (!repo.defaultBranch) {
+      throw new Error(`Project runtime config is missing defaultBranch for ${detail.contribution.projectSlug}`);
+    }
     if (!existsSync(repo.repoPath)) {
       throw new Error(`Target repository path does not exist: ${repo.repoPath}`);
     }
@@ -540,7 +610,7 @@ export async function processClaimedJob(pool, database, claimedJob) {
       },
     });
 
-    const previewUrl = await deployPreviewIfConfigured(detail.contribution.id, worktreePath);
+    const previewUrl = await deployPreviewIfConfigured(detail.contribution.id, worktreePath, repo);
     const pullRequest = await ensurePullRequest(
       worktreePath,
       repo.repositoryFullName,
@@ -640,6 +710,7 @@ export async function processClaimedJob(pool, database, claimedJob) {
       finished_at: nowIso(),
       error_summary: null,
       metadata: {
+        ...(isPlainObject(claimedJob.metadata) ? claimedJob.metadata : {}),
         verification,
         branchName,
         previewUrl,

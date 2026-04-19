@@ -84,17 +84,36 @@ export const REQUESTED_PREVIEW_CHANGES_PROGRESS_EVENT_KIND = 'preview_changes_re
 export const OPENED_VOTING_PROGRESS_EVENT_KIND = 'voting_opened';
 export const MARKED_MERGED_PROGRESS_EVENT_KIND = 'merged_recorded';
 
-export const PROJECT_PUBLIC_CONFIGS = Object.freeze({
-  example: Object.freeze({
-    project: 'example',
-    widgetScriptUrl: 'https://crowdship.aizenshtat.eu/widget/v1.js',
+const PROJECT_SEED_RECORD_LIST = Object.freeze([
+  Object.freeze({
+    slug: 'example',
+    name: 'Orbital Ops',
+    publicConfig: Object.freeze({
+      project: 'example',
+      widgetScriptUrl: 'https://crowdship.aizenshtat.eu/widget/v1.js',
+      allowedOrigins: Object.freeze([
+        'https://example.aizenshtat.eu',
+        ...LOCALHOST_ORIGINS,
+      ]),
+      contributionStates: CONTRIBUTION_STATES,
+    }),
     allowedOrigins: Object.freeze([
       'https://example.aizenshtat.eu',
       ...LOCALHOST_ORIGINS,
     ]),
-    contributionStates: CONTRIBUTION_STATES,
+    runtimeConfig: Object.freeze({
+      executionMode: 'hosted',
+      automationPolicy: 'hosted_example',
+      repositoryFullName: 'aizenshtat/example',
+      repoPath: '/root/example',
+      defaultBranch: 'main',
+      previewDeployScript: '/root/example/scripts/deploy-preview.sh',
+      previewBaseUrl: 'https://example.aizenshtat.eu',
+      previewUrlPattern: 'https://example.aizenshtat.eu/previews/{contributionId}/',
+      productionBaseUrl: 'https://example.aizenshtat.eu',
+    }),
   }),
-});
+]);
 
 export const API_ROUTE_DEFINITIONS = Object.freeze([
   Object.freeze({ method: 'GET', path: '/api/v1/health', handler: 'getHealth' }),
@@ -104,6 +123,16 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     path: '/api/v1/demo-video/upload',
     handler: 'postDemoVideoUpload',
     bodyMode: 'stream',
+  }),
+  Object.freeze({
+    method: 'GET',
+    path: '/api/v1/projects/:project',
+    handler: 'getProject',
+  }),
+  Object.freeze({
+    method: 'PUT',
+    path: '/api/v1/projects/:project',
+    handler: 'putProject',
   }),
   Object.freeze({
     method: 'GET',
@@ -175,36 +204,32 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
 ]);
 
-export function getProjectPublicConfig(projectSlug) {
+function cloneProjectSeedRecord(record) {
+  return {
+    slug: record.slug,
+    name: record.name,
+    publicConfig: {
+      project: record.publicConfig.project,
+      widgetScriptUrl: record.publicConfig.widgetScriptUrl,
+      allowedOrigins: [...record.publicConfig.allowedOrigins],
+      contributionStates: [...record.publicConfig.contributionStates],
+    },
+    allowedOrigins: [...record.allowedOrigins],
+    runtimeConfig: structuredClone(record.runtimeConfig),
+  };
+}
+
+export function listProjectSeedRecords() {
+  return PROJECT_SEED_RECORD_LIST.map(cloneProjectSeedRecord);
+}
+
+export function getProjectSeedRecord(projectSlug) {
   if (typeof projectSlug !== 'string') {
     return null;
   }
 
-  const config = PROJECT_PUBLIC_CONFIGS[projectSlug];
-  if (!config) {
-    return null;
-  }
-
-  return {
-    project: config.project,
-    widgetScriptUrl: config.widgetScriptUrl,
-    allowedOrigins: [...config.allowedOrigins],
-    contributionStates: [...config.contributionStates],
-  };
-}
-
-export function getProjectSeedRecord(projectSlug) {
-  const config = getProjectPublicConfig(projectSlug);
-  if (!config) {
-    return null;
-  }
-
-  return {
-    slug: config.project,
-    name: config.project === 'example' ? 'Orbital Ops' : config.project,
-    publicConfig: config,
-    allowedOrigins: config.allowedOrigins,
-  };
+  const record = PROJECT_SEED_RECORD_LIST.find((entry) => entry.slug === projectSlug);
+  return record ? cloneProjectSeedRecord(record) : null;
 }
 
 function isPlainObject(value) {
@@ -290,10 +315,6 @@ export function validateContributionCreatePayload(payload) {
   validateOptionalObject(payload.context, 'context', errors);
   validateOptionalObject(payload.client, 'client', errors);
   validateAttachmentMetadataList(payload.attachments, 'attachments', errors);
-
-  if (isNonEmptyString(payload.project) && !PROJECT_PUBLIC_CONFIGS[payload.project]) {
-    errors.push(`unknown project: ${payload.project}`);
-  }
 
   if (isNonEmptyString(payload.environment)) {
     const allowedEnvironments = new Set(['development', 'staging', 'production']);

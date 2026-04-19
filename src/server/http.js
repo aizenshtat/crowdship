@@ -10,7 +10,7 @@ function jsonResponse(res, status, body, extraHeaders = {}) {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
     'access-control-allow-headers': 'content-type, x-demo-video-token, x-demo-video-filename',
     ...extraHeaders,
   };

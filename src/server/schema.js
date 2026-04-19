@@ -27,6 +27,7 @@ export const projects = pgTable('projects', {
   name: text('name').notNull(),
   publicConfig: jsonb('public_config').notNull(),
   allowedOrigins: jsonb('allowed_origins').notNull(),
+  runtimeConfig: jsonb('runtime_config').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 });

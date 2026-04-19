@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-import { getProjectSeedRecord } from '../shared/contracts.js';
+import { listProjectSeedRecords } from '../shared/contracts.js';
 
 function cloneValue(value) {
   return value == null ? value : structuredClone(value);
@@ -8,6 +8,61 @@ function cloneValue(value) {
 
 function cloneRecord(record) {
   return cloneValue(record);
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStringList(value) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : [];
+}
+
+function normalizeProjectRecord(project, { existing = null, clock } = {}) {
+  const slug = typeof project?.slug === 'string' ? project.slug.trim() : '';
+
+  if (!slug) {
+    throw new Error('Project slug is required.');
+  }
+
+  const publicConfigInput = isPlainObject(project?.publicConfig) ? project.publicConfig : {};
+  const allowedOrigins = normalizeStringList(project?.allowedOrigins ?? publicConfigInput.allowedOrigins);
+  const contributionStates = normalizeStringList(publicConfigInput.contributionStates);
+  const runtimeConfig = isPlainObject(project?.runtimeConfig) ? structuredClone(project.runtimeConfig) : {};
+  const now = toIsoTimestamp(clock ?? new Date());
+
+  return {
+    slug,
+    name: typeof project?.name === 'string' && project.name.trim() ? project.name.trim() : slug,
+    publicConfig: {
+      project: slug,
+      widgetScriptUrl:
+        typeof publicConfigInput.widgetScriptUrl === 'string' && publicConfigInput.widgetScriptUrl.trim()
+          ? publicConfigInput.widgetScriptUrl.trim()
+          : null,
+      allowedOrigins,
+      contributionStates,
+    },
+    allowedOrigins,
+    runtimeConfig,
+    createdAt: project?.createdAt ?? existing?.createdAt ?? now,
+    updatedAt: project?.updatedAt ?? now,
+  };
+}
+
+function buildProjectPublicConfig(project) {
+  if (!project) {
+    return null;
+  }
+
+  const publicConfig = isPlainObject(project.publicConfig) ? project.publicConfig : {};
+
+  return {
+    project: project.slug,
+    widgetScriptUrl: publicConfig.widgetScriptUrl ?? null,
+    allowedOrigins: [...normalizeStringList(project.allowedOrigins ?? publicConfig.allowedOrigins)],
+    contributionStates: [...normalizeStringList(publicConfig.contributionStates)],
+  };
 }
 
 function sortByCreatedAt(list) {
@@ -71,6 +126,28 @@ function mapContributionRow(row) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function mapProjectRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return normalizeProjectRecord(
+    {
+      slug: row.slug,
+      name: row.name,
+      publicConfig: row.publicConfig ?? {},
+      allowedOrigins: row.allowedOrigins ?? [],
+      runtimeConfig: row.runtimeConfig ?? {},
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    },
+    {
+      existing: row,
+      clock: row.updatedAt ?? row.createdAt ?? new Date(),
+    },
+  );
 }
 
 function mapAttachmentRow(row) {
@@ -217,39 +294,93 @@ async function withTransaction(pool, callback) {
   }
 }
 
-async function seedProject(client, projectSlug, updatedAt) {
-  const project = getProjectSeedRecord(projectSlug);
+async function readProjectFromPostgres(queryable, projectSlug) {
+  const result = await queryable.query(
+    `
+      SELECT
+        slug,
+        name,
+        public_config AS "publicConfig",
+        allowed_origins AS "allowedOrigins",
+        runtime_config AS "runtimeConfig",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM projects
+      WHERE slug = $1
+    `,
+    [projectSlug],
+  );
 
-  if (!project) {
-    throw new Error(`Unknown project slug: ${projectSlug}`);
+  if (result.rowCount === 0) {
+    return null;
   }
 
-  await client.query(
+  return mapProjectRow(result.rows[0]);
+}
+
+async function listProjectsFromPostgres(queryable) {
+  const result = await queryable.query(
+    `
+      SELECT
+        slug,
+        name,
+        public_config AS "publicConfig",
+        allowed_origins AS "allowedOrigins",
+        runtime_config AS "runtimeConfig",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM projects
+      ORDER BY slug ASC
+    `,
+  );
+
+  return result.rows.map(mapProjectRow);
+}
+
+async function upsertProjectInPostgres(queryable, project, clock = () => new Date()) {
+  const normalized = normalizeProjectRecord(project, {
+    clock,
+  });
+  const result = await queryable.query(
     `
       INSERT INTO projects (
         slug,
         name,
         public_config,
         allowed_origins,
+        runtime_config,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::timestamptz, $5::timestamptz)
+      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::timestamptz, $7::timestamptz)
       ON CONFLICT (slug) DO UPDATE
       SET
         name = EXCLUDED.name,
         public_config = EXCLUDED.public_config,
         allowed_origins = EXCLUDED.allowed_origins,
+        runtime_config = EXCLUDED.runtime_config,
         updated_at = EXCLUDED.updated_at
+      RETURNING
+        slug,
+        name,
+        public_config AS "publicConfig",
+        allowed_origins AS "allowedOrigins",
+        runtime_config AS "runtimeConfig",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
     `,
     [
-      project.slug,
-      project.name,
-      JSON.stringify(project.publicConfig),
-      JSON.stringify(project.allowedOrigins),
-      updatedAt,
+      normalized.slug,
+      normalized.name,
+      JSON.stringify(normalized.publicConfig),
+      JSON.stringify(normalized.allowedOrigins),
+      JSON.stringify(normalized.runtimeConfig),
+      normalized.createdAt,
+      normalized.updatedAt,
     ],
   );
+
+  return mapProjectRow(result.rows[0]);
 }
 
 async function readContributionDetailFromPostgres(queryable, contributionId) {
@@ -468,7 +599,9 @@ async function readContributionDetailFromPostgres(queryable, contributionId) {
 
 export function createInMemoryContributionPersistenceAdapter({
   clock = () => new Date(),
+  initialProjects = listProjectSeedRecords(),
 } = {}) {
+  const projects = new Map();
   const contributions = new Map();
   const attachments = new Map();
   const messages = new Map();
@@ -479,6 +612,13 @@ export function createInMemoryContributionPersistenceAdapter({
   const previewDeployments = new Map();
   const votes = new Map();
   const comments = new Map();
+
+  for (const project of initialProjects) {
+    const normalized = normalizeProjectRecord(project, {
+      clock,
+    });
+    projects.set(normalized.slug, normalized);
+  }
 
   function getStoredContribution(contributionId) {
     const contribution = contributions.get(contributionId);
@@ -518,6 +658,29 @@ export function createInMemoryContributionPersistenceAdapter({
   return {
     connected: true,
     kind: 'in-memory-contribution-persistence',
+    async listProjects() {
+      return Array.from(projects.values())
+        .slice()
+        .sort((left, right) => left.slug.localeCompare(right.slug))
+        .map(cloneRecord);
+    },
+    async getProject(projectSlug) {
+      const project = projects.get(projectSlug);
+      return project ? cloneRecord(project) : null;
+    },
+    async getProjectPublicConfig(projectSlug) {
+      const project = projects.get(projectSlug);
+      return buildProjectPublicConfig(project);
+    },
+    async upsertProject(project) {
+      const existing = projects.get(project.slug);
+      const normalized = normalizeProjectRecord(project, {
+        existing,
+        clock,
+      });
+      projects.set(normalized.slug, normalized);
+      return cloneRecord(normalized);
+    },
     async listContributions() {
       return Array.from(contributions.keys())
         .map((contributionId) => getContributionDetail(contributionId))
@@ -525,6 +688,11 @@ export function createInMemoryContributionPersistenceAdapter({
     },
     async createContribution({ contribution, attachments: nextAttachments, messages: nextMessages, specVersions: nextSpecVersions, progressEvents: nextProgressEvents }) {
       const contributionId = contribution.id;
+
+      if (!projects.has(contribution.projectSlug)) {
+        throw new Error(`Unknown project slug: ${contribution.projectSlug}`);
+      }
+
       contributions.set(contributionId, cloneRecord(contribution));
       setStoredList(attachments, contributionId, nextAttachments);
       setStoredList(messages, contributionId, nextMessages);
@@ -649,6 +817,19 @@ export function createPostgresContributionPersistenceAdapter({
   return {
     connected: true,
     kind: 'postgres-contribution-persistence',
+    async listProjects() {
+      return listProjectsFromPostgres(pool);
+    },
+    async getProject(projectSlug) {
+      return readProjectFromPostgres(pool, projectSlug);
+    },
+    async getProjectPublicConfig(projectSlug) {
+      const project = await readProjectFromPostgres(pool, projectSlug);
+      return buildProjectPublicConfig(project);
+    },
+    async upsertProject(project) {
+      return upsertProjectInPostgres(pool, project);
+    },
     async listContributions() {
       const result = await pool.query(
         `
@@ -666,7 +847,6 @@ export function createPostgresContributionPersistenceAdapter({
     },
     async createContribution({ contribution, attachments, messages, specVersions, progressEvents }) {
       return withTransaction(pool, async (client) => {
-        await seedProject(client, contribution.projectSlug, contribution.updatedAt);
         await client.query(
           `
             INSERT INTO contributions (

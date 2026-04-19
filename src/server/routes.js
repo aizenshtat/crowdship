@@ -28,7 +28,6 @@ import {
   SPEC_APPROVED_CONTRIBUTION_STATE,
   SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
   VOTING_OPEN_CONTRIBUTION_STATE,
-  getProjectPublicConfig,
   validateCommentPayload,
   validateContributionCreatePayload,
   validateContributionMessagePayload,
@@ -82,6 +81,194 @@ function hasReadyPersistence(database, methodName) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeOptionalString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function hasOwnProperty(value, key) {
+  return isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function normalizeStringList(value) {
+  return Array.isArray(value)
+    ? value
+        .filter((entry) => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry, index, list) => entry.length > 0 && list.indexOf(entry) === index)
+    : [];
+}
+
+function deleteOrAssignString(target, key, value) {
+  const normalized = normalizeOptionalString(value);
+
+  if (normalized) {
+    target[key] = normalized;
+    return;
+  }
+
+  delete target[key];
+}
+
+function resolveProjectRuntimeConfig(project, { repositoryFullName = null } = {}) {
+  const runtimeConfig = isPlainObject(project?.runtimeConfig) ? structuredClone(project.runtimeConfig) : {};
+  const resolvedRepositoryFullName = normalizeOptionalString(repositoryFullName) || normalizeOptionalString(runtimeConfig.repositoryFullName);
+
+  if (resolvedRepositoryFullName) {
+    runtimeConfig.repositoryFullName = resolvedRepositoryFullName;
+  } else {
+    delete runtimeConfig.repositoryFullName;
+  }
+
+  return runtimeConfig;
+}
+
+function validateProjectPayload(payload, projectSlug) {
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  const wrappedProject = hasOwnProperty(payload, 'project') ? payload.project : undefined;
+
+  if (wrappedProject !== undefined && !isPlainObject(wrappedProject)) {
+    return {
+      ok: false,
+      errors: ['project must be an object when provided'],
+    };
+  }
+
+  const source = isPlainObject(wrappedProject) ? wrappedProject : payload;
+  const errors = [];
+
+  if (hasOwnProperty(source, 'slug')) {
+    const slug = normalizeOptionalString(source.slug);
+
+    if (!slug) {
+      errors.push('slug must be a non-empty string');
+    } else if (slug !== projectSlug) {
+      errors.push('slug must match the project route');
+    }
+  }
+
+  if (hasOwnProperty(source, 'name') && !normalizeOptionalString(source.name)) {
+    errors.push('name must be a non-empty string when provided');
+  }
+
+  if (hasOwnProperty(source, 'allowedOrigins') && !Array.isArray(source.allowedOrigins)) {
+    errors.push('allowedOrigins must be an array when provided');
+  }
+
+  if (hasOwnProperty(source, 'publicConfig') && !isPlainObject(source.publicConfig)) {
+    errors.push('publicConfig must be an object when provided');
+  }
+
+  if (hasOwnProperty(source, 'runtimeConfig') && !isPlainObject(source.runtimeConfig)) {
+    errors.push('runtimeConfig must be an object when provided');
+  }
+
+  if (isPlainObject(source.publicConfig)) {
+    if (hasOwnProperty(source.publicConfig, 'allowedOrigins') && !Array.isArray(source.publicConfig.allowedOrigins)) {
+      errors.push('publicConfig.allowedOrigins must be an array when provided');
+    }
+
+    if (
+      hasOwnProperty(source.publicConfig, 'contributionStates') &&
+      !Array.isArray(source.publicConfig.contributionStates)
+    ) {
+      errors.push('publicConfig.contributionStates must be an array when provided');
+    }
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: source,
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+function buildProjectRecordFromPayload(source, projectSlug, existingProject = null) {
+  const existingPublicConfig = isPlainObject(existingProject?.publicConfig)
+    ? structuredClone(existingProject.publicConfig)
+    : {};
+  const existingRuntimeConfig = isPlainObject(existingProject?.runtimeConfig)
+    ? structuredClone(existingProject.runtimeConfig)
+    : {};
+  const inputPublicConfig = isPlainObject(source.publicConfig) ? source.publicConfig : {};
+  const inputRuntimeConfig = isPlainObject(source.runtimeConfig) ? source.runtimeConfig : {};
+  const allowedOrigins = hasOwnProperty(source, 'allowedOrigins')
+    ? normalizeStringList(source.allowedOrigins)
+    : hasOwnProperty(inputPublicConfig, 'allowedOrigins')
+      ? normalizeStringList(inputPublicConfig.allowedOrigins)
+      : normalizeStringList(existingProject?.allowedOrigins ?? existingPublicConfig.allowedOrigins);
+  const contributionStates = hasOwnProperty(inputPublicConfig, 'contributionStates')
+    ? normalizeStringList(inputPublicConfig.contributionStates)
+    : normalizeStringList(existingPublicConfig.contributionStates);
+  const widgetScriptCandidate = hasOwnProperty(inputPublicConfig, 'widgetScriptUrl')
+    ? inputPublicConfig.widgetScriptUrl
+    : hasOwnProperty(source, 'widgetScriptUrl')
+      ? source.widgetScriptUrl
+      : existingPublicConfig.widgetScriptUrl;
+  const runtimeConfig = {
+    ...existingRuntimeConfig,
+    ...structuredClone(inputRuntimeConfig),
+  };
+
+  if (hasOwnProperty(source, 'executionMode')) {
+    deleteOrAssignString(runtimeConfig, 'executionMode', source.executionMode);
+  }
+  if (hasOwnProperty(source, 'automationPolicy')) {
+    deleteOrAssignString(runtimeConfig, 'automationPolicy', source.automationPolicy);
+  }
+  if (hasOwnProperty(source, 'repositoryFullName')) {
+    deleteOrAssignString(runtimeConfig, 'repositoryFullName', source.repositoryFullName);
+  }
+  if (hasOwnProperty(source, 'repoPath')) {
+    deleteOrAssignString(runtimeConfig, 'repoPath', source.repoPath);
+  }
+  if (hasOwnProperty(source, 'defaultBranch')) {
+    deleteOrAssignString(runtimeConfig, 'defaultBranch', source.defaultBranch);
+  }
+  if (hasOwnProperty(source, 'previewDeployScript')) {
+    deleteOrAssignString(runtimeConfig, 'previewDeployScript', source.previewDeployScript);
+  }
+  if (hasOwnProperty(source, 'previewBaseUrl')) {
+    deleteOrAssignString(runtimeConfig, 'previewBaseUrl', source.previewBaseUrl);
+  }
+  if (hasOwnProperty(source, 'previewPathTemplate')) {
+    deleteOrAssignString(runtimeConfig, 'previewUrlPattern', source.previewPathTemplate);
+  }
+  if (hasOwnProperty(source, 'productionUrl')) {
+    deleteOrAssignString(runtimeConfig, 'productionBaseUrl', source.productionUrl);
+  }
+  if (hasOwnProperty(source, 'implementationProfile')) {
+    deleteOrAssignString(runtimeConfig, 'implementationProfile', source.implementationProfile);
+  }
+
+  return {
+    slug: projectSlug,
+    name: normalizeOptionalString(source.name) || normalizeOptionalString(existingProject?.name) || projectSlug,
+    allowedOrigins,
+    publicConfig: {
+      ...existingPublicConfig,
+      project: projectSlug,
+      widgetScriptUrl: normalizeOptionalString(widgetScriptCandidate) || null,
+      allowedOrigins,
+      contributionStates,
+    },
+    runtimeConfig,
+  };
 }
 
 const MAX_CLARIFICATION_ANSWERS = 3;
@@ -639,9 +826,13 @@ export function createDemoVideoUploadHandler() {
   };
 }
 
-export function createProjectPublicConfigHandler() {
-  return ({ params = {} } = {}) => {
-    const config = getProjectPublicConfig(params.project);
+export function createProjectPublicConfigHandler({ database } = {}) {
+  return async ({ params = {} } = {}) => {
+    if (!hasReadyPersistence(database, 'getProjectPublicConfig')) {
+      return notWiredResponse('Project persistence is not wired yet.');
+    }
+
+    const config = await database.getProjectPublicConfig(params.project);
 
     if (!config) {
       return buildResponse(404, {
@@ -651,6 +842,70 @@ export function createProjectPublicConfigHandler() {
     }
 
     return buildResponse(200, config);
+  };
+}
+
+export function createProjectHandler({ database } = {}) {
+  return async ({ params = {} } = {}) => {
+    const projectSlug = normalizeOptionalString(params.project);
+
+    if (!projectSlug) {
+      return buildResponse(400, {
+        error: 'invalid_project_slug',
+        message: 'Project slug is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getProject')) {
+      return notWiredResponse('Project persistence is not wired yet.');
+    }
+
+    const project = await database.getProject(projectSlug);
+
+    if (!project) {
+      return buildResponse(404, {
+        error: 'project_not_found',
+        project: projectSlug,
+      });
+    }
+
+    return buildResponse(200, {
+      project,
+    });
+  };
+}
+
+export function createProjectUpdateHandler({ database } = {}) {
+  return async ({ params = {}, body } = {}) => {
+    const projectSlug = normalizeOptionalString(params.project);
+
+    if (!projectSlug) {
+      return buildResponse(400, {
+        error: 'invalid_project_slug',
+        message: 'Project slug is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getProject') || !hasReadyPersistence(database, 'upsertProject')) {
+      return notWiredResponse('Project persistence is not wired yet.');
+    }
+
+    const validation = validateProjectPayload(body, projectSlug);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_project_payload',
+        issues: validation.errors,
+      });
+    }
+
+    const existingProject = await database.getProject(projectSlug);
+    const nextProject = buildProjectRecordFromPayload(validation.value, projectSlug, existingProject);
+    const updatedProject = await database.upsertProject(nextProject);
+
+    return buildResponse(200, {
+      project: updatedProject,
+    });
   };
 }
 
@@ -724,8 +979,17 @@ export function createContributionHandler({
       });
     }
 
-    if (!hasReadyPersistence(database, 'createContribution')) {
+    if (!hasReadyPersistence(database, 'createContribution') || !hasReadyPersistence(database, 'getProject')) {
       return notWiredResponse('Contribution persistence is not wired yet.');
+    }
+
+    const project = await database.getProject(validation.value.project);
+
+    if (!project) {
+      return buildResponse(404, {
+        error: 'project_not_found',
+        project: validation.value.project,
+      });
     }
 
     const createdAt = clock().toISOString();
@@ -735,7 +999,7 @@ export function createContributionHandler({
     );
     const contribution = {
       id: contributionId,
-      projectSlug: validation.value.project,
+      projectSlug: project.slug,
       environment: validation.value.environment,
       type: validation.value.type,
       title: validation.value.title,
@@ -1283,7 +1547,11 @@ export function createQueueImplementationHandler({
       });
     }
 
-    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+    if (
+      !hasReadyPersistence(database, 'getContributionDetail') ||
+      !hasReadyPersistence(database, 'applyContributionUpdate') ||
+      !hasReadyPersistence(database, 'getProject')
+    ) {
       return notWiredResponse('Implementation queue persistence is not wired yet.');
     }
 
@@ -1311,19 +1579,40 @@ export function createQueueImplementationHandler({
       });
     }
 
+    const project = await database.getProject(detail.contribution.projectSlug);
+
+    if (!project) {
+      return buildResponse(404, {
+        error: 'project_not_found',
+        project: detail.contribution.projectSlug,
+      });
+    }
+
     const createdAt = clock().toISOString();
+    const projectRuntimeConfig = resolveProjectRuntimeConfig(project, {
+      repositoryFullName: validation.value.repositoryFullName,
+    });
+    const repositoryFullName = normalizeOptionalString(projectRuntimeConfig.repositoryFullName) || null;
+    const metadata = {
+      projectRuntimeConfig,
+    };
+
+    if (validation.value.note) {
+      metadata.note = validation.value.note;
+    }
+
     const implementationJob = {
       id: idFactory(),
       contributionId,
       status: 'queued',
       queueName: validation.value.queueName,
       branchName: validation.value.branchName,
-      repositoryFullName: validation.value.repositoryFullName,
+      repositoryFullName,
       githubRunId: null,
       startedAt: null,
       finishedAt: null,
       errorSummary: null,
-      metadata: validation.value.note ? { note: validation.value.note } : null,
+      metadata,
       createdAt,
     };
     const nextState = resolveContributionState(detail.contribution.state, AGENT_QUEUED_CONTRIBUTION_STATE);
@@ -1338,6 +1627,7 @@ export function createQueueImplementationHandler({
         contributionId,
         implementationJobId: implementationJob.id,
         queueName: implementationJob.queueName,
+        repositoryFullName,
       },
       createdAt,
     };
@@ -1976,6 +2266,8 @@ export function createRouteHandlers(options = {}) {
     getHealth: createHealthHandler(options),
     getDemoVideo: createDemoVideoStatusHandler(options),
     postDemoVideoUpload: createDemoVideoUploadHandler(options),
+    getProject: createProjectHandler(options),
+    putProject: createProjectUpdateHandler(options),
     getProjectPublicConfig: createProjectPublicConfigHandler(options),
     getContributions: createContributionListHandler(options),
     postContribution: createContributionHandler(options),

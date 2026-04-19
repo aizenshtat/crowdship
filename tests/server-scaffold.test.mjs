@@ -8,9 +8,9 @@ import test from 'node:test';
 import {
   API_ROUTE_DEFINITIONS,
   CONTRIBUTION_STATES,
-  PROJECT_PUBLIC_CONFIGS,
   SPEC_APPROVED_CONTRIBUTION_STATE,
   SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+  getProjectSeedRecord,
 } from '../src/shared/contracts.js';
 import {
   createContributionDetailHandler,
@@ -263,14 +263,17 @@ test('shared contribution states preserve the lifecycle order', () => {
   ]);
 });
 
-test('example public config allows production and localhost development origins', () => {
-  const config = PROJECT_PUBLIC_CONFIGS.example;
+test('example seed project includes public config and runtime config for the hosted reference app', () => {
+  const project = getProjectSeedRecord('example');
 
-  assert.equal(config.project, 'example');
-  assert.ok(config.allowedOrigins.includes('https://example.aizenshtat.eu'));
-  assert.ok(config.allowedOrigins.includes('http://localhost:5173'));
-  assert.ok(config.allowedOrigins.includes('http://localhost:4173'));
-  assert.ok(config.allowedOrigins.includes('http://127.0.0.1:5173'));
+  assert.ok(project);
+  assert.equal(project.slug, 'example');
+  assert.equal(project.publicConfig.project, 'example');
+  assert.ok(project.publicConfig.allowedOrigins.includes('https://example.aizenshtat.eu'));
+  assert.ok(project.publicConfig.allowedOrigins.includes('http://localhost:5173'));
+  assert.equal(project.runtimeConfig.repositoryFullName, 'aizenshtat/example');
+  assert.equal(project.runtimeConfig.defaultBranch, 'main');
+  assert.match(project.runtimeConfig.previewUrlPattern, /\{contributionId\}/);
 });
 
 test('api route structure includes the required public endpoints', () => {
@@ -280,6 +283,8 @@ test('api route structure includes the required public endpoints', () => {
       'GET /api/v1/health',
       'GET /api/v1/demo-video',
       'POST /api/v1/demo-video/upload',
+      'GET /api/v1/projects/:project',
+      'PUT /api/v1/projects/:project',
       'GET /api/v1/projects/:project/public-config',
       'GET /api/v1/contributions',
       'POST /api/v1/contributions',
@@ -390,6 +395,40 @@ test('drizzle schema exposes the expected table names', () => {
   ]);
 });
 
+test('project persistence can upsert, list, and read public config from stored records', async () => {
+  const seed = getProjectSeedRecord('example');
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [],
+  });
+
+  await persistence.upsertProject({
+    ...seed,
+    name: 'Orbital Ops Staging',
+    publicConfig: {
+      ...seed.publicConfig,
+      widgetScriptUrl: 'https://crowdship.test/widget.js',
+      allowedOrigins: ['https://orbital.test'],
+    },
+    allowedOrigins: ['https://orbital.test'],
+    runtimeConfig: {
+      ...seed.runtimeConfig,
+      repositoryFullName: 'customer/orbital-ops',
+      defaultBranch: 'trunk',
+    },
+  });
+
+  const projects = await persistence.listProjects();
+  const project = await persistence.getProject('example');
+  const publicConfig = await persistence.getProjectPublicConfig('example');
+
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].name, 'Orbital Ops Staging');
+  assert.equal(project.runtimeConfig.repositoryFullName, 'customer/orbital-ops');
+  assert.equal(project.runtimeConfig.defaultBranch, 'trunk');
+  assert.equal(publicConfig.widgetScriptUrl, 'https://crowdship.test/widget.js');
+  assert.deepEqual(publicConfig.allowedOrigins, ['https://orbital.test']);
+});
+
 test('contribution creation does not fake success when persistence is missing', async () => {
   const createContribution = createContributionHandler();
   const response = await createContribution({
@@ -400,6 +439,113 @@ test('contribution creation does not fake success when persistence is missing', 
   assert.match(response.body.message, /not wired/i);
   assert.equal('id' in response.body, false);
   assert.equal('contributionId' in response.body, false);
+});
+
+test('project public config route reads the stored project record', async () => {
+  const seed = getProjectSeedRecord('example');
+  const database = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [
+      {
+        ...seed,
+        publicConfig: {
+          ...seed.publicConfig,
+          widgetScriptUrl: 'https://crowdship.test/custom-widget.js',
+          allowedOrigins: ['https://orbital.test'],
+        },
+        allowedOrigins: ['https://orbital.test'],
+      },
+    ],
+  });
+  const getProjectPublicConfig = createRouteHandlers({ database }).getProjectPublicConfig;
+
+  const response = await getProjectPublicConfig({
+    params: { project: 'example' },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.project, 'example');
+  assert.equal(response.body.widgetScriptUrl, 'https://crowdship.test/custom-widget.js');
+  assert.deepEqual(response.body.allowedOrigins, ['https://orbital.test']);
+});
+
+test('project route reads and updates the stored runtime config record', async () => {
+  const seed = getProjectSeedRecord('example');
+  const database = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [seed],
+  });
+  const { getProject, putProject } = createRouteHandlers({ database });
+
+  const initialResponse = await getProject({
+    params: { project: 'example' },
+  });
+
+  assert.equal(initialResponse.status, 200);
+  assert.equal(initialResponse.body.project.slug, 'example');
+  assert.equal(initialResponse.body.project.runtimeConfig.repositoryFullName, 'aizenshtat/example');
+
+  const updateResponse = await putProject({
+    params: { project: 'example' },
+    body: {
+      project: {
+        slug: 'example',
+        name: 'Orbital Ops Flight',
+        allowedOrigins: ['https://orbital.test', 'https://orbital.test'],
+        publicConfig: {
+          ...seed.publicConfig,
+          widgetScriptUrl: 'https://crowdship.test/widget/v2.js',
+        },
+        runtimeConfig: {
+          ...seed.runtimeConfig,
+          repositoryFullName: 'customer/orbital-ops',
+          defaultBranch: 'trunk',
+          previewBaseUrl: 'https://preview.orbital.test',
+        },
+      },
+    },
+  });
+
+  assert.equal(updateResponse.status, 200);
+  assert.equal(updateResponse.body.project.name, 'Orbital Ops Flight');
+  assert.equal(updateResponse.body.project.publicConfig.widgetScriptUrl, 'https://crowdship.test/widget/v2.js');
+  assert.deepEqual(updateResponse.body.project.allowedOrigins, ['https://orbital.test']);
+  assert.equal(updateResponse.body.project.runtimeConfig.repositoryFullName, 'customer/orbital-ops');
+  assert.equal(updateResponse.body.project.runtimeConfig.defaultBranch, 'trunk');
+  assert.equal(updateResponse.body.project.runtimeConfig.previewBaseUrl, 'https://preview.orbital.test');
+});
+
+test('project route rejects a mismatched slug in the update payload', async () => {
+  const { putProject } = createRouteHandlers({
+    database: createInMemoryContributionPersistenceAdapter(),
+  });
+
+  const response = await putProject({
+    params: { project: 'example' },
+    body: {
+      project: {
+        slug: 'other-project',
+      },
+    },
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'invalid_project_payload');
+  assert.match(response.body.issues[0], /slug must match/);
+});
+
+test('contribution creation validates project existence through persistence', async () => {
+  const createContribution = createContributionHandler({
+    database: createInMemoryContributionPersistenceAdapter({
+      initialProjects: [],
+    }),
+    specService: createStubSpecService(),
+  });
+  const response = await createContribution({
+    body: buildCreatePayload(),
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(response.body.error, 'project_not_found');
+  assert.equal(response.body.project, 'example');
 });
 
 test('connected contribution persistence opens clarification first and stores the first spec after a reply', async () => {
@@ -885,6 +1031,14 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(queued.status, 200);
     assert.equal(queued.body.contribution.state, 'agent_queued');
     assert.equal(queued.body.review.implementation.jobs.length, 1);
+    assert.equal(
+      queued.body.review.implementation.jobs[0].metadata.projectRuntimeConfig.repositoryFullName,
+      'aizenshtat/example',
+    );
+    assert.equal(
+      queued.body.review.implementation.jobs[0].metadata.projectRuntimeConfig.previewUrlPattern,
+      'https://example.aizenshtat.eu/previews/{contributionId}/',
+    );
 
     const pullRequest = await requestJson({
       port: address.port,
