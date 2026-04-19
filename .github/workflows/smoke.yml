@@ -1,11 +1,19 @@
-name: Quality
+name: Quality and Deploy
 
 on:
   push:
   pull_request:
 
+concurrency:
+  group: crowdship-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   quality:
+    name: Quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -17,3 +25,195 @@ jobs:
         run: npm ci
       - name: Run quality checks
         run: npm run quality
+
+  production:
+    name: Production
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      DEPLOY_REPO_ROOT: ${{ vars.DEPLOY_REPO_ROOT }}
+      DEPLOY_SSH_KNOWN_HOSTS: ${{ vars.DEPLOY_SSH_KNOWN_HOSTS }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ vars.SENTRY_URL }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Resolve production metadata
+        id: meta
+        run: |
+          set -euo pipefail
+
+          app_domain="${APP_DOMAIN:-crowdship.aizenshtat.eu}"
+          sentry_org="${SENTRY_ORG:-crowdship}"
+          sentry_project="${SENTRY_PROJECT:-crowdship}"
+          sentry_url="${SENTRY_URL:-https://sentry.io/}"
+
+          {
+            echo "app_domain=$app_domain"
+            echo "production_url=https://${app_domain}/"
+            echo "health_url=https://${app_domain}/api/v1/health"
+            echo "release=crowdship@${GITHUB_SHA}"
+            echo "run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "sentry_org=$sentry_org"
+            echo "sentry_project=$sentry_project"
+            echo "sentry_url=$sentry_url"
+          } >>"$GITHUB_OUTPUT"
+      - name: Check production deploy configuration
+        id: deploy_config
+        run: |
+          set -euo pipefail
+
+          required=(DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY)
+          present_count=0
+          missing=()
+
+          for key in "${required[@]}"; do
+            if [[ -n "${!key:-}" ]]; then
+              present_count=$((present_count + 1))
+            else
+              missing+=("$key")
+            fi
+          done
+
+          if (( present_count == 0 )); then
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+            echo "missing=${missing[*]}" >>"$GITHUB_OUTPUT"
+          elif (( present_count == ${#required[@]} )); then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+            echo "missing=" >>"$GITHUB_OUTPUT"
+          else
+            echo "Production deploy configuration is partial. Missing: ${missing[*]}" >&2
+            exit 1
+          fi
+      - name: Build production bundle
+        id: build_production
+        run: VITE_SENTRY_DSN="${SENTRY_DSN}" VITE_SOURCEMAP=true npm run build
+      - name: Create production Sentry release
+        id: sentry_production
+        if: env.SENTRY_AUTH_TOKEN != ''
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ env.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ steps.meta.outputs.sentry_org }}
+          SENTRY_PROJECT: ${{ steps.meta.outputs.sentry_project }}
+          SENTRY_URL: ${{ steps.meta.outputs.sentry_url }}
+        with:
+          environment: production
+          ignore_missing: true
+          release: ${{ steps.meta.outputs.release }}
+          sourcemaps: ./dist
+          url_prefix: '~'
+      - name: Configure SSH
+        if: steps.deploy_config.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" >"$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+
+          if [[ -n "${DEPLOY_SSH_KNOWN_HOSTS:-}" ]]; then
+            printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" >"$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >"$HOME/.ssh/known_hosts"
+          fi
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+      - name: Deploy production
+        id: deploy_production
+        if: steps.deploy_config.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+
+          remote_repo_root="${DEPLOY_REPO_ROOT:-/root/crowdship}"
+
+          ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "REMOTE_REPO_ROOT='$remote_repo_root' DEPLOY_SHA='${GITHUB_SHA}' VITE_SENTRY_DSN='${SENTRY_DSN}' bash -s" <<'EOF'
+          set -euo pipefail
+
+          cd "${REMOTE_REPO_ROOT}"
+
+          tracked_status="$(git status --porcelain --untracked-files=no)"
+          if [[ -n "$tracked_status" ]]; then
+            echo "Remote repo has tracked modifications and cannot be updated safely:" >&2
+            echo "$tracked_status" >&2
+            exit 1
+          fi
+
+          git fetch origin
+          git checkout main
+          git reset --hard "${DEPLOY_SHA}"
+          npm ci
+          VITE_SENTRY_DSN="${VITE_SENTRY_DSN}" bash scripts/deploy-static.sh
+          EOF
+      - name: Smoke test production
+        id: smoke_production
+        if: steps.deploy_config.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+
+          root_html="$(mktemp)"
+          trap 'rm -f "$root_html"' EXIT
+
+          curl --fail --silent --show-error --location "${{ steps.meta.outputs.production_url }}" >"$root_html"
+          grep -q '<title>Crowdship Admin</title>' "$root_html"
+          curl --fail --silent --show-error --location "${{ steps.meta.outputs.health_url }}" | grep -q '"ok":true'
+      - name: Production summary
+        if: always()
+        env:
+          BUILD_OUTCOME: ${{ steps.build_production.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy_production.outcome }}
+          MISSING_DEPLOY: ${{ steps.deploy_config.outputs.missing }}
+          SENTRY_OUTCOME: ${{ steps.sentry_production.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke_production.outcome }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ steps.deploy_config.outputs.configured }}" == 'true' ]]; then
+            if [[ "$DEPLOY_OUTCOME" == 'success' && "$SMOKE_OUTCOME" == 'success' ]]; then
+              deploy_status="published"
+              deploy_url_line="${{ steps.meta.outputs.production_url }}"
+            else
+              deploy_status="failed"
+              deploy_url_line="deployment failed before the site was confirmed"
+            fi
+          else
+            deploy_status="configuration required"
+            deploy_url_line="not published; add ${MISSING_DEPLOY}"
+          fi
+
+          if [[ "$SENTRY_OUTCOME" == 'success' ]]; then
+            sentry_release_line="${{ steps.meta.outputs.release }}"
+          elif [[ -n "${SENTRY_AUTH_TOKEN:-}" ]]; then
+            sentry_release_line="release step failed"
+          else
+            sentry_release_line="not configured; add SENTRY_AUTH_TOKEN"
+          fi
+
+          cat >>"$GITHUB_STEP_SUMMARY" <<EOF
+          ## Production
+
+          - Run: ${{ steps.meta.outputs.run_url }}
+          - Build: ${BUILD_OUTCOME}
+          - Deploy status: ${deploy_status}
+          - Production URL: ${deploy_url_line}
+          - Health URL: ${{ steps.meta.outputs.health_url }}
+          - Sentry release: ${sentry_release_line}
+          EOF
