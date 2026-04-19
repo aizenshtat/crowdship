@@ -296,6 +296,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/queue-implementation',
       'POST /api/v1/contributions/:id/pull-requests',
       'POST /api/v1/contributions/:id/preview-deployments',
+      'GET /api/v1/contributions/:id/preview-evidence',
       'POST /api/v1/contributions/:id/preview-review',
       'POST /api/v1/contributions/:id/open-voting',
       'POST /api/v1/contributions/:id/votes',
@@ -1159,6 +1160,128 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(merged.body.contribution.state, 'merged');
     assert.equal(merged.body.review.pullRequests.length, 2);
     assert.equal(merged.body.lifecycle.events.at(-1).kind, 'merged_recorded');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('preview evidence route returns the latest live preview record for a recorded pull request', async () => {
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    clock: () => new Date('2026-04-18T12:00:00Z'),
+  });
+  const specService = createStubSpecService();
+  let contributionId = null;
+  const server = createApiServer({
+    database: persistence,
+    previewEvidenceService: {
+      async getPreviewEvidence({ repositoryFullName, pullRequestNumber, contributionId: requestedContributionId }) {
+        assert.equal(repositoryFullName, 'aizenshtat/example');
+        assert.equal(pullRequestNumber, 42);
+        assert.equal(requestedContributionId, contributionId);
+
+        return {
+          repositoryFullName,
+          pullRequestNumber,
+          status: 'ready',
+          statusLabel: 'ready',
+          contributionId: requestedContributionId,
+          branch: `crowdship/${requestedContributionId}-live-preview-evidence`,
+          pullRequestUrl: 'https://github.com/aizenshtat/example/pull/42',
+          runUrl: 'https://github.com/aizenshtat/example/actions/runs/123456789',
+          buildStatus: 'success',
+          buildStatusLabel: 'success',
+          previewUrl: `https://example.aizenshtat.eu/previews/${requestedContributionId}/`,
+          previewUrlLabel: `https://example.aizenshtat.eu/previews/${requestedContributionId}/`,
+          sentryRelease: 'example@abc123def456',
+          sentryReleaseLabel: '`example@abc123def456`',
+          sentryIssuesUrl: `https://crowdship.sentry.io/issues/?query=contribution_id%3A${requestedContributionId}`,
+          newUnhandledPreviewErrors: null,
+          newUnhandledPreviewErrorsLabel: 'unavailable until runtime Sentry tagging is wired into the app',
+          failedPreviewSessions: null,
+          failedPreviewSessionsLabel: 'unavailable until Session Replay is configured',
+          commentUrl: 'https://github.com/aizenshtat/example/pull/42#issuecomment-1234567890',
+          sourceUpdatedAt: '2026-04-18T12:10:00Z',
+        };
+      },
+    },
+    specService,
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const createResponse = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: {
+        ...buildCreatePayload(),
+        title: 'Add live preview evidence',
+      },
+    });
+
+    contributionId = createResponse.body.contribution.id;
+
+    const clarified = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: {
+        body: 'Keep the anomaly replay on the same mission surface.',
+      },
+    });
+
+    assert.equal(clarified.status, 200);
+    assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+
+    const approved = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/spec-approval`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.contribution.state, SPEC_APPROVED_CONTRIBUTION_STATE);
+
+    const pullRequest = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/pull-requests`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        number: 42,
+        url: 'https://github.com/aizenshtat/example/pull/42',
+        branchName: `crowdship/${contributionId}-live-preview-evidence`,
+        status: 'open',
+      },
+    });
+
+    assert.equal(pullRequest.status, 200);
+    assert.equal(pullRequest.body.review.pullRequests.length, 1);
+
+    const previewEvidence = await requestJson({
+      port: address.port,
+      method: 'GET',
+      path: `/api/v1/contributions/${contributionId}/preview-evidence`,
+    });
+
+    assert.equal(previewEvidence.status, 200);
+    assert.equal(previewEvidence.body.contributionId, contributionId);
+    assert.equal(previewEvidence.body.pullRequest.number, 42);
+    assert.equal(previewEvidence.body.evidence.status, 'ready');
+    assert.equal(
+      previewEvidence.body.evidence.previewUrl,
+      `https://example.aizenshtat.eu/previews/${contributionId}/`,
+    );
+    assert.equal(
+      previewEvidence.body.evidence.commentUrl,
+      'https://github.com/aizenshtat/example/pull/42#issuecomment-1234567890',
+    );
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

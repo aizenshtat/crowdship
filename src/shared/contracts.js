@@ -178,6 +178,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     handler: 'postPreviewDeployment',
   }),
   Object.freeze({
+    method: 'GET',
+    path: '/api/v1/contributions/:id/preview-evidence',
+    handler: 'getPreviewEvidence',
+  }),
+  Object.freeze({
     method: 'POST',
     path: '/api/v1/contributions/:id/preview-review',
     handler: 'postPreviewReview',

@@ -121,6 +121,28 @@ type ReviewCommentRecord = {
   createdAt: string;
 };
 
+type PreviewEvidenceRecord = {
+  status: string | null;
+  statusLabel: string | null;
+  contributionId: string | null;
+  branch: string | null;
+  pullRequestUrl: string | null;
+  runUrl: string | null;
+  buildStatus: string | null;
+  buildStatusLabel: string | null;
+  previewUrl: string | null;
+  previewUrlLabel: string | null;
+  sentryRelease: string | null;
+  sentryReleaseLabel: string | null;
+  sentryIssuesUrl: string | null;
+  newUnhandledPreviewErrors: number | null;
+  newUnhandledPreviewErrorsLabel: string | null;
+  failedPreviewSessions: number | null;
+  failedPreviewSessionsLabel: string | null;
+  commentUrl: string | null;
+  sourceUpdatedAt: string | null;
+};
+
 type ContributionSummary = {
   id: string;
   title: string;
@@ -240,6 +262,10 @@ function readStringList(value: unknown) {
   return value
     .map((item) => (typeof item === 'string' ? item : ''))
     .filter((item) => item.length > 0);
+}
+
+function readNumberValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function normalizeAllowedOrigins(origins: string[]) {
@@ -394,6 +420,33 @@ function buildProjectSettingsPayload(envelope: ProjectSettingsEnvelope | null, p
   }
 
   return target;
+}
+
+function parsePreviewEvidenceResponse(value: unknown): PreviewEvidenceRecord {
+  const root = asObject(value);
+  const evidence = asObject(root.evidence);
+
+  return {
+    status: readStringValue(evidence.status) || null,
+    statusLabel: readStringValue(evidence.statusLabel) || null,
+    contributionId: readStringValue(evidence.contributionId) || null,
+    branch: readStringValue(evidence.branch) || null,
+    pullRequestUrl: readStringValue(evidence.pullRequestUrl) || null,
+    runUrl: readStringValue(evidence.runUrl) || null,
+    buildStatus: readStringValue(evidence.buildStatus) || null,
+    buildStatusLabel: readStringValue(evidence.buildStatusLabel) || null,
+    previewUrl: readStringValue(evidence.previewUrl) || null,
+    previewUrlLabel: readStringValue(evidence.previewUrlLabel) || null,
+    sentryRelease: readStringValue(evidence.sentryRelease) || null,
+    sentryReleaseLabel: readStringValue(evidence.sentryReleaseLabel) || null,
+    sentryIssuesUrl: readStringValue(evidence.sentryIssuesUrl) || null,
+    newUnhandledPreviewErrors: readNumberValue(evidence.newUnhandledPreviewErrors),
+    newUnhandledPreviewErrorsLabel: readStringValue(evidence.newUnhandledPreviewErrorsLabel) || null,
+    failedPreviewSessions: readNumberValue(evidence.failedPreviewSessions),
+    failedPreviewSessionsLabel: readStringValue(evidence.failedPreviewSessionsLabel) || null,
+    commentUrl: readStringValue(evidence.commentUrl) || null,
+    sourceUpdatedAt: readStringValue(evidence.sourceUpdatedAt) || null,
+  };
 }
 
 function serializeProjectSettings(project: ProjectSettingsRecord) {
@@ -1250,10 +1303,14 @@ function ContributionDetailDrawer({
   detail,
   detailStatus,
   detailError,
+  previewEvidenceStatus,
+  previewEvidenceError,
+  previewEvidence,
   onClose,
   onQueueImplementation,
   onOpenVoting,
   onMarkMerged,
+  onRefreshPreviewEvidence,
   reviewActionState,
   reviewActionMessage,
   reviewForms,
@@ -1264,10 +1321,14 @@ function ContributionDetailDrawer({
   detail: ContributionDetail | null;
   detailStatus: 'idle' | 'loading' | 'ready' | 'error';
   detailError: string;
+  previewEvidenceStatus: 'idle' | 'loading' | 'ready' | 'error';
+  previewEvidenceError: string;
+  previewEvidence: PreviewEvidenceRecord | null;
   onClose: () => void;
   onQueueImplementation: () => void;
   onOpenVoting: () => void;
   onMarkMerged: () => void;
+  onRefreshPreviewEvidence: () => void;
   reviewActionState: 'idle' | 'loading' | 'error' | 'success';
   reviewActionMessage: string;
   reviewForms: ReviewFormsState;
@@ -1290,7 +1351,7 @@ function ContributionDetailDrawer({
     readStringValue(runtimeConfig.repositoryFullName) ||
     latestImplementationJob?.repositoryFullName ||
     'Repository default';
-  const previewEvidenceUrl =
+  const previewSmokeTargetUrl =
     latestPreviewDeployment?.url || readStringValue(implementationMetadata.previewUrl) || null;
   const executionMode = readStringValue(runtimeConfig.executionMode);
   const implementationProfile = readStringValue(runtimeConfig.implementationProfile);
@@ -1338,6 +1399,16 @@ function ContributionDetailDrawer({
                 ) : null}
               </div>
               <div className="drawer-rail-actions">
+                {latestPullRequest ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={previewEvidenceStatus === 'loading'}
+                    onClick={onRefreshPreviewEvidence}
+                  >
+                    {previewEvidenceStatus === 'loading' ? 'Refreshing…' : 'Refresh preview evidence'}
+                  </button>
+                ) : null}
                 {canQueueImplementation(detail) ? (
                   <button
                     className="primary-button"
@@ -1536,9 +1607,9 @@ function ContributionDetailDrawer({
                     <div className="stack-item-copy">
                       Verification {verificationCommands.length > 0 ? verificationCommands.join(' • ') : 'No verification commands recorded.'}
                     </div>
-                    {previewEvidenceUrl ? (
+                    {previewSmokeTargetUrl ? (
                       <div className="stack-item-copy">
-                        <a href={previewEvidenceUrl} rel="noreferrer" target="_blank">
+                        <a href={previewSmokeTargetUrl} rel="noreferrer" target="_blank">
                           Preview smoke target
                         </a>
                       </div>
@@ -1546,6 +1617,83 @@ function ContributionDetailDrawer({
                       <div className="stack-item-copy">No preview smoke target has been recorded.</div>
                     )}
                     {previewTemplate ? <div className="stack-item-copy">Template {previewTemplate}</div> : null}
+                  </div>
+
+                  <div className="record-card">
+                    <div className="record-card-title">Live preview evidence</div>
+                    {!latestPullRequest ? (
+                      <div className="stack-item-copy">Record a pull request to unlock live preview evidence.</div>
+                    ) : previewEvidenceStatus === 'loading' ? (
+                      <div className="stack-item-copy">Refreshing the latest preview status from GitHub.</div>
+                    ) : previewEvidenceStatus === 'error' ? (
+                      <>
+                        <div className="row-alert">{previewEvidenceError || 'Preview evidence could not be loaded.'}</div>
+                        <div className="stack-item-copy">
+                          Use refresh after the preview workflow posts its evidence comment.
+                        </div>
+                      </>
+                    ) : previewEvidence ? (
+                      <>
+                        <div className="stack-item-head">
+                          <span className="stack-item-title">{previewEvidence.branch || latestPullRequest.branchName}</span>
+                          <span
+                            className={`pill ${reviewPillClassName(
+                              previewEvidence.status || previewEvidence.statusLabel || 'pending',
+                            )}`}
+                          >
+                            {previewEvidence.statusLabel || reviewStatusLabel(previewEvidence.status || 'pending')}
+                          </span>
+                        </div>
+                        <div className="stack-item-copy">
+                          Build {previewEvidence.buildStatusLabel || 'Not available'} / refreshed{' '}
+                          {formatTimestamp(previewEvidence.sourceUpdatedAt)}
+                        </div>
+                        {previewEvidence.previewUrl ? (
+                          <div className="stack-item-copy">
+                            <a href={previewEvidence.previewUrl} rel="noreferrer" target="_blank">
+                              Open live preview
+                            </a>
+                          </div>
+                        ) : previewEvidence.previewUrlLabel ? (
+                          <div className="stack-item-copy">{previewEvidence.previewUrlLabel}</div>
+                        ) : (
+                          <div className="stack-item-copy">No preview URL has been published yet.</div>
+                        )}
+                        {previewEvidence.runUrl ? (
+                          <div className="stack-item-copy">
+                            <a href={previewEvidence.runUrl} rel="noreferrer" target="_blank">
+                              Open workflow run
+                            </a>
+                          </div>
+                        ) : null}
+                        {previewEvidence.sentryIssuesUrl ? (
+                          <div className="stack-item-copy">
+                            <a href={previewEvidence.sentryIssuesUrl} rel="noreferrer" target="_blank">
+                              Filtered Sentry issues
+                            </a>
+                          </div>
+                        ) : null}
+                        <div className="stack-item-copy">
+                          Sentry {previewEvidence.sentryRelease || previewEvidence.sentryReleaseLabel || 'Not available'}
+                        </div>
+                        <div className="stack-item-copy">
+                          New preview errors{' '}
+                          {previewEvidence.newUnhandledPreviewErrorsLabel || 'Not available'}
+                        </div>
+                        <div className="stack-item-copy">
+                          Failed preview sessions {previewEvidence.failedPreviewSessionsLabel || 'Not available'}
+                        </div>
+                        {previewEvidence.commentUrl ? (
+                          <div className="stack-item-copy">
+                            <a href={previewEvidence.commentUrl} rel="noreferrer" target="_blank">
+                              Open evidence comment
+                            </a>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="stack-item-copy">Refresh preview evidence to load the latest workflow record.</div>
+                    )}
                   </div>
                 </div>
               </section>
@@ -1998,6 +2146,9 @@ export function App() {
   const [detailStatus, setDetailStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [detailError, setDetailError] = useState('');
   const [detail, setDetail] = useState<ContributionDetail | null>(null);
+  const [previewEvidenceStatus, setPreviewEvidenceStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [previewEvidenceError, setPreviewEvidenceError] = useState('');
+  const [previewEvidence, setPreviewEvidence] = useState<PreviewEvidenceRecord | null>(null);
   const [reviewActionState, setReviewActionState] = useState<'idle' | 'loading' | 'error' | 'success'>('idle');
   const [reviewActionMessage, setReviewActionMessage] = useState('');
   const [projectSettingsStatus, setProjectSettingsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -2127,6 +2278,54 @@ export function App() {
     [selectedContributionId],
   );
 
+  const loadPreviewEvidence = useCallback(
+    async (contributionId: string | null = selectedContributionId) => {
+      if (!contributionId) {
+        setPreviewEvidenceStatus('idle');
+        setPreviewEvidenceError('');
+        setPreviewEvidence(null);
+        return null;
+      }
+
+      const detailForContribution =
+        contributionId === selectedContributionId && detail?.contribution.id === contributionId ? detail : null;
+      const latestPullRequest = getLatestPullRequest(detailForContribution?.review);
+
+      if (!latestPullRequest) {
+        setPreviewEvidenceStatus('idle');
+        setPreviewEvidenceError('');
+        setPreviewEvidence(null);
+        return null;
+      }
+
+      setPreviewEvidenceStatus('loading');
+      setPreviewEvidenceError('');
+
+      try {
+        const response = await fetch(`/api/v1/contributions/${contributionId}/preview-evidence`, {
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+          throw new Error(await readApiError(response, 'Preview evidence request failed'));
+        }
+
+        const payload = await readJsonBody(response);
+        const parsed = parsePreviewEvidenceResponse(payload);
+        setPreviewEvidence(parsed);
+        setPreviewEvidenceStatus('ready');
+        return parsed;
+      } catch (error) {
+        setPreviewEvidence(null);
+        setPreviewEvidenceStatus('error');
+        setPreviewEvidenceError(error instanceof Error ? error.message : 'Could not load preview evidence.');
+        return null;
+      }
+    },
+    [detail, selectedContributionId],
+  );
+
   useEffect(() => {
     void loadProjectSettings();
   }, [loadProjectSettings]);
@@ -2178,11 +2377,27 @@ export function App() {
       setDetail(null);
       setDetailStatus('idle');
       setDetailError('');
+      setPreviewEvidenceStatus('idle');
+      setPreviewEvidenceError('');
+      setPreviewEvidence(null);
       return;
     }
 
     void refreshDetail(selectedContributionId);
   }, [refreshDetail, selectedContributionId]);
+
+  useEffect(() => {
+    const latestPullRequest = getLatestPullRequest(detail?.review);
+
+    if (!selectedContributionId || !detail || !latestPullRequest) {
+      setPreviewEvidenceStatus('idle');
+      setPreviewEvidenceError('');
+      setPreviewEvidence(null);
+      return;
+    }
+
+    void loadPreviewEvidence(selectedContributionId);
+  }, [detail, loadPreviewEvidence, selectedContributionId]);
 
   useEffect(() => {
     if (!selectedContributionId || typeof window === 'undefined') {
@@ -2588,6 +2803,9 @@ export function App() {
           detail={detail}
           detailStatus={detailStatus}
           detailError={detailError}
+          previewEvidenceStatus={previewEvidenceStatus}
+          previewEvidenceError={previewEvidenceError}
+          previewEvidence={previewEvidence}
           onClose={() => setSelectedContributionId(null)}
           onQueueImplementation={() =>
             void submitReviewAction(
@@ -2610,6 +2828,9 @@ export function App() {
               'Merged state recorded.',
             )
           }
+          onRefreshPreviewEvidence={() => {
+            void loadPreviewEvidence(selectedContributionId);
+          }}
           reviewActionState={reviewActionState}
           reviewActionMessage={reviewActionMessage}
           reviewForms={reviewForms}

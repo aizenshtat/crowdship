@@ -43,6 +43,10 @@ import {
   getDemoVideoStatus,
   storeDemoVideoUpload,
 } from './demo-video.js';
+import {
+  createConfiguredPreviewEvidenceService,
+  isPreviewEvidenceServiceError,
+} from './preview-evidence.js';
 import { createConfiguredSpecService, isSpecServiceError } from './spec-service.js';
 
 export { API_ROUTE_DEFINITIONS };
@@ -72,6 +76,20 @@ function specServiceErrorResponse(error) {
   return buildResponse(502, {
     error: 'spec_generation_failed',
     message: error instanceof Error ? error.message : 'Spec generation failed.',
+  });
+}
+
+function previewEvidenceServiceErrorResponse(error) {
+  if (isPreviewEvidenceServiceError(error)) {
+    return buildResponse(error.statusCode, {
+      error: error.code,
+      message: error.message,
+    });
+  }
+
+  return buildResponse(502, {
+    error: 'preview_evidence_lookup_failed',
+    message: error instanceof Error ? error.message : 'Preview evidence lookup failed.',
   });
 }
 
@@ -960,6 +978,64 @@ export function createContributionDetailHandler({ database } = {}) {
     }
 
     return buildResponse(200, buildContributionSnapshot(detail));
+  };
+}
+
+export function createContributionPreviewEvidenceHandler({
+  database,
+  previewEvidenceService = createConfiguredPreviewEvidenceService(),
+} = {}) {
+  return async ({ params = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail')) {
+      return notWiredResponse('Contribution detail persistence is not wired yet.');
+    }
+
+    if (!previewEvidenceService || typeof previewEvidenceService.getPreviewEvidence !== 'function') {
+      return notWiredResponse('Preview evidence service is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const latestPullRequest = getLatestByCreatedAt(asArray(detail.pullRequests));
+
+    if (!latestPullRequest) {
+      return buildResponse(409, {
+        error: 'pull_request_not_recorded',
+        contributionId,
+      });
+    }
+
+    try {
+      const evidence = await previewEvidenceService.getPreviewEvidence({
+        repositoryFullName: latestPullRequest.repositoryFullName,
+        pullRequestNumber: latestPullRequest.number,
+        contributionId,
+      });
+
+      return buildResponse(200, {
+        contributionId,
+        pullRequest: serializePullRequest(latestPullRequest),
+        evidence,
+      });
+    } catch (error) {
+      return previewEvidenceServiceErrorResponse(error);
+    }
   };
 }
 
@@ -2272,6 +2348,7 @@ export function createRouteHandlers(options = {}) {
     getContributions: createContributionListHandler(options),
     postContribution: createContributionHandler(options),
     getContribution: createContributionDetailHandler(options),
+    getPreviewEvidence: createContributionPreviewEvidenceHandler(options),
     postContributionAttachment: createContributionAttachmentHandler(options),
     postContributionMessage: createContributionMessageHandler(options),
     postSpecApproval: createSpecApprovalHandler(options),
