@@ -977,6 +977,17 @@ test('api server persists contributions and spec approval through the real http 
 
 test('api server supports delivery evidence, voting, and merged state through the real http runtime', async () => {
   const server = createApiServer({
+    completionService: {
+      async summarizeCompletion({ fallbackSummary }) {
+        return {
+          summary: fallbackSummary,
+          metadata: {
+            provider: 'fallback',
+            reason: 'test stub',
+          },
+        };
+      },
+    },
     specService: createStubSpecService(),
   });
 
@@ -1206,6 +1217,7 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(completed.body.contribution.state, 'completed');
     assert.equal(completed.body.lifecycle.events.at(-1).kind, 'completed_recorded');
     assert.equal(completed.body.conversation.at(-1).messageType, 'completion_summary');
+    assert.equal(completed.body.conversation.at(-1).metadata.completionSummary.provider, 'fallback');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

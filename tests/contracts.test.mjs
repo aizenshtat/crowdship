@@ -36,6 +36,7 @@ test('quality infrastructure files exist', () => {
     'scripts/run-migrations.sh',
     'src/admin/App.tsx',
     'src/admin/main.tsx',
+    'src/server/completion-service.js',
     'src/server/persistence.js',
     'src/server/schema.js',
     'src/shared/contracts.js',

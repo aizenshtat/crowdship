@@ -47,6 +47,7 @@ import {
   getDemoVideoStatus,
   storeDemoVideoUpload,
 } from './demo-video.js';
+import { createConfiguredCompletionService } from './completion-service.js';
 import {
   createConfiguredPreviewEvidenceService,
   isPreviewEvidenceServiceError,
@@ -2597,6 +2598,7 @@ export function createStartProductionDeployHandler({
 
 export function createCompleteContributionHandler({
   database,
+  completionService = createConfiguredCompletionService(),
   idFactory = randomUUID,
   clock = () => new Date(),
 } = {}) {
@@ -2642,7 +2644,14 @@ export function createCompleteContributionHandler({
 
     const createdAt = clock().toISOString();
     const note = readOptionalLifecycleNote(body);
-    const summary = buildCompletionSummary(detail, mergedPullRequest, note);
+    const fallbackSummary = buildCompletionSummary(detail, mergedPullRequest, note);
+    const completion = await completionService.summarizeCompletion({
+      detail,
+      mergedPullRequest,
+      note,
+      fallbackSummary,
+    });
+    const summary = completion?.summary || fallbackSummary;
     const nextState = advanceContributionState(detail.contribution.state, 'completed');
     const progressEvent = {
       id: idFactory(),
@@ -2668,6 +2677,7 @@ export function createCompleteContributionHandler({
       metadata: {
         pullRequestNumber: mergedPullRequest.number,
         repositoryFullName: mergedPullRequest.repositoryFullName,
+        completionSummary: completion?.metadata ?? null,
       },
       messageType: 'completion_summary',
     });
