@@ -49,6 +49,13 @@ import {
   getDemoVideoStatus,
   storeDemoVideoUpload,
 } from './demo-video.js';
+import {
+  AttachmentUploadError,
+  createMetadataOnlyAttachmentStorageKey,
+  deleteStoredAttachment,
+  isMetadataOnlyAttachmentStorageKey,
+  storeContributionAttachmentUpload,
+} from './attachments.js';
 import { createConfiguredCompletionService } from './completion-service.js';
 import {
   createConfiguredPreviewEvidenceService,
@@ -355,7 +362,7 @@ function createAttachmentRecord(attachment, contributionId, createdAt, idFactory
     filename: attachment.filename,
     contentType: attachment.contentType,
     sizeBytes: Number(attachment.sizeBytes),
-    storageKey: `metadata-only://${contributionId}/${encodeURIComponent(attachment.filename)}`,
+    storageKey: createMetadataOnlyAttachmentStorageKey(contributionId, attachment.filename),
     createdAt,
   };
 }
@@ -1490,9 +1497,121 @@ export function createContributionMessageHandler({
   };
 }
 
-export function createContributionAttachmentHandler() {
-  return () =>
-    notWiredResponse('Binary attachment upload is not wired yet. Attachment metadata is captured during contribution creation.');
+export function createContributionAttachmentHandler({ database } = {}) {
+  return async ({ params = {}, request } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (
+      !hasReadyPersistence(database, 'getContributionDetail') ||
+      !hasReadyPersistence(database, 'replaceAttachmentStorageKey')
+    ) {
+      return notWiredResponse('Attachment upload persistence is not wired yet.');
+    }
+
+    const attachmentIdHeader = Array.isArray(request?.headers?.['x-crowdship-attachment-id'])
+      ? request.headers['x-crowdship-attachment-id'][0]
+      : request?.headers?.['x-crowdship-attachment-id'] ?? '';
+    const attachmentId = typeof attachmentIdHeader === 'string' ? attachmentIdHeader.trim() : '';
+
+    if (!attachmentId) {
+      return buildResponse(400, {
+        error: 'invalid_attachment_id',
+        message: 'Attachment id is required in the x-crowdship-attachment-id header.',
+      });
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const attachment = asArray(detail.attachments).find((entry) => entry?.id === attachmentId);
+
+    if (!attachment) {
+      return buildResponse(404, {
+        error: 'attachment_not_found',
+        contributionId,
+        attachmentId,
+      });
+    }
+
+    if (!isMetadataOnlyAttachmentStorageKey(attachment.storageKey)) {
+      return buildResponse(409, {
+        error: 'attachment_already_uploaded',
+        contributionId,
+        attachmentId,
+      });
+    }
+
+    let storedAttachment;
+
+    try {
+      storedAttachment = await storeContributionAttachmentUpload(request, {
+        contributionId,
+        attachment,
+      });
+    } catch (error) {
+      if (error instanceof AttachmentUploadError) {
+        return buildResponse(error.statusCode, {
+          error: error.code,
+          message: error.message,
+        });
+      }
+
+      return buildResponse(500, {
+        error: 'attachment_upload_failed',
+        message: error instanceof Error ? error.message : 'Attachment upload failed.',
+      });
+    }
+
+    try {
+      if (
+        Number.isFinite(attachment.sizeBytes) &&
+        Number.isFinite(storedAttachment.sizeBytes) &&
+        attachment.sizeBytes !== storedAttachment.sizeBytes
+      ) {
+        deleteStoredAttachment(storedAttachment.storageKey);
+        return buildResponse(400, {
+          error: 'attachment_size_mismatch',
+          message: 'Uploaded attachment bytes did not match the stored attachment metadata.',
+        });
+      }
+
+      const updatedAttachment = await database.replaceAttachmentStorageKey({
+        contributionId,
+        attachmentId,
+        storageKey: storedAttachment.storageKey,
+      });
+
+      if (!updatedAttachment) {
+        deleteStoredAttachment(storedAttachment.storageKey);
+        return buildResponse(409, {
+          error: 'attachment_upload_conflict',
+          message: 'Attachment upload could not be recorded.',
+          contributionId,
+          attachmentId,
+        });
+      }
+
+      return buildResponse(201, {
+        attachment: serializeAttachment(updatedAttachment),
+      });
+    } catch (error) {
+      deleteStoredAttachment(storedAttachment.storageKey);
+      throw error;
+    }
+  };
 }
 
 export function createSpecApprovalHandler({

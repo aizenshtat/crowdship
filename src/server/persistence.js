@@ -723,6 +723,36 @@ export function createInMemoryContributionPersistenceAdapter({
         progressEvents: detail.progressEvents,
       };
     },
+    async replaceAttachmentStorageKey({ contributionId, attachmentId, storageKey }) {
+      if (!contributions.has(contributionId)) {
+        return null;
+      }
+
+      const existingAttachments = attachments.get(contributionId) ?? [];
+      let updatedAttachment = null;
+      const nextAttachments = existingAttachments.map((attachment) => {
+        if (attachment.id !== attachmentId || typeof attachment.storageKey !== 'string') {
+          return attachment;
+        }
+
+        if (!attachment.storageKey.startsWith('metadata-only://')) {
+          return attachment;
+        }
+
+        updatedAttachment = {
+          ...attachment,
+          storageKey,
+        };
+        return updatedAttachment;
+      });
+
+      if (!updatedAttachment) {
+        return null;
+      }
+
+      setStoredList(attachments, contributionId, nextAttachments);
+      return cloneRecord(updatedAttachment);
+    },
     async applyContributionUpdate({
       contributionId,
       nextState,
@@ -1021,6 +1051,33 @@ export function createPostgresContributionPersistenceAdapter({
         contribution: detail.contribution,
         progressEvents: detail.progressEvents,
       };
+    },
+    async replaceAttachmentStorageKey({ contributionId, attachmentId, storageKey }) {
+      const result = await pool.query(
+        `
+          UPDATE attachments
+          SET storage_key = $3
+          WHERE contribution_id = $1
+            AND id = $2
+            AND storage_key LIKE 'metadata-only://%'
+          RETURNING
+            id,
+            contribution_id AS "contributionId",
+            kind,
+            filename,
+            content_type AS "contentType",
+            size_bytes AS "sizeBytes",
+            storage_key AS "storageKey",
+            created_at AS "createdAt"
+        `,
+        [contributionId, attachmentId, storageKey],
+      );
+
+      if (result.rowCount === 0) {
+        return null;
+      }
+
+      return mapAttachmentRow(result.rows[0]);
     },
     async applyContributionUpdate({
       contributionId,

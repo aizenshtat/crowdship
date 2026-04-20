@@ -1381,6 +1381,7 @@
           previewRequestNote: '',
           selectedQuestionChoices: {},
           hostOrigin: deriveHostOrigin(),
+          attachmentSeed: 0,
           pollTimer: 0,
           pollInFlight: false,
         };
@@ -1645,6 +1646,118 @@
               );
             })
             .join('');
+        }
+
+        function createDraftAttachment(file) {
+          state.attachmentSeed += 1;
+          return {
+            draftId: 'draft-attachment-' + state.attachmentSeed,
+            file: file,
+            name: file.name,
+            kind: file.type || 'application/octet-stream',
+            size: formatBytes(file.size),
+            sizeBytes: file.size,
+          };
+        }
+
+        function getDraftAttachmentMatchKey(item) {
+          return [item.name || '', item.kind || 'application/octet-stream', String(item.sizeBytes || 0)].join('\u0000');
+        }
+
+        function getStoredAttachmentMatchKey(item) {
+          return [item.filename || '', item.contentType || 'application/octet-stream', String(item.sizeBytes || 0)].join('\u0000');
+        }
+
+        function resolveDraftAttachmentMatches(draftAttachments, storedAttachments) {
+          var buckets = {};
+
+          storedAttachments.forEach(function (item) {
+            var key = getStoredAttachmentMatchKey(item);
+            if (!buckets[key]) {
+              buckets[key] = [];
+            }
+            buckets[key].push(item);
+          });
+
+          return draftAttachments.map(function (item) {
+            var key = getDraftAttachmentMatchKey(item);
+            var bucket = buckets[key] || [];
+            var match = bucket.shift();
+
+            if (!match || !match.id) {
+              throw new Error('Crowdship could not match the attachment row for ' + item.name + '.');
+            }
+
+            return {
+              attachmentId: match.id,
+              draft: item,
+            };
+          });
+        }
+
+        function uploadAttachmentBinary(contributionId, uploadTarget) {
+          return fetch('/api/v1/contributions/' + encodeURIComponent(contributionId) + '/attachments', {
+            method: 'POST',
+            body: uploadTarget.draft.file,
+            headers: {
+              'Content-Type': uploadTarget.draft.kind || 'application/octet-stream',
+              'X-Crowdship-Attachment-Id': uploadTarget.attachmentId,
+            },
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          }).then(function (response) {
+            return response.text().then(function (text) {
+              if (!response.ok) {
+                throw new Error(
+                  'Attachment upload failed for ' +
+                    uploadTarget.draft.name +
+                    '. Server returned ' +
+                    response.status +
+                    ' ' +
+                    response.statusText +
+                    (text ? ': ' + text.slice(0, 180) : '.')
+                );
+              }
+            });
+          });
+        }
+
+        function uploadDraftAttachments(contributionId, storedAttachments, draftAttachments) {
+          var uploadTargets = resolveDraftAttachmentMatches(draftAttachments, Array.isArray(storedAttachments) ? storedAttachments : []);
+          var sequence = Promise.resolve();
+
+          uploadTargets.forEach(function (uploadTarget) {
+            sequence = sequence.then(function () {
+              return uploadAttachmentBinary(contributionId, uploadTarget);
+            });
+          });
+
+          return sequence;
+        }
+
+        function showContributionSurface(detail) {
+          state.contributionDetail = detail;
+          if (getContributionState(state.contributionDetail) === 'draft_chat') {
+            renderChat(state.contributionDetail);
+          } else {
+            renderReview();
+          }
+        }
+
+        function showAttachmentUploadFailure(detail, message) {
+          clearStatus();
+          showContributionSurface(detail);
+          bannerCopy.textContent = 'Attachment upload failed.';
+
+          if (getContributionState(detail) === 'draft_chat') {
+            setChatChip('error', 'Upload failed');
+            showChatStatus('error', 'Attachment upload failed', message);
+            return;
+          }
+
+          setReviewChip('error', 'Upload failed');
+          reviewCopy.textContent = message;
         }
 
         function renderSimpleList(target, values, emptyText) {
@@ -2582,6 +2695,7 @@
           setPhase('sending');
           setStatus('working', 'Sending request', 'Crowdship is posting this contribution to the server.');
 
+          var draftAttachments = state.attachments.slice();
           var payload = serializeBody();
 
           fetch('/api/v1/contributions', {
@@ -2598,17 +2712,16 @@
               });
             })
             .then(function (result) {
-              state.submitting = false;
-              startButton.disabled = false;
-              resetButton.disabled = false;
-              attachmentPicker.disabled = false;
-
               var response = result.response;
               var payload = null;
               if (result.text) {
                 try {
                   payload = JSON.parse(result.text);
                 } catch (error) {
+                  state.submitting = false;
+                  startButton.disabled = false;
+                  resetButton.disabled = false;
+                  attachmentPicker.disabled = false;
                   setPhase('error');
                   bannerCopy.textContent = 'Review the error and try again.';
                   setStatus('error', 'Request failed', 'Server returned invalid JSON.');
@@ -2617,22 +2730,68 @@
               }
 
               if (!response.ok) {
+                state.submitting = false;
+                startButton.disabled = false;
+                resetButton.disabled = false;
+                attachmentPicker.disabled = false;
                 setPhase('error');
                 bannerCopy.textContent = 'Review the error and try again.';
                 setStatus('error', 'Request failed', 'Server returned ' + response.status + ' ' + response.statusText + (result.text ? ': ' + result.text.slice(0, 180) : '.'));
                 return;
               }
 
-              clearStatus();
-              state.attachments = [];
-              attachmentPicker.value = '';
-              renderAttachments();
-              state.contributionDetail = getContributionDetail(payload) || payload;
-              if (getContributionState(state.contributionDetail) === 'draft_chat') {
-                renderChat(state.contributionDetail);
-              } else {
-                renderReview();
+              var nextDetail = getContributionDetail(payload) || payload;
+              var contributionId = nextDetail && nextDetail.contribution ? nextDetail.contribution.id : '';
+
+              if (!contributionId) {
+                state.submitting = false;
+                startButton.disabled = false;
+                resetButton.disabled = false;
+                attachmentPicker.disabled = false;
+                setPhase('error');
+                bannerCopy.textContent = 'Review the error and try again.';
+                setStatus('error', 'Request failed', 'Server returned a contribution without an id.');
+                return;
               }
+
+              if (!draftAttachments.length) {
+                state.submitting = false;
+                startButton.disabled = false;
+                resetButton.disabled = false;
+                attachmentPicker.disabled = false;
+                clearStatus();
+                state.attachments = [];
+                attachmentPicker.value = '';
+                renderAttachments();
+                showContributionSurface(nextDetail);
+                return;
+              }
+
+              setStatus('working', 'Uploading files', 'Crowdship is attaching the selected files.');
+              return uploadDraftAttachments(contributionId, nextDetail.attachments || [], draftAttachments)
+                .then(function () {
+                  return requestContributionDetail(contributionId).catch(function () {
+                    return nextDetail;
+                  });
+                })
+                .then(function (uploadedDetail) {
+                  state.submitting = false;
+                  startButton.disabled = false;
+                  resetButton.disabled = false;
+                  attachmentPicker.disabled = false;
+                  clearStatus();
+                  state.attachments = [];
+                  attachmentPicker.value = '';
+                  renderAttachments();
+                  showContributionSurface(uploadedDetail || nextDetail);
+                })
+                .catch(function (error) {
+                  state.submitting = false;
+                  startButton.disabled = false;
+                  resetButton.disabled = false;
+                  attachmentPicker.disabled = false;
+                  showAttachmentUploadFailure(nextDetail, error && error.message ? error.message : 'The selected file did not upload.');
+                });
             })
             .catch(function (error) {
               state.submitting = false;
@@ -2660,6 +2819,33 @@
             payload: payload,
             response: result.response,
           };
+        }
+
+        function requestContributionDetail(contributionId) {
+          return fetch('/api/v1/contributions/' + encodeURIComponent(contributionId), {
+            method: 'GET',
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              var parsed = parseDetailResponse(result);
+
+              if (parsed.error === 'invalid-json') {
+                throw new Error('The server returned invalid JSON.');
+              }
+
+              if (!parsed.response.ok) {
+                throw new Error('Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + '.');
+              }
+
+              return getContributionDetail(parsed.payload) || parsed.payload;
+            });
         }
 
         function stopContributionPolling() {
@@ -2707,31 +2893,8 @@
           state.pollInFlight = true;
           stopContributionPolling();
 
-          return fetch('/api/v1/contributions/' + encodeURIComponent(state.contributionDetail.contribution.id), {
-            method: 'GET',
-            credentials: 'omit',
-            cache: 'no-store',
-            referrerPolicy: 'no-referrer',
-          })
-            .then(function (response) {
-              return response.text().then(function (text) {
-                return { response: response, text: text };
-              });
-            })
-            .then(function (result) {
-              var parsed = parseDetailResponse(result);
-
-              if (parsed.error === 'invalid-json' || !parsed.response.ok) {
-                if (!silent) {
-                  setReviewChip('error', 'Refresh failed');
-                  reviewCopy.textContent = parsed.error === 'invalid-json'
-                    ? 'The server returned invalid JSON.'
-                    : 'Server returned ' + parsed.response.status + ' ' + parsed.response.statusText + '.';
-                }
-                return null;
-              }
-
-              var nextDetail = getContributionDetail(parsed.payload) || parsed.payload;
+          return requestContributionDetail(state.contributionDetail.contribution.id)
+            .then(function (nextDetail) {
               if (nextDetail && nextDetail.contribution) {
                 state.contributionDetail = nextDetail;
                 if (getContributionState(state.contributionDetail) === 'draft_chat') {
@@ -3015,12 +3178,7 @@
 
         function addAttachments(files) {
           Array.prototype.forEach.call(files, function (file) {
-            state.attachments.push({
-              name: file.name,
-              kind: file.type || 'file',
-              size: formatBytes(file.size),
-              sizeBytes: file.size,
-            });
+            state.attachments.push(createDraftAttachment(file));
           });
           renderAttachments();
         }

@@ -135,11 +135,17 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(frame, /Clarification chat/);
   assert.match(frame, /Answer the questions below in one reply/);
   assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(state\.contributionDetail\.contribution\.id\) \+ '\/messages/);
+  assert.match(frame, /body: uploadTarget\.draft\.file/);
+  assert.match(frame, /'X-Crowdship-Attachment-Id': uploadTarget\.attachmentId/);
+  assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(contributionId\) \+ '\/attachments/);
   assert.match(frame, /Approve Spec/);
   assert.match(frame, /Refine Spec/);
   assert.match(read('docs/widget-contract.md'), /"hostOrigin": "https:\/\/example\.aizenshtat\.eu"/);
   assert.match(read('docs/widget-contract.md'), /browser-derived host origin/i);
   assert.match(read('docs/widget-contract.md'), /POST \/api\/v1\/contributions\/:id\/messages/);
+  assert.match(read('docs/widget-contract.md'), /X-Crowdship-Attachment-Id: attachment_123/);
+  assert.match(read('docs/widget-contract.md'), /Content-Type: text\/csv/);
+  assert.match(read('docs/widget-contract.md'), /nth created row to the nth selected file/i);
   assert.match(read('docs/widget-contract.md'), /"state": "draft_chat"/);
   assert.equal(manifest.display, 'standalone');
 });

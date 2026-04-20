@@ -121,7 +121,7 @@ window.Crowdship.open({
 
 `hostOrigin` is the browser-derived host origin captured by the Crowdship iframe. The server validates it against the project's allowlist before it accepts the contribution.
 
-For the current production slice, selected files are captured as attachment metadata during contribution creation. Binary upload can follow later without changing the requester-facing review flow.
+The widget keeps each selected `File` object in memory until contribution creation succeeds. `POST /api/v1/contributions` carries attachment metadata only. After the server returns created attachment rows, the widget uploads each binary file to `POST /api/v1/contributions/:id/attachments`.
 
 ## Contribution Detail Payload
 
@@ -164,6 +164,40 @@ Attachments are uploaded before or during the chat. Each attachment is stored se
   "storageKey": "projects/example/contributions/ctrb_123/mission-signal-drop-17.png"
 }
 ```
+
+## Attachment Upload Contract
+
+The widget matches the created attachment rows deterministically before it uploads binary content:
+
+- Group created rows by `filename`, `contentType`, and `sizeBytes`.
+- Within each matching group, bind the nth created row to the nth selected file from the draft.
+- Upload that file with the matched `attachmentId`.
+
+This avoids duplicate filename ambiguity without asking the requester to rename files.
+
+```text
+POST /api/v1/contributions/ctrb_123/attachments
+Content-Type: text/csv
+X-Crowdship-Attachment-Id: attachment_123
+
+(binary signal-drop-17.csv)
+```
+
+```json
+{
+  "attachment": {
+    "id": "attachment_123",
+    "contributionId": "ctrb_123",
+    "kind": "text/csv",
+    "filename": "signal-drop-17.csv",
+    "contentType": "text/csv",
+    "sizeBytes": 1842,
+    "storageKey": "ctrb_123/attachment_123/1713451200000-8b7e7f7a-2a6c-4db4-9db1-b9478862a4c1.csv"
+  }
+}
+```
+
+If an attachment upload fails after contribution creation, the widget keeps the requester inside the created contribution flow and shows a clear attachment-specific error.
 
 Allowed attachment types for the first production slice:
 

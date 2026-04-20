@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -389,6 +389,160 @@ test('api server exposes demo video status and accepts authenticated binary uplo
       delete process.env.DEMO_VIDEO_UPLOAD_TOKEN;
     } else {
       process.env.DEMO_VIDEO_UPLOAD_TOKEN = previousUploadToken;
+    }
+  }
+});
+
+test('api server stores uploaded attachment bytes and replaces the metadata-only storage key', async () => {
+  const previousStorageDir = process.env.ATTACHMENT_STORAGE_DIR;
+  const previousMaxBytes = process.env.ATTACHMENT_MAX_BYTES;
+  const storageDir = mkdtempSync(join(tmpdir(), 'crowdship-attachment-test-'));
+  const payload = Buffer.from('timestamp,value\n2026-04-18T12:00:00Z,17\n', 'utf8');
+
+  process.env.ATTACHMENT_STORAGE_DIR = storageDir;
+  process.env.ATTACHMENT_MAX_BYTES = '26214400';
+
+  const server = createApiServer({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const port = address.port;
+
+    const created = await requestJson({
+      port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: {
+        ...buildCreatePayload(),
+        attachments: [
+          {
+            ...buildCreatePayload().attachments[0],
+            sizeBytes: payload.length,
+          },
+        ],
+      },
+    });
+
+    assert.equal(created.status, 201);
+    assert.equal(created.body.attachments.length, 1);
+
+    const originalAttachment = created.body.attachments[0];
+    assert.match(originalAttachment.storageKey, /^metadata-only:\/\//);
+
+    const uploaded = await requestBinary({
+      port,
+      method: 'POST',
+      path: `/api/v1/contributions/${created.body.contribution.id}/attachments`,
+      body: payload,
+      headers: {
+        'content-type': 'text/csv',
+        'x-crowdship-attachment-id': originalAttachment.id,
+      },
+    });
+
+    assert.equal(uploaded.status, 201);
+    assert.equal(uploaded.body.attachment.id, originalAttachment.id);
+    assert.equal(uploaded.body.attachment.contributionId, created.body.contribution.id);
+    assert.doesNotMatch(uploaded.body.attachment.storageKey, /^metadata-only:\/\//);
+    assert.equal(readFileSync(join(storageDir, uploaded.body.attachment.storageKey), 'utf8'), payload.toString('utf8'));
+
+    const detail = await requestJson({
+      port,
+      method: 'GET',
+      path: `/api/v1/contributions/${created.body.contribution.id}`,
+    });
+
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.attachments[0].id, originalAttachment.id);
+    assert.equal(detail.body.attachments[0].storageKey, uploaded.body.attachment.storageKey);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+
+    if (previousStorageDir == null) {
+      delete process.env.ATTACHMENT_STORAGE_DIR;
+    } else {
+      process.env.ATTACHMENT_STORAGE_DIR = previousStorageDir;
+    }
+
+    if (previousMaxBytes == null) {
+      delete process.env.ATTACHMENT_MAX_BYTES;
+    } else {
+      process.env.ATTACHMENT_MAX_BYTES = previousMaxBytes;
+    }
+  }
+});
+
+test('api server rejects unsupported attachment uploads and preserves the metadata-only record', async () => {
+  const previousStorageDir = process.env.ATTACHMENT_STORAGE_DIR;
+  const previousMaxBytes = process.env.ATTACHMENT_MAX_BYTES;
+  const storageDir = mkdtempSync(join(tmpdir(), 'crowdship-attachment-reject-test-'));
+
+  process.env.ATTACHMENT_STORAGE_DIR = storageDir;
+  process.env.ATTACHMENT_MAX_BYTES = '26214400';
+
+  const server = createApiServer({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const port = address.port;
+
+    const created = await requestJson({
+      port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const originalAttachment = created.body.attachments[0];
+
+    const rejected = await requestBinary({
+      port,
+      method: 'POST',
+      path: `/api/v1/contributions/${created.body.contribution.id}/attachments`,
+      body: Buffer.from('PK\x03\x04not-a-real-zip', 'utf8'),
+      headers: {
+        'content-type': 'application/zip',
+        'x-crowdship-attachment-id': originalAttachment.id,
+      },
+    });
+
+    assert.equal(rejected.status, 415);
+    assert.equal(rejected.body.error, 'attachment_type_not_supported');
+
+    const detail = await requestJson({
+      port,
+      method: 'GET',
+      path: `/api/v1/contributions/${created.body.contribution.id}`,
+    });
+
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.attachments[0].id, originalAttachment.id);
+    assert.equal(detail.body.attachments[0].storageKey, originalAttachment.storageKey);
+    assert.equal(existsSync(join(storageDir, created.body.contribution.id, originalAttachment.id)), false);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+
+    if (previousStorageDir == null) {
+      delete process.env.ATTACHMENT_STORAGE_DIR;
+    } else {
+      process.env.ATTACHMENT_STORAGE_DIR = previousStorageDir;
+    }
+
+    if (previousMaxBytes == null) {
+      delete process.env.ATTACHMENT_MAX_BYTES;
+    } else {
+      process.env.ATTACHMENT_MAX_BYTES = previousMaxBytes;
     }
   }
 });

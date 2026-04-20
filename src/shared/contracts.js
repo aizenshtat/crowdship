@@ -160,6 +160,7 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     method: 'POST',
     path: '/api/v1/contributions/:id/attachments',
     handler: 'postContributionAttachment',
+    bodyMode: 'stream',
   }),
   Object.freeze({
     method: 'POST',
