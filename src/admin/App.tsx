@@ -548,6 +548,51 @@ function buildInstallSnippet(project: ProjectSettingsRecord) {
 ></script>`;
 }
 
+function buildIdentifySnippet() {
+  return `window.Crowdship.identify({
+  id: currentUser.id,
+  email: currentUser.email,
+  role: currentUser.role,
+});`;
+}
+
+function buildContextSnippet() {
+  return `window.Crowdship.setContext({
+  route: window.location.pathname,
+  url: window.location.href,
+  selectedObjectType: "mission_alert",
+  selectedObjectId: "alert-14",
+  activeFilters: {
+    severity: "warning",
+    station: "relay-shadow"
+  }
+});`;
+}
+
+function buildInstallChecklist(project: ProjectSettingsRecord) {
+  const firstOrigin = project.allowedOrigins.find((origin) => origin.trim().length > 0)?.trim() || 'your allowed origin';
+  const projectSlug = project.slug.trim() || DEFAULT_PROJECT_SLUG;
+
+  return [
+    {
+      label: 'Install the script',
+      detail: `Load the widget snippet on ${firstOrigin}.`,
+    },
+    {
+      label: 'Confirm safe context',
+      detail: 'Call setContext only with route, selection, and filters you are comfortable sending to Crowdship.',
+    },
+    {
+      label: 'Check widget launch',
+      detail: `Open the launcher and confirm the widget boots against project ${projectSlug}.`,
+    },
+    {
+      label: 'Post one request',
+      detail: 'Submit a test contribution and confirm it appears in the Crowdship inbox with the right route and context.',
+    },
+  ];
+}
+
 async function readApiError(response: Response, fallbackMessage: string) {
   try {
     const payload = (await response.json()) as { error?: unknown; message?: unknown };
@@ -943,7 +988,15 @@ function canArchiveContribution(detail: ContributionDetail) {
   return !['completed', 'rejected'].includes(detail.contribution.state);
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({
+  text,
+  idleLabel = 'Copy snippet',
+  copiedLabel = 'Snippet copied',
+}: {
+  text: string;
+  idleLabel?: string;
+  copiedLabel?: string;
+}) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
 
   return (
@@ -962,7 +1015,7 @@ function CopyButton({ text }: { text: string }) {
       }}
       aria-live="polite"
     >
-      {copyState === 'copied' ? 'Snippet copied' : copyState === 'error' ? 'Copy failed' : 'Copy install snippet'}
+      {copyState === 'copied' ? copiedLabel : copyState === 'error' ? 'Copy failed' : idleLabel}
     </button>
   );
 }
@@ -988,6 +1041,9 @@ function SettingsView({
   projectActionMessage,
   isProjectDirty,
   installSnippet,
+  identifySnippet,
+  contextSnippet,
+  installChecklist,
   onFieldChange,
   onAllowedOriginChange,
   onAddAllowedOrigin,
@@ -1004,6 +1060,9 @@ function SettingsView({
   projectActionMessage: string;
   isProjectDirty: boolean;
   installSnippet: string;
+  identifySnippet: string;
+  contextSnippet: string;
+  installChecklist: Array<{ label: string; detail: string }>;
   onFieldChange: (field: EditableProjectField, value: string) => void;
   onAllowedOriginChange: (index: number, value: string) => void;
   onAddAllowedOrigin: () => void;
@@ -1269,7 +1328,7 @@ function SettingsView({
         {savedProjectSettings ? (
           <div className="snippet-shell">
             <div className="snippet-actions">
-              <CopyButton text={installSnippet} />
+              <CopyButton text={installSnippet} idleLabel="Copy install snippet" />
             </div>
             <pre className="snippet-code">
               <code>{installSnippet}</code>
@@ -1278,6 +1337,59 @@ function SettingsView({
         ) : (
           <div className="empty-state compact">Load the project record before copying the install snippet.</div>
         )}
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Host context starter</h2>
+            <p>Start with route and selection metadata before you add more fields.</p>
+          </div>
+        </div>
+        <div className="snippet-shell">
+          <div className="snippet-actions">
+            <CopyButton text={contextSnippet} idleLabel="Copy context starter" copiedLabel="Context copied" />
+          </div>
+          <pre className="snippet-code">
+            <code>{contextSnippet}</code>
+          </pre>
+        </div>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Optional identity starter</h2>
+            <p>Only send identity fields your product already owns and is allowed to share.</p>
+          </div>
+        </div>
+        <div className="snippet-shell">
+          <div className="snippet-actions">
+            <CopyButton text={identifySnippet} idleLabel="Copy identity starter" copiedLabel="Identity copied" />
+          </div>
+          <pre className="snippet-code">
+            <code>{identifySnippet}</code>
+          </pre>
+        </div>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Install checklist</h2>
+            <p>Use this to verify the first install without touching any server secrets.</p>
+          </div>
+        </div>
+        <ul className="status-list">
+          {installChecklist.map((item) => (
+            <li className="status-row" key={item.label}>
+              <div className="status-copy">
+                <div className="status-label">{item.label}</div>
+                <div className="status-detail">{item.detail}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="surface-section">
@@ -3001,6 +3113,12 @@ export function App() {
     () => (savedProjectSettings ? buildInstallSnippet(savedProjectSettings) : ''),
     [savedProjectSettings],
   );
+  const identifySnippet = useMemo(() => buildIdentifySnippet(), []);
+  const contextSnippet = useMemo(() => buildContextSnippet(), []);
+  const installChecklist = useMemo(
+    () => (savedProjectSettings ? buildInstallChecklist(savedProjectSettings) : []),
+    [savedProjectSettings],
+  );
 
   return (
     <main className="admin-shell">
@@ -3082,6 +3200,9 @@ export function App() {
             projectActionMessage={projectActionMessage}
             isProjectDirty={isProjectDirty}
             installSnippet={installSnippet}
+            identifySnippet={identifySnippet}
+            contextSnippet={contextSnippet}
+            installChecklist={installChecklist}
             onFieldChange={updateProjectField}
             onAllowedOriginChange={updateAllowedOrigin}
             onAddAllowedOrigin={addAllowedOrigin}

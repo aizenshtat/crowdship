@@ -126,6 +126,11 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /\/api\/v1\/contributions\/\$\{contributionId\}\/preview-evidence/);
   assert.match(admin, /\/api\/v1\/contributions\/\$\{detail\.contribution\.id\}\/comments\/\$\{comment\.id\}\/disposition/);
   assert.match(admin, /Widget install snippet/);
+  assert.match(admin, /Host context starter/);
+  assert.match(admin, /Optional identity starter/);
+  assert.match(admin, /Install checklist/);
+  assert.match(admin, /window\.Crowdship\.setContext/);
+  assert.match(admin, /window\.Crowdship\.identify/);
   assert.match(widget, /window\.Crowdship = api/);
   assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
   assert.match(frame, /Suggest a change/);

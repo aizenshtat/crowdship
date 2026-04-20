@@ -28,6 +28,7 @@ All user-facing interactions for a contribution happen through the widget:
   src="https://crowdship.aizenshtat.eu/widget/v1.js"
   data-crowdship-project="example"
   data-crowdship-environment="production"
+  data-crowdship-launcher="manual"
   data-crowdship-user-id="customer-123"
   data-crowdship-user-email="customer@example.com"
   data-crowdship-user-role="customer"
@@ -42,6 +43,7 @@ These fields are safe to expose in client-side HTML:
 | --- | --- | --- |
 | `data-crowdship-project` | Yes | Public project slug. |
 | `data-crowdship-environment` | No | `development`, `staging`, or `production`. |
+| `data-crowdship-launcher` | No | `manual` when the host app opens the widget explicitly. |
 | `data-crowdship-user-id` | No | Host app user identifier. |
 | `data-crowdship-user-email` | No | User email, if the host app chooses to share it. |
 | `data-crowdship-user-role` | No | Role such as `customer`, `admin`, `free`, or `paid`. |
