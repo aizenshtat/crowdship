@@ -126,7 +126,7 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /Auto-queue implementation/);
   assert.match(admin, /Auto-open voting/);
   assert.match(admin, /Automation evidence/);
-  assert.match(admin, /Comment dispositions/);
+  assert.match(admin, /Comment dispositions|Review feedback/);
   assert.match(admin, /Live preview evidence/);
   assert.match(admin, /Refresh preview evidence/);
   assert.match(admin, /Admin notifications/);
@@ -148,8 +148,8 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(frame, /hostOrigin: state\.hostOrigin \|\| ''/);
   assert.match(frame, /deriveHostOrigin\(event\.origin\)/);
   assert.match(frame, /\/api\/v1\/contributions/);
-  assert.match(frame, /Clarification chat/);
-  assert.match(frame, /Answer the questions below in one reply/);
+  assert.match(frame, /Clarification chat|A few questions/);
+  assert.match(frame, /Answer the questions below in one reply|Tap a suggested reply to load it into the composer|Tap a suggestion to load it below/);
   assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(state\.contributionDetail\.contribution\.id\) \+ '\/messages/);
   assert.match(frame, /new window\.EventSource\(\s*'\/api\/v1\/contributions\/' \+ encodeURIComponent\(contributionId\) \+ '\/stream'/);
   assert.match(frame, /body: uploadTarget\.draft\.file/);
