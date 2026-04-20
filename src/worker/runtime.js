@@ -45,6 +45,24 @@ function normalizeOptionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function normalizeExecutionModeValue(value) {
+  const rawValue = normalizeOptionalString(value);
+  const normalized = rawValue ? rawValue.toLowerCase().replace(/[\s-]+/g, '_') : null;
+
+  switch (normalized) {
+    case 'hosted':
+    case 'remote_clone':
+    case 'hosted_remote_clone':
+      return 'hosted_remote_clone';
+    case 'self_hosted':
+    case 'self_hosted_worker':
+    case 'selfhosted':
+      return 'self_hosted';
+    default:
+      return rawValue;
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -289,13 +307,16 @@ function buildGithubRepositoryCloneUrl(repositoryFullName) {
 export function resolveRepositoryWorkspaceConfig(detail, claimedJob) {
   const repo = getProjectRepoConfig(detail, claimedJob);
   const repositoryFullName = normalizeOptionalString(repo.repositoryFullName);
-  const repoPath = normalizeOptionalString(repo.repoPath);
+  const executionMode = normalizeExecutionModeValue(repo.executionMode);
+  const configuredRepoPath = normalizeOptionalString(repo.repoPath);
+  const repoPath = executionMode === 'self_hosted' ? configuredRepoPath : null;
   const defaultBranch = normalizeOptionalString(repo.defaultBranch);
   const repositoryCloneUrl =
     normalizeOptionalString(repo.repositoryCloneUrl) || buildGithubRepositoryCloneUrl(repositoryFullName);
 
   return {
     ...repo,
+    executionMode,
     repositoryFullName,
     repoPath,
     defaultBranch,

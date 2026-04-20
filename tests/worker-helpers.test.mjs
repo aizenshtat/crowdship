@@ -116,7 +116,7 @@ test('worker resolves hosted github clone mode when no local repo path is config
   assert.equal(resolved.repositoryCloneUrl, 'https://github.com/customer/orbital-ops.git');
 });
 
-test('worker keeps local checkout mode when repo path is configured', () => {
+test('worker keeps local checkout mode for self-hosted execution with a repo path', () => {
   const resolved = resolveRepositoryWorkspaceConfig(
     {
       contribution: {
@@ -127,7 +127,7 @@ test('worker keeps local checkout mode when repo path is configured', () => {
       repository_full_name: 'customer/orbital-ops',
       metadata: {
         projectRuntimeConfig: {
-          executionMode: 'hosted',
+          executionMode: 'self_hosted',
           repositoryFullName: 'customer/orbital-ops',
           repoPath: '/srv/customer/orbital-ops',
           defaultBranch: 'main',
@@ -138,6 +138,32 @@ test('worker keeps local checkout mode when repo path is configured', () => {
 
   assert.equal(resolved.checkoutMode, 'local_path');
   assert.equal(resolved.repoPath, '/srv/customer/orbital-ops');
+});
+
+test('worker ignores repoPath in hosted remote-clone mode and clones from GitHub instead', () => {
+  const resolved = resolveRepositoryWorkspaceConfig(
+    {
+      contribution: {
+        projectSlug: 'orbital-ops',
+      },
+    },
+    {
+      repository_full_name: 'customer/orbital-ops',
+      metadata: {
+        projectRuntimeConfig: {
+          executionMode: 'hosted_remote_clone',
+          repositoryFullName: 'customer/orbital-ops',
+          repoPath: '/srv/customer/orbital-ops',
+          defaultBranch: 'main',
+        },
+      },
+    },
+  );
+
+  assert.equal(resolved.executionMode, 'hosted_remote_clone');
+  assert.equal(resolved.checkoutMode, 'github_clone');
+  assert.equal(resolved.repoPath, null);
+  assert.equal(resolved.repositoryCloneUrl, 'https://github.com/customer/orbital-ops.git');
 });
 
 test('worker prefers github app repository auth when app credentials are configured', async () => {
