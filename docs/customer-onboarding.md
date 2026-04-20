@@ -123,6 +123,7 @@ Recommended split:
 Preferred path:
 
 - Install the Crowdship GitHub App, or an equivalent scoped integration, on the allowed repository.
+- Provision credentials and registration fields as documented in `docs/github-app-setup.md`.
 
 Fallback path:
 

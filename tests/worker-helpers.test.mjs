@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -139,6 +140,93 @@ test('worker keeps local checkout mode when repo path is configured', () => {
   assert.equal(resolved.repoPath, '/srv/customer/orbital-ops');
 });
 
+test('worker prefers github app repository auth when app credentials are configured', async () => {
+  const previousAppId = process.env.GITHUB_APP_ID;
+  const previousPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+  const commands = [];
+
+  process.env.GITHUB_APP_ID = '12345';
+  process.env.GITHUB_APP_PRIVATE_KEY = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: {
+      format: 'pem',
+      type: 'pkcs8',
+    },
+    publicKeyEncoding: {
+      format: 'pem',
+      type: 'spki',
+    },
+  }).privateKey;
+
+  try {
+    const auth = await __testInternals.resolveRepositoryAuth(
+      {
+        repositoryFullName: 'customer/orbital-ops',
+      },
+      {
+        cwd: '/tmp',
+        async runCommandImpl(command, args) {
+          commands.push({ command, args });
+          return {
+            stdout: 'ghp_fallback',
+            stderr: '',
+          };
+        },
+        async fetchImpl(url) {
+          if (url.endsWith('/repos/customer/orbital-ops/installation')) {
+            return new Response(
+              JSON.stringify({
+                id: 77,
+                repository_selection: 'selected',
+              }),
+              {
+                status: 200,
+                headers: {
+                  'content-type': 'application/json',
+                },
+              },
+            );
+          }
+
+          if (url.endsWith('/app/installations/77/access_tokens')) {
+            return new Response(
+              JSON.stringify({
+                token: 'ghs_repo_access',
+                expires_at: '2026-04-20T13:00:00Z',
+              }),
+              {
+                status: 201,
+                headers: {
+                  'content-type': 'application/json',
+                },
+              },
+            );
+          }
+
+          throw new Error(`Unexpected fetch request: ${url}`);
+        },
+      },
+    );
+
+    assert.equal(auth.source, 'github_app');
+    assert.equal(auth.token, 'ghs_repo_access');
+    assert.equal(auth.installationId, 77);
+    assert.equal(commands.length, 0);
+  } finally {
+    if (previousAppId == null) {
+      delete process.env.GITHUB_APP_ID;
+    } else {
+      process.env.GITHUB_APP_ID = previousAppId;
+    }
+
+    if (previousPrivateKey == null) {
+      delete process.env.GITHUB_APP_PRIVATE_KEY;
+    } else {
+      process.env.GITHUB_APP_PRIVATE_KEY = previousPrivateKey;
+    }
+  }
+});
+
 test('worker resolves relative preview deploy scripts against the checked out repository', () => {
   assert.equal(
     resolvePreviewDeployScriptPath(
@@ -210,6 +298,9 @@ test('worker refreshes an existing pull request instead of creating another one'
     ['npm test'],
     'https://preview.orbital.test/previews/ctrb-123/',
     {
+      auth: {
+        token: 'ghs_repo_access',
+      },
       async runCommandImpl(command, args, options) {
         commands.push({ command, args, options });
 
@@ -246,8 +337,10 @@ test('worker refreshes an existing pull request instead of creating another one'
   assert.equal(commands.length, 2);
   assert.equal(commands[0].command, 'gh');
   assert.deepEqual(commands[0].args.slice(0, 2), ['pr', 'list']);
+  assert.equal(commands[0].options.env.GH_TOKEN, 'ghs_repo_access');
   assert.equal(commands[1].command, 'gh');
   assert.deepEqual(commands[1].args.slice(0, 2), ['pr', 'edit']);
+  assert.equal(commands[1].options.env.GITHUB_TOKEN, 'ghs_repo_access');
   assert.ok(commands[1].args.includes('--body-file'));
   assert.equal(writes.length, 1);
   assert.equal(writes[0].encoding, 'utf8');

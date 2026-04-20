@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import { Pool } from 'pg';
 
+import { getGitHubAppConfig, getGitHubRepositoryAccessToken } from '../github/app-auth.js';
 import { createPostgresContributionPersistenceAdapter } from '../server/persistence.js';
 import {
   IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
@@ -104,6 +105,39 @@ async function getGithubPushExtraHeader(cwd, runCommandImpl = runCommand) {
   }
 
   return buildGithubExtraHeader(token);
+}
+
+async function resolveRepositoryAuth(
+  repo,
+  { cwd, runCommandImpl = runCommand, fetchImpl = fetch } = {},
+) {
+  const appConfig = getGitHubAppConfig();
+
+  if (appConfig && repo?.repositoryFullName) {
+    const access = await getGitHubRepositoryAccessToken({
+      repositoryFullName: repo.repositoryFullName,
+      config: appConfig,
+      fetchImpl,
+    });
+
+    return {
+      source: 'github_app',
+      token: access.token,
+      extraHeader: buildGithubExtraHeader(access.token),
+      installationId: access.installationId,
+      expiresAt: access.expiresAt,
+    };
+  }
+
+  const token = await getGithubPushExtraHeader(cwd, runCommandImpl);
+
+  return {
+    source: 'gh_cli',
+    token: null,
+    extraHeader: token,
+    installationId: null,
+    expiresAt: null,
+  };
 }
 
 async function claimNextQueuedJob(pool) {
@@ -366,9 +400,9 @@ async function ensureRepositoryCheckout(
   repo,
   branchName,
   worktreePath,
-  { runCommandImpl = runCommand, rmSyncImpl = rmSync } = {},
+  { auth = null, runCommandImpl = runCommand, rmSyncImpl = rmSync } = {},
 ) {
-  const extraHeader = await getGithubPushExtraHeader(repo.repoPath || undefined, runCommandImpl);
+  const extraHeader = auth?.extraHeader ?? (await getGithubPushExtraHeader(repo.repoPath || undefined, runCommandImpl));
 
   if (repo.repoPath) {
     await ensureLocalWorktree(repo.repoPath, branchName, repo.defaultBranch, worktreePath, {
@@ -465,8 +499,8 @@ async function commitWorktreeChanges(worktreePath, detail) {
   });
 }
 
-async function ensureBranchPushed(worktreePath, branchName) {
-  const extraHeader = await getGithubPushExtraHeader(worktreePath);
+async function ensureBranchPushed(worktreePath, branchName, { auth = null } = {}) {
+  const extraHeader = auth?.extraHeader ?? (await getGithubPushExtraHeader(worktreePath));
   await runCommand('git', withGithubExtraHeader(['push', '-u', 'origin', branchName], extraHeader), {
     cwd: worktreePath,
   });
@@ -512,12 +546,18 @@ async function ensurePullRequest(
   detail,
   verification,
   previewUrl = null,
-  { runCommandImpl = runCommand, writeFileSyncImpl = writeFileSync } = {},
+  { auth = null, runCommandImpl = runCommand, writeFileSyncImpl = writeFileSync } = {},
 ) {
+  const ghEnv = auth?.token
+    ? {
+        GH_TOKEN: auth.token,
+        GITHUB_TOKEN: auth.token,
+      }
+    : undefined;
   const existing = await runCommandImpl(
     'gh',
     ['pr', 'list', '--repo', repositoryFullName, '--head', branchName, '--state', 'open', '--json', 'number,url'],
-    { cwd: worktreePath },
+    { cwd: worktreePath, env: ghEnv },
   );
   const existingPullRequests = existing.stdout ? JSON.parse(existing.stdout) : [];
 
@@ -554,7 +594,7 @@ async function ensurePullRequest(
         '--body-file',
         bodyPath,
       ],
-      { cwd: worktreePath },
+      { cwd: worktreePath, env: ghEnv },
     );
 
     return {
@@ -581,7 +621,7 @@ async function ensurePullRequest(
       '--body-file',
       bodyPath,
     ],
-    { cwd: worktreePath },
+    { cwd: worktreePath, env: ghEnv },
   );
 
   return {
@@ -625,6 +665,7 @@ export async function processClaimedJob(pool, database, claimedJob) {
   var branchName = claimedJob.branch_name || null;
   var worktreePath = null;
   var checkout = null;
+  var auth = null;
   const verification = [];
 
   try {
@@ -671,7 +712,12 @@ export async function processClaimedJob(pool, database, claimedJob) {
         checkoutMode: repo.checkoutMode,
       },
     });
-    checkout = await ensureRepositoryCheckout(repo, branchName, worktreePath);
+    auth = await resolveRepositoryAuth(repo, {
+      cwd: repo.repoPath || undefined,
+    });
+    checkout = await ensureRepositoryCheckout(repo, branchName, worktreePath, {
+      auth,
+    });
     await updateImplementationJob(pool, claimedJob.id, {
       branch_name: branchName,
       repository_full_name: repo.repositoryFullName,
@@ -788,7 +834,9 @@ export async function processClaimedJob(pool, database, claimedJob) {
 
     await commitWorktreeChanges(worktreePath, detail);
 
-    await ensureBranchPushed(worktreePath, branchName);
+    await ensureBranchPushed(worktreePath, branchName, {
+      auth,
+    });
     await emitProgress(database, detail.contribution.id, {
       nextState: 'agent_running',
       kind: 'branch_pushed',
@@ -808,6 +856,9 @@ export async function processClaimedJob(pool, database, claimedJob) {
       detail,
       verification,
       previewUrl,
+      {
+        auth,
+      },
     );
 
     const prRecordedAt = nowIso();
@@ -932,6 +983,7 @@ export const __testInternals = {
   cleanupRepositoryCheckout,
   ensureRepositoryCheckout,
   ensurePullRequest,
+  resolveRepositoryAuth,
   withGithubExtraHeader,
 };
 

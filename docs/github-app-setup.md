@@ -1,0 +1,70 @@
+# GitHub App Setup
+
+## Purpose
+
+Crowdship hosted automation should use a GitHub App instead of a personal `gh` login when it clones repositories, pushes feature branches, and opens or updates pull requests.
+
+The worker now supports GitHub App installation tokens derived from a repository name. That means the hosted path does not need a manually entered installation id for each project.
+
+## Secrets
+
+Store these on the Crowdship host and in deployment secrets:
+
+- `GITHUB_APP_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_APP_CLIENT_SECRET`
+- `GITHUB_APP_WEBHOOK_SECRET`
+
+Current use:
+
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` let the worker look up a repository installation and mint an installation access token.
+- `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET` are reserved for the owner-authorized connect callback.
+- `GITHUB_APP_WEBHOOK_SECRET` is reserved for webhook signature validation.
+
+## Recommended Registration
+
+Create the GitHub App under the Crowdship org account if available. Personal-account ownership is acceptable for early internal testing but is not the ideal long-term home for a production integration.
+
+Recommended registration values:
+
+- Homepage URL: `https://crowdship.aizenshtat.eu`
+- Callback URL: `https://crowdship.aizenshtat.eu/api/github/callback`
+- Setup URL: `https://crowdship.aizenshtat.eu/api/github/setup`
+- Webhook URL: `https://crowdship.aizenshtat.eu/api/github/webhooks`
+
+## Minimum Repository Permissions
+
+Required for the current worker slice:
+
+- Repository metadata: `read`
+- Repository contents: `write`
+- Pull requests: `write`
+
+Recommended for merge-readiness evidence and future sync:
+
+- Commit statuses: `read`
+- Checks: `read`
+- Actions: `read`
+
+## Install Scope
+
+Install the app only on the repositories Crowdship is allowed to automate. The runtime config should continue to identify the target repository explicitly through `repositoryFullName`.
+
+## Customer-Owned Deployment Model
+
+For the durable product model:
+
+1. The customer installs the Crowdship widget in their app.
+2. The customer authorizes the Crowdship GitHub App on the target repository or org.
+3. Crowdship stores only the repository identity and connection state, not a customer personal access token.
+4. Customer CI/CD remains in the customer repository with customer-owned secrets.
+
+## Current Gap
+
+This document covers registration and credentials. The full owner-authorized in-product connect flow still needs:
+
+- install/connect UI in Crowdship admin
+- callback handling
+- webhook ingestion
+- installation state persistence

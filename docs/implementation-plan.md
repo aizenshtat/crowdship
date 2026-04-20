@@ -23,7 +23,7 @@ Before starting a phase, read the linked contracts.
 | Phase | Primary Docs |
 | --- | --- |
 | Product scope | `docs/product-brief.md`, `docs/roadmap-lite.md` |
-| Customer onboarding | `docs/customer-onboarding.md`, `docs/security-model.md` |
+| Customer onboarding | `docs/customer-onboarding.md`, `docs/security-model.md`, `docs/github-app-setup.md` |
 | Widget behavior | `docs/widget-contract.md`, `docs/security-model.md`, `docs/ui-quality-contract.md` |
 | Contribution state | `docs/contribution-lifecycle.md`, `docs/architecture.md` |
 | Agent implementation | `docs/implementation-agent.md`, `docs/contribution-lifecycle.md` |
