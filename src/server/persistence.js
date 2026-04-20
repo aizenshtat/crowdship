@@ -762,6 +762,7 @@ export function createInMemoryContributionPersistenceAdapter({
       progressEvents: nextProgressEvents = [],
       implementationJobs: nextImplementationJobs = [],
       pullRequests: nextPullRequests = [],
+      updatedPullRequests = [],
       previewDeployments: nextPreviewDeployments = [],
       votes: nextVotes = [],
       comments: nextComments = [],
@@ -803,6 +804,16 @@ export function createInMemoryContributionPersistenceAdapter({
       if (nextPullRequests.length > 0) {
         const existingPullRequests = pullRequests.get(contributionId) ?? [];
         setStoredList(pullRequests, contributionId, existingPullRequests.concat(nextPullRequests));
+      }
+
+      if (updatedPullRequests.length > 0) {
+        const existingPullRequests = pullRequests.get(contributionId) ?? [];
+        const byId = new Map(updatedPullRequests.map((pullRequest) => [pullRequest.id, pullRequest]));
+        setStoredList(
+          pullRequests,
+          contributionId,
+          existingPullRequests.map((pullRequest) => byId.get(pullRequest.id) ?? pullRequest),
+        );
       }
 
       if (nextPreviewDeployments.length > 0) {
@@ -1088,6 +1099,7 @@ export function createPostgresContributionPersistenceAdapter({
       progressEvents = [],
       implementationJobs = [],
       pullRequests = [],
+      updatedPullRequests = [],
       previewDeployments = [],
       votes = [],
       comments = [],
@@ -1276,6 +1288,36 @@ export function createPostgresContributionPersistenceAdapter({
               pullRequest.metadata == null ? null : JSON.stringify(pullRequest.metadata),
               pullRequest.createdAt,
               pullRequest.updatedAt,
+            ],
+          );
+        }
+
+        for (const pullRequest of updatedPullRequests) {
+          await client.query(
+            `
+              UPDATE pull_requests
+              SET
+                repository_full_name = $2,
+                number = $3,
+                url = $4,
+                branch_name = $5,
+                head_sha = $6,
+                status = $7,
+                metadata = $8::jsonb,
+                updated_at = $9::timestamptz
+              WHERE id = $1 AND contribution_id = $10
+            `,
+            [
+              pullRequest.id,
+              pullRequest.repositoryFullName,
+              pullRequest.number,
+              pullRequest.url,
+              pullRequest.branchName,
+              pullRequest.headSha ?? null,
+              pullRequest.status,
+              pullRequest.metadata == null ? null : JSON.stringify(pullRequest.metadata),
+              pullRequest.updatedAt,
+              contributionId,
             ],
           );
         }

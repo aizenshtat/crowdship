@@ -298,6 +298,252 @@ function buildGitHubSettingsRedirectLocation({
   return `/?${searchParams.toString()}`;
 }
 
+const GITHUB_PULL_REQUEST_SYNC_ACTIONS = new Set(['opened', 'reopened', 'synchronize', 'edited', 'ready_for_review', 'closed']);
+const GITHUB_CONTRIBUTION_ID_IN_BODY_PATTERN = /Contribution ID:\s*`([^`]+)`/i;
+const GITHUB_CONTRIBUTION_ID_IN_BRANCH_PATTERN =
+  /^crowdship\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-|$)/i;
+
+function parseContributionIdFromPullRequestBody(body) {
+  const normalized = normalizeOptionalString(body);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(GITHUB_CONTRIBUTION_ID_IN_BODY_PATTERN);
+  return normalizeOptionalString(match?.[1]) || null;
+}
+
+function parseContributionIdFromBranchName(branchName) {
+  const normalized = normalizeOptionalString(branchName);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(GITHUB_CONTRIBUTION_ID_IN_BRANCH_PATTERN);
+  return normalizeOptionalString(match?.[1]) || null;
+}
+
+function extractContributionIdFromGitHubPullRequest(pullRequest) {
+  if (!isPlainObject(pullRequest)) {
+    return null;
+  }
+
+  return (
+    parseContributionIdFromPullRequestBody(pullRequest.body) ||
+    parseContributionIdFromBranchName(pullRequest?.head?.ref) ||
+    null
+  );
+}
+
+function resolveGitHubPullRequestStatus(pullRequest) {
+  if (!isPlainObject(pullRequest)) {
+    return null;
+  }
+
+  if (normalizeOptionalString(pullRequest.merged_at) || normalizeOptionalBoolean(pullRequest.merged) === true) {
+    return 'merged';
+  }
+
+  return normalizeOptionalString(pullRequest.state).toLowerCase() === 'closed' ? 'closed' : 'open';
+}
+
+function mergeGitHubPullRequestMetadata(existingMetadata, patch) {
+  const current = isPlainObject(existingMetadata) ? existingMetadata : {};
+  const next = isPlainObject(patch) ? patch : {};
+  return {
+    ...current,
+    githubWebhook: {
+      ...(isPlainObject(current.githubWebhook) ? current.githubWebhook : {}),
+      ...next,
+    },
+  };
+}
+
+async function syncGitHubPullRequestWebhook({
+  action,
+  body,
+  database,
+  deliveryId,
+  event,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  if (!GITHUB_PULL_REQUEST_SYNC_ACTIONS.has(action)) {
+    return {
+      status: 'ignored',
+      reason: 'unsupported_action',
+    };
+  }
+
+  if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+    return {
+      status: 'ignored',
+      reason: 'persistence_unavailable',
+    };
+  }
+
+  const pullRequest = isPlainObject(body?.pull_request) ? body.pull_request : null;
+
+  if (!pullRequest) {
+    return {
+      status: 'ignored',
+      reason: 'missing_pull_request',
+    };
+  }
+
+  const contributionId = extractContributionIdFromGitHubPullRequest(pullRequest);
+
+  if (!contributionId) {
+    return {
+      status: 'ignored',
+      reason: 'contribution_not_identified',
+    };
+  }
+
+  const detail = await database.getContributionDetail(contributionId);
+
+  if (!detail) {
+    return {
+      status: 'ignored',
+      reason: 'contribution_not_found',
+      contributionId,
+    };
+  }
+
+  const repositoryFullName =
+    normalizeOptionalString(body?.repository?.full_name) ||
+    normalizeOptionalString(pullRequest?.base?.repo?.full_name) ||
+    normalizeOptionalString(pullRequest?.head?.repo?.full_name);
+  const pullRequestNumber = normalizeOptionalPositiveInteger(pullRequest.number) ?? normalizeOptionalPositiveInteger(body?.number);
+  const pullRequestStatus = resolveGitHubPullRequestStatus(pullRequest);
+  const branchName = normalizeOptionalString(pullRequest?.head?.ref);
+  const headSha = normalizeOptionalString(pullRequest?.head?.sha) || null;
+  const url = normalizeOptionalString(pullRequest?.html_url);
+  const updatedAt = normalizeOptionalString(pullRequest?.updated_at) || clock().toISOString();
+
+  if (!repositoryFullName || !pullRequestNumber || !pullRequestStatus || !branchName || !url) {
+    return {
+      status: 'ignored',
+      reason: 'invalid_pull_request_payload',
+      contributionId,
+    };
+  }
+
+  const existingPullRequest =
+    asArray(detail.pullRequests).find(
+      (entry) =>
+        entry.repositoryFullName === repositoryFullName &&
+        entry.number === pullRequestNumber,
+    ) ??
+    asArray(detail.pullRequests).find((entry) => normalizeOptionalString(entry.branchName) === branchName) ??
+    null;
+  const metadata = mergeGitHubPullRequestMetadata(existingPullRequest?.metadata, {
+    action,
+    deliveryId,
+    event,
+    mergedAt: normalizeOptionalString(pullRequest?.merged_at) || null,
+    mergedBy: normalizeOptionalString(pullRequest?.merged_by?.login) || null,
+    updatedAt,
+  });
+  const mergedStateIndex = getContributionStateIndex(MERGED_CONTRIBUTION_STATE);
+  const currentStateIndex = getContributionStateIndex(detail.contribution.state);
+  const shouldRecordMergedEvent =
+    pullRequestStatus === 'merged' &&
+    (currentStateIndex === -1 || mergedStateIndex === -1 || currentStateIndex < mergedStateIndex);
+  const nextState =
+    pullRequestStatus === 'merged'
+      ? advanceContributionState(detail.contribution.state, MERGED_CONTRIBUTION_STATE)
+      : existingPullRequest
+        ? detail.contribution.state
+        : pullRequestStatus === 'open'
+          ? resolveContributionState(detail.contribution.state, PR_OPENED_CONTRIBUTION_STATE)
+          : detail.contribution.state;
+  const progressEvents =
+    shouldRecordMergedEvent
+      ? [
+          {
+            id: idFactory(),
+            contributionId,
+            kind: MARKED_MERGED_PROGRESS_EVENT_KIND,
+            status: nextState,
+            message: `Merged from PR #${pullRequestNumber}.`,
+            externalUrl: url,
+            payload: {
+              contributionId,
+              repositoryFullName,
+              number: pullRequestNumber,
+            },
+            createdAt: updatedAt,
+          },
+        ]
+      : !existingPullRequest
+        ? [
+            {
+              id: idFactory(),
+              contributionId,
+              kind: RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND,
+              status: nextState,
+              message: `PR #${pullRequestNumber} recorded from GitHub.`,
+              externalUrl: url,
+              payload: {
+                contributionId,
+                repositoryFullName,
+                number: pullRequestNumber,
+              },
+              createdAt: updatedAt,
+            },
+          ]
+        : [];
+  const updated = await database.applyContributionUpdate({
+    contributionId,
+    nextState,
+    updatedAt,
+    pullRequests: existingPullRequest
+      ? []
+      : [
+          {
+            id: idFactory(),
+            contributionId,
+            repositoryFullName,
+            number: pullRequestNumber,
+            url,
+            branchName,
+            headSha,
+            status: pullRequestStatus,
+            metadata,
+            createdAt: updatedAt,
+            updatedAt,
+          },
+        ],
+    updatedPullRequests: existingPullRequest
+      ? [
+          {
+            ...existingPullRequest,
+            repositoryFullName,
+            number: pullRequestNumber,
+            url,
+            branchName,
+            headSha,
+            status: pullRequestStatus,
+            metadata,
+            updatedAt,
+          },
+        ]
+      : [],
+    progressEvents,
+  });
+
+  return {
+    status: 'applied',
+    contributionId,
+    pullRequestNumber,
+    pullRequestStatus,
+    contributionState: updated?.contribution?.state ?? nextState,
+  };
+}
+
 function resolveProjectRuntimeConfig(project, { repositoryFullName = null } = {}) {
   const runtimeConfig = isPlainObject(project?.runtimeConfig) ? structuredClone(project.runtimeConfig) : {};
   const resolvedRepositoryFullName = normalizeOptionalString(repositoryFullName) || normalizeOptionalString(runtimeConfig.repositoryFullName);
@@ -1360,7 +1606,7 @@ export function createGitHubAppCallbackHandler() {
   };
 }
 
-export function createGitHubWebhookHandler({ env = process.env } = {}) {
+export function createGitHubWebhookHandler({ database, env = process.env, idFactory = randomUUID, clock = () => new Date() } = {}) {
   return async ({ request, body, rawBody } = {}) => {
     const webhookSecret = normalizeOptionalString(env.GITHUB_APP_WEBHOOK_SECRET);
 
@@ -1392,6 +1638,22 @@ export function createGitHubWebhookHandler({ env = process.env } = {}) {
     const installationId =
       normalizeOptionalIntegerString(body?.installation?.id) ??
       normalizeOptionalIntegerString(body?.installation?.account?.id);
+    const action = normalizeOptionalString(body?.action).toLowerCase();
+    const sync =
+      event === 'pull_request'
+        ? await syncGitHubPullRequestWebhook({
+            action,
+            body,
+            database,
+            deliveryId,
+            event,
+            idFactory,
+            clock,
+          })
+        : {
+            status: 'ignored',
+            reason: 'unsupported_event',
+          };
 
     return buildResponse(202, {
       webhook: {
@@ -1399,6 +1661,7 @@ export function createGitHubWebhookHandler({ env = process.env } = {}) {
         event,
         deliveryId,
         installationId,
+        sync,
       },
     });
   };

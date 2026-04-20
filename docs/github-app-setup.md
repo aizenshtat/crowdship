@@ -68,11 +68,13 @@ What is wired now:
 
 - `GET /api/github/setup` redirects the browser back into Crowdship Settings after the GitHub install flow.
 - `GET /api/github/callback` redirects the browser back into Crowdship Settings after an owner authorization callback or callback error.
-- `POST /api/github/webhooks` validates `X-Hub-Signature-256` when `GITHUB_APP_WEBHOOK_SECRET` is configured and accepts signed deliveries without mutating project state.
+- `POST /api/github/webhooks` validates `X-Hub-Signature-256` when `GITHUB_APP_WEBHOOK_SECRET` is configured.
+- `pull_request` webhook deliveries now reconcile the recorded PR status back into Crowdship and automatically advance a contribution to `merged` when GitHub reports the PR as merged and the contribution can be identified from the PR body or Crowdship branch name.
 
 The full owner-authorized in-product connect flow still needs:
 
 - install/connect UI beyond the current settings view and external install link
 - owner-authorized callback token exchange and storage
 - installation state persistence
-- webhook-driven installation sync or event handling
+- webhook-driven installation sync for installs, permission changes, and repo-selection changes
+- first-class check-run, actions, and preview/deploy callbacks instead of comment scraping

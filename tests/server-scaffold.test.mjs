@@ -541,7 +541,7 @@ test('github app callback route redirects GitHub errors back into settings', asy
   );
 });
 
-test('github webhook route accepts signed GitHub deliveries without polluting project state', async () => {
+test('github webhook route accepts signed non-PR deliveries and leaves sync idle', async () => {
   const payload = JSON.stringify({
     installation: {
       id: 91,
@@ -569,6 +569,8 @@ test('github webhook route accepts signed GitHub deliveries without polluting pr
   assert.equal(response.body.webhook.event, 'ping');
   assert.equal(response.body.webhook.deliveryId, 'delivery-1');
   assert.equal(response.body.webhook.installationId, '91');
+  assert.equal(response.body.webhook.sync.status, 'ignored');
+  assert.equal(response.body.webhook.sync.reason, 'unsupported_event');
 });
 
 test('github webhook route rejects unsigned deliveries when webhook validation is configured', async () => {
@@ -589,6 +591,102 @@ test('github webhook route rejects unsigned deliveries when webhook validation i
 
   assert.equal(response.status, 401);
   assert.equal(response.body.error, 'github_webhook_signature_invalid');
+});
+
+test('github webhook route syncs merged pull requests back into contribution state', async () => {
+  const database = createInMemoryContributionPersistenceAdapter();
+  const handlers = createRouteHandlers({
+    database,
+    specService: createStubSpecService(),
+  });
+  const created = await handlers.postContribution({
+    body: buildCreatePayload(),
+  });
+  const contributionId = created.body.contribution.id;
+  const branchName = `crowdship/${contributionId}-signal-drop-replay`;
+
+  await handlers.postContributionMessage({
+    params: { id: contributionId },
+    body: {
+      body: 'The replay should stay in the mission view and keep telemetry visible.',
+    },
+  });
+  await handlers.postSpecApproval({
+    params: { id: contributionId },
+    body: {
+      decision: 'approve',
+    },
+  });
+  await handlers.postPullRequest({
+    params: { id: contributionId },
+    body: {
+      repositoryFullName: 'aizenshtat/example',
+      number: 42,
+      url: 'https://github.com/aizenshtat/example/pull/42',
+      branchName,
+      status: 'open',
+    },
+  });
+
+  const payload = JSON.stringify({
+    action: 'closed',
+    number: 42,
+    repository: {
+      full_name: 'aizenshtat/example',
+    },
+    pull_request: {
+      number: 42,
+      state: 'closed',
+      merged: true,
+      merged_at: '2026-04-20T15:55:00.000Z',
+      updated_at: '2026-04-20T15:55:00.000Z',
+      html_url: 'https://github.com/aizenshtat/example/pull/42',
+      body: `## Crowdship Contribution\n\n- Contribution ID: \`${contributionId}\`\n`,
+      head: {
+        ref: branchName,
+        sha: 'abc123def456',
+      },
+      base: {
+        ref: 'main',
+        repo: {
+          full_name: 'aizenshtat/example',
+        },
+      },
+      merged_by: {
+        login: 'octocat',
+      },
+    },
+  });
+  const postGitHubWebhook = createGitHubWebhookHandler({
+    database,
+    env: {
+      GITHUB_APP_WEBHOOK_SECRET: 'hook-secret',
+    },
+  });
+  const response = await postGitHubWebhook({
+    request: {
+      headers: {
+        'x-github-event': 'pull_request',
+        'x-github-delivery': 'delivery-2',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', 'hook-secret').update(payload).digest('hex')}`,
+      },
+    },
+    rawBody: Buffer.from(payload, 'utf8'),
+    body: JSON.parse(payload),
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(response.body.webhook.sync.status, 'applied');
+  assert.equal(response.body.webhook.sync.contributionId, contributionId);
+  assert.equal(response.body.webhook.sync.pullRequestStatus, 'merged');
+
+  const detail = await database.getContributionDetail(contributionId);
+  const latestPullRequest = detail.pullRequests.at(-1);
+
+  assert.equal(detail.contribution.state, 'merged');
+  assert.equal(latestPullRequest.status, 'merged');
+  assert.equal(latestPullRequest.headSha, 'abc123def456');
+  assert.equal(detail.progressEvents.at(-1).kind, 'merged_recorded');
 });
 
 test('api server exposes demo video status and accepts authenticated binary uploads', async () => {
