@@ -257,6 +257,18 @@ const COMMENT_DISPOSITION_OPTIONS = [
 ] as const;
 
 const DEFAULT_PROJECT_SLUG = 'example';
+const HOSTED_REMOTE_CLONE_EXECUTION_MODE = 'hosted_remote_clone';
+const SELF_HOSTED_EXECUTION_MODE = 'self_hosted';
+const EXECUTION_MODE_OPTIONS = [
+  {
+    value: HOSTED_REMOTE_CLONE_EXECUTION_MODE,
+    label: 'Hosted remote clone',
+  },
+  {
+    value: SELF_HOSTED_EXECUTION_MODE,
+    label: 'Self-hosted worker',
+  },
+] as const;
 
 function asObject(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -362,10 +374,11 @@ function parseProjectSettingsResponse(
         readStringValue(runtimeConfig.previewUrlPattern) ||
         readStringValue(preview.pathTemplate) ||
         readStringValue(preview.template),
-      executionMode:
+      executionMode: normalizeExecutionModeValue(
         readStringValue(source.executionMode) ||
-        readStringValue(runtimeConfig.executionMode) ||
-        readStringValue(automation.executionMode),
+          readStringValue(runtimeConfig.executionMode) ||
+          readStringValue(automation.executionMode),
+      ),
       repoPath:
         readStringValue(source.repoPath) ||
         readStringValue(runtimeConfig.repoPath) ||
@@ -399,7 +412,7 @@ function buildProjectSettingsPayload(envelope: ProjectSettingsEnvelope | null, p
   const defaultBranch = project.defaultBranch.trim();
   const previewBaseUrl = project.previewBaseUrl.trim();
   const previewPathTemplate = project.previewPathTemplate.trim();
-  const executionMode = project.executionMode.trim();
+  const executionMode = normalizeExecutionModeValue(project.executionMode);
   const repoPath = project.repoPath.trim();
   const previewDeployScript = project.previewDeployScript.trim();
   const implementationProfile = project.implementationProfile.trim();
@@ -464,10 +477,59 @@ function parsePreviewEvidenceResponse(value: unknown): PreviewEvidenceRecord {
 function serializeProjectSettings(project: ProjectSettingsRecord) {
   return JSON.stringify({
     ...project,
+    executionMode: normalizeExecutionModeValue(project.executionMode),
     allowedOrigins: normalizeAllowedOrigins(project.allowedOrigins),
     createdAt: null,
     updatedAt: null,
   });
+}
+
+function normalizeExecutionModeValue(value: string) {
+  const rawValue = value.trim();
+  const normalized = rawValue.toLowerCase().replace(/[\s-]+/g, '_');
+
+  switch (normalized) {
+    case 'hosted':
+    case 'remote_clone':
+    case 'hosted_remote_clone':
+      return HOSTED_REMOTE_CLONE_EXECUTION_MODE;
+    case 'self_hosted':
+    case 'self_hosted_worker':
+    case 'selfhosted':
+      return SELF_HOSTED_EXECUTION_MODE;
+    default:
+      return rawValue;
+  }
+}
+
+function executionModeLabel(value: string) {
+  const normalized = normalizeExecutionModeValue(value);
+
+  switch (normalized) {
+    case HOSTED_REMOTE_CLONE_EXECUTION_MODE:
+      return 'Hosted remote clone';
+    case SELF_HOSTED_EXECUTION_MODE:
+      return 'Self-hosted worker';
+    default:
+      return normalized;
+  }
+}
+
+function executionModeDetail(value: string) {
+  const normalized = normalizeExecutionModeValue(value);
+
+  switch (normalized) {
+    case HOSTED_REMOTE_CLONE_EXECUTION_MODE:
+      return 'Crowdship-hosted automation clones the target repository through an owner-authorized integration. Repository full name and default branch stay required. Local path fields stay blank unless a reference host is doing the work.';
+    case SELF_HOSTED_EXECUTION_MODE:
+      return 'A customer-run worker performs repository work inside customer infrastructure. Local repository path and any host-local preview helper belong here.';
+    default:
+      return 'Choose how the worker reaches the repository. Use hosted remote clone for scoped hosted automation and self-hosted worker when the customer runs the worker.';
+  }
+}
+
+function executionModeUsesLocalRepoConfig(value: string) {
+  return normalizeExecutionModeValue(value) === SELF_HOSTED_EXECUTION_MODE;
 }
 
 function buildInstallSnippet(project: ProjectSettingsRecord) {
@@ -950,6 +1012,11 @@ function SettingsView({
   onRetry: () => void;
   onSubmit: () => void;
 }) {
+  const executionModeSummary = executionModeDetail(projectDraft.executionMode);
+  const usesLocalRepoConfig = executionModeUsesLocalRepoConfig(projectDraft.executionMode);
+  const hasCustomExecutionMode =
+    projectDraft.executionMode.trim().length > 0 &&
+    !EXECUTION_MODE_OPTIONS.some((option) => option.value === projectDraft.executionMode);
   const settingsPillState: ReadinessState =
     settingsStatus === 'error' ? 'empty' : settingsStatus === 'ready' && !isProjectDirty ? 'ready' : 'pending';
   const bannerClassName =
@@ -1098,8 +1165,9 @@ function SettingsView({
       <section className="surface-section">
         <div className="section-heading">
           <div>
-            <h2>Automation</h2>
-            <p>Repository, preview, and implementation defaults for the worker path.</p>
+            <h2>Worker repo contract</h2>
+            <p>Repository target shared by hosted remote clone and self-hosted workers.</p>
+            <span className="section-note">{executionModeSummary}</span>
           </div>
         </div>
         <div className="review-form-grid review-form-grid-three">
@@ -1108,25 +1176,46 @@ function SettingsView({
             <input
               value={projectDraft.repositoryFullName}
               onChange={(event) => onFieldChange('repositoryFullName', event.target.value)}
+              placeholder="customer/app-repo"
             />
           </label>
           <label className="review-field">
             <span>Default branch</span>
-            <input value={projectDraft.defaultBranch} onChange={(event) => onFieldChange('defaultBranch', event.target.value)} />
+            <input
+              value={projectDraft.defaultBranch}
+              onChange={(event) => onFieldChange('defaultBranch', event.target.value)}
+              placeholder="main"
+            />
           </label>
           <label className="review-field">
             <span>Execution mode</span>
-            <input value={projectDraft.executionMode} onChange={(event) => onFieldChange('executionMode', event.target.value)} />
+            <select
+              value={projectDraft.executionMode}
+              onChange={(event) => onFieldChange('executionMode', event.target.value)}
+            >
+              <option value="">Choose execution mode</option>
+              {EXECUTION_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+              {hasCustomExecutionMode ? <option value={projectDraft.executionMode}>{projectDraft.executionMode}</option> : null}
+            </select>
           </label>
           <label className="review-field">
             <span>Preview base URL</span>
-            <input value={projectDraft.previewBaseUrl} onChange={(event) => onFieldChange('previewBaseUrl', event.target.value)} />
+            <input
+              value={projectDraft.previewBaseUrl}
+              onChange={(event) => onFieldChange('previewBaseUrl', event.target.value)}
+              placeholder="https://preview.customer.app"
+            />
           </label>
           <label className="review-field">
-            <span>Preview template</span>
+            <span>Preview path template</span>
             <input
               value={projectDraft.previewPathTemplate}
               onChange={(event) => onFieldChange('previewPathTemplate', event.target.value)}
+              placeholder="https://preview.customer.app/previews/{contributionId}/"
             />
           </label>
           <label className="review-field">
@@ -1134,18 +1223,34 @@ function SettingsView({
             <input
               value={projectDraft.implementationProfile}
               onChange={(event) => onFieldChange('implementationProfile', event.target.value)}
+              placeholder="default"
             />
           </label>
           <label className="review-field review-field-wide">
-            <span>Repository path</span>
-            <input value={projectDraft.repoPath} onChange={(event) => onFieldChange('repoPath', event.target.value)} />
+            <span>Local repository path</span>
+            <input
+              value={projectDraft.repoPath}
+              onChange={(event) => onFieldChange('repoPath', event.target.value)}
+              placeholder={usesLocalRepoConfig ? '/srv/customer/app' : 'Leave blank for hosted remote clone'}
+            />
+            <span className="section-note">
+              {usesLocalRepoConfig
+                ? 'Required when the worker uses a checked-out repository on customer infrastructure.'
+                : 'Only needed for self-hosted workers or the reference host. Hosted remote clone does not need a local path.'}
+            </span>
           </label>
           <label className="review-field review-field-wide">
-            <span>Preview deploy script</span>
+            <span>Local preview deploy script</span>
             <input
               value={projectDraft.previewDeployScript}
               onChange={(event) => onFieldChange('previewDeployScript', event.target.value)}
+              placeholder={usesLocalRepoConfig ? '/srv/customer/app/scripts/deploy-preview.sh' : 'Leave blank for hosted remote clone'}
             />
+            <span className="section-note">
+              {usesLocalRepoConfig
+                ? 'Optional host-local helper for preview deployment after repository changes are prepared.'
+                : 'Leave blank when preview deploys are triggered by repository CI or another hosted integration.'}
+            </span>
           </label>
         </div>
       </section>
@@ -1414,6 +1519,7 @@ function ContributionDetailDrawer({
   const previewSmokeTargetUrl =
     latestPreviewDeployment?.url || readStringValue(implementationMetadata.previewUrl) || null;
   const executionMode = readStringValue(runtimeConfig.executionMode);
+  const executionModeLabelText = executionModeLabel(executionMode);
   const implementationProfile = readStringValue(runtimeConfig.implementationProfile);
   const runtimeDefaultBranch = readStringValue(runtimeConfig.defaultBranch);
   const previewTemplate = readStringValue(runtimeConfig.previewUrlPattern);
@@ -1746,7 +1852,10 @@ function ContributionDetailDrawer({
                       Target {targetRepository} / {runtimeDefaultBranch || 'default branch not recorded'}
                     </div>
                     <div className="stack-item-copy">
-                      Mode {[executionMode, implementationProfile].filter(Boolean).join(' / ') || 'Automation mode not recorded.'}
+                      Mode
+                      {' '}
+                      {[executionModeLabelText, implementationProfile].filter(Boolean).join(' / ') ||
+                        'Automation mode not recorded.'}
                     </div>
                     <div className="stack-item-copy">
                       Verification {verificationCommands.length > 0 ? verificationCommands.join(' • ') : 'No verification commands recorded.'}

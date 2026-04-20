@@ -650,6 +650,7 @@ test('project route reads and updates the stored runtime config record', async (
   assert.equal(initialResponse.status, 200);
   assert.equal(initialResponse.body.project.slug, 'example');
   assert.equal(initialResponse.body.project.runtimeConfig.repositoryFullName, 'aizenshtat/example');
+  assert.equal(initialResponse.body.project.runtimeConfig.executionMode, 'hosted_remote_clone');
 
   const updateResponse = await putProject({
     params: { project: 'example' },
@@ -664,6 +665,7 @@ test('project route reads and updates the stored runtime config record', async (
         },
         runtimeConfig: {
           ...seed.runtimeConfig,
+          executionMode: 'hosted',
           repositoryFullName: 'customer/orbital-ops',
           defaultBranch: 'trunk',
           previewBaseUrl: 'https://preview.orbital.test',
@@ -678,6 +680,7 @@ test('project route reads and updates the stored runtime config record', async (
   assert.deepEqual(updateResponse.body.project.allowedOrigins, ['https://orbital.test']);
   assert.equal(updateResponse.body.project.runtimeConfig.repositoryFullName, 'customer/orbital-ops');
   assert.equal(updateResponse.body.project.runtimeConfig.defaultBranch, 'trunk');
+  assert.equal(updateResponse.body.project.runtimeConfig.executionMode, 'hosted_remote_clone');
   assert.equal(updateResponse.body.project.runtimeConfig.previewBaseUrl, 'https://preview.orbital.test');
 });
 
@@ -1284,6 +1287,10 @@ test('api server supports delivery evidence, voting, and merged state through th
     assert.equal(
       queued.body.review.implementation.jobs[0].metadata.projectRuntimeConfig.previewUrlPattern,
       'https://example.aizenshtat.eu/previews/{contributionId}/',
+    );
+    assert.equal(
+      queued.body.review.implementation.jobs[0].metadata.projectRuntimeConfig.executionMode,
+      'hosted_remote_clone',
     );
 
     const pullRequest = await requestJson({

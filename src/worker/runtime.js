@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -32,6 +32,8 @@ const EXAMPLE_DEFAULT_BRANCH = process.env.EXAMPLE_DEFAULT_BRANCH || 'main';
 const EXAMPLE_PREVIEW_DEPLOY_SCRIPT = process.env.EXAMPLE_PREVIEW_DEPLOY_SCRIPT || '/root/example/scripts/deploy-preview.sh';
 const CROWDSHIP_BASE_URL = process.env.CROWDSHIP_BASE_URL || 'https://crowdship.aizenshtat.eu';
 const EXAMPLE_BASE_URL = process.env.EXAMPLE_BASE_URL || 'https://example.aizenshtat.eu';
+const GITHUB_HTTPS_ORIGIN = 'https://github.com';
+const GITHUB_EXTRAHEADER_CONFIG_KEY = 'http.https://github.com/.extraheader';
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -74,8 +76,21 @@ async function runCommand(command, args, { cwd, env } = {}) {
   };
 }
 
-async function getGithubPushExtraHeader(cwd) {
-  const { stdout } = await runCommand('gh', ['auth', 'token'], {
+function buildGithubExtraHeader(token) {
+  const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
+  return `AUTHORIZATION: basic ${basic}`;
+}
+
+function withGithubExtraHeader(args, extraHeader) {
+  if (!extraHeader) {
+    return [...args];
+  }
+
+  return ['-c', `${GITHUB_EXTRAHEADER_CONFIG_KEY}=${extraHeader}`, ...args];
+}
+
+async function getGithubPushExtraHeader(cwd, runCommandImpl = runCommand) {
+  const { stdout } = await runCommandImpl('gh', ['auth', 'token'], {
     cwd,
     env: {
       GH_PROMPT_DISABLED: '1',
@@ -87,8 +102,7 @@ async function getGithubPushExtraHeader(cwd) {
     throw new Error('GitHub CLI authentication token is unavailable for worker push.');
   }
 
-  const basic = Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64');
-  return `AUTHORIZATION: basic ${basic}`;
+  return buildGithubExtraHeader(token);
 }
 
 async function claimNextQueuedJob(pool) {
@@ -228,6 +242,33 @@ function getProjectRepoConfig(detail, claimedJob) {
   throw new Error(`Unsupported project slug for worker automation: ${detail.contribution.projectSlug}`);
 }
 
+function buildGithubRepositoryCloneUrl(repositoryFullName) {
+  const normalizedRepositoryFullName = normalizeOptionalString(repositoryFullName);
+  if (!normalizedRepositoryFullName) {
+    return null;
+  }
+
+  return `${GITHUB_HTTPS_ORIGIN}/${normalizedRepositoryFullName}.git`;
+}
+
+export function resolveRepositoryWorkspaceConfig(detail, claimedJob) {
+  const repo = getProjectRepoConfig(detail, claimedJob);
+  const repositoryFullName = normalizeOptionalString(repo.repositoryFullName);
+  const repoPath = normalizeOptionalString(repo.repoPath);
+  const defaultBranch = normalizeOptionalString(repo.defaultBranch);
+  const repositoryCloneUrl =
+    normalizeOptionalString(repo.repositoryCloneUrl) || buildGithubRepositoryCloneUrl(repositoryFullName);
+
+  return {
+    ...repo,
+    repositoryFullName,
+    repoPath,
+    defaultBranch,
+    repositoryCloneUrl,
+    checkoutMode: repoPath ? 'local_path' : repositoryCloneUrl ? 'github_clone' : 'unconfigured',
+  };
+}
+
 function buildResolvedPreviewUrl(runtimeConfig, contributionId) {
   const previewUrlPattern = normalizeOptionalString(runtimeConfig.previewUrlPattern);
 
@@ -246,25 +287,148 @@ function buildResolvedPreviewUrl(runtimeConfig, contributionId) {
   return buildPreviewUrl(previewBaseUrl, contributionId);
 }
 
-async function ensureWorktree(repoPath, branchName, defaultBranch, worktreePath) {
-  rmSync(worktreePath, { recursive: true, force: true });
-  const remoteExists = await runCommand('git', ['ls-remote', '--heads', 'origin', branchName], {
-    cwd: repoPath,
-  });
+async function ensureLocalWorktree(
+  repoPath,
+  branchName,
+  defaultBranch,
+  worktreePath,
+  { extraHeader, runCommandImpl = runCommand, rmSyncImpl = rmSync } = {},
+) {
+  rmSyncImpl(worktreePath, { recursive: true, force: true });
+  const remoteExists = await runCommandImpl(
+    'git',
+    withGithubExtraHeader(['ls-remote', '--heads', 'origin', branchName], extraHeader),
+    {
+      cwd: repoPath,
+    },
+  );
 
   if (remoteExists.stdout) {
-    await runCommand('git', ['fetch', 'origin', `${branchName}:${branchName}`], {
+    await runCommandImpl('git', withGithubExtraHeader(['fetch', 'origin', `${branchName}:${branchName}`], extraHeader), {
       cwd: repoPath,
     });
-    await runCommand('git', ['worktree', 'add', worktreePath, branchName], {
+    await runCommandImpl('git', ['worktree', 'add', worktreePath, branchName], {
       cwd: repoPath,
     });
     return;
   }
 
-  await runCommand('git', ['worktree', 'add', '-b', branchName, worktreePath, `origin/${defaultBranch}`], {
+  await runCommandImpl('git', ['worktree', 'add', '-b', branchName, worktreePath, `origin/${defaultBranch}`], {
     cwd: repoPath,
   });
+}
+
+async function cloneHostedRepository(
+  repositoryCloneUrl,
+  branchName,
+  defaultBranch,
+  worktreePath,
+  { extraHeader, runCommandImpl = runCommand, rmSyncImpl = rmSync } = {},
+) {
+  rmSyncImpl(worktreePath, { recursive: true, force: true });
+  await runCommandImpl(
+    'git',
+    withGithubExtraHeader(
+      ['clone', '--origin', 'origin', '--branch', defaultBranch, repositoryCloneUrl, worktreePath],
+      extraHeader,
+    ),
+  );
+
+  const remoteExists = await runCommandImpl(
+    'git',
+    withGithubExtraHeader(['ls-remote', '--heads', 'origin', branchName], extraHeader),
+    {
+      cwd: worktreePath,
+    },
+  );
+
+  if (remoteExists.stdout) {
+    await runCommandImpl(
+      'git',
+      withGithubExtraHeader(['fetch', 'origin', `${branchName}:${branchName}`], extraHeader),
+      {
+        cwd: worktreePath,
+      },
+    );
+    await runCommandImpl('git', ['checkout', branchName], {
+      cwd: worktreePath,
+    });
+    return;
+  }
+
+  await runCommandImpl('git', ['checkout', '-b', branchName], {
+    cwd: worktreePath,
+  });
+}
+
+async function ensureRepositoryCheckout(
+  repo,
+  branchName,
+  worktreePath,
+  { runCommandImpl = runCommand, rmSyncImpl = rmSync } = {},
+) {
+  const extraHeader = await getGithubPushExtraHeader(repo.repoPath || undefined, runCommandImpl);
+
+  if (repo.repoPath) {
+    await ensureLocalWorktree(repo.repoPath, branchName, repo.defaultBranch, worktreePath, {
+      extraHeader,
+      runCommandImpl,
+      rmSyncImpl,
+    });
+    return {
+      cleanupKind: 'worktree',
+      cleanupCwd: repo.repoPath,
+      worktreePath,
+    };
+  }
+
+  await cloneHostedRepository(repo.repositoryCloneUrl, branchName, repo.defaultBranch, worktreePath, {
+    extraHeader,
+    runCommandImpl,
+    rmSyncImpl,
+  });
+  return {
+    cleanupKind: 'directory',
+    cleanupCwd: null,
+    worktreePath,
+  };
+}
+
+async function cleanupRepositoryCheckout(
+  checkout,
+  worktreePath,
+  { runCommandImpl = runCommand, existsSyncImpl = existsSync, rmSyncImpl = rmSync } = {},
+) {
+  if (!worktreePath || !existsSyncImpl(worktreePath)) {
+    return;
+  }
+
+  if (!checkout || checkout.cleanupKind !== 'worktree' || !checkout.cleanupCwd) {
+    rmSyncImpl(worktreePath, { recursive: true, force: true });
+    return;
+  }
+
+  try {
+    await runCommandImpl('git', ['worktree', 'remove', '--force', worktreePath], {
+      cwd: checkout.cleanupCwd,
+    });
+  } catch {
+    rmSyncImpl(worktreePath, { recursive: true, force: true });
+  }
+}
+
+export function resolvePreviewDeployScriptPath(runtimeConfig, repoPath) {
+  const previewDeployScript = normalizeOptionalString(runtimeConfig.previewDeployScript);
+
+  if (!previewDeployScript) {
+    return null;
+  }
+
+  if (isAbsolute(previewDeployScript)) {
+    return previewDeployScript;
+  }
+
+  return resolve(repoPath, previewDeployScript);
 }
 
 async function prepareWorktreeDependencies(worktreePath) {
@@ -302,13 +466,9 @@ async function commitWorktreeChanges(worktreePath, detail) {
 
 async function ensureBranchPushed(worktreePath, branchName) {
   const extraHeader = await getGithubPushExtraHeader(worktreePath);
-  await runCommand(
-    'git',
-    ['-c', `http.https://github.com/.extraheader=${extraHeader}`, 'push', '-u', 'origin', branchName],
-    {
-      cwd: worktreePath,
-    },
-  );
+  await runCommand('git', withGithubExtraHeader(['push', '-u', 'origin', branchName], extraHeader), {
+    cwd: worktreePath,
+  });
 }
 
 async function runVerification(worktreePath) {
@@ -412,7 +572,7 @@ async function ensurePullRequest(
 }
 
 async function deployPreviewIfConfigured(contributionId, repoPath, runtimeConfig) {
-  const previewDeployScript = normalizeOptionalString(runtimeConfig.previewDeployScript);
+  const previewDeployScript = resolvePreviewDeployScriptPath(runtimeConfig, repoPath);
 
   if (!previewDeployScript || !existsSync(previewDeployScript)) {
     return null;
@@ -444,6 +604,7 @@ export async function processClaimedJob(pool, database, claimedJob) {
   var repo = null;
   var branchName = claimedJob.branch_name || null;
   var worktreePath = null;
+  var checkout = null;
   const verification = [];
 
   try {
@@ -463,18 +624,18 @@ export async function processClaimedJob(pool, database, claimedJob) {
     }
     worktreePath = join(tmpdir(), `crowdship-${detail.contribution.id}`);
 
-    repo = getProjectRepoConfig(detail, claimedJob);
-    if (!repo.repoPath) {
-      throw new Error(`Project runtime config is missing repoPath for ${detail.contribution.projectSlug}`);
-    }
+    repo = resolveRepositoryWorkspaceConfig(detail, claimedJob);
     if (!repo.repositoryFullName) {
       throw new Error(`Project runtime config is missing repositoryFullName for ${detail.contribution.projectSlug}`);
     }
     if (!repo.defaultBranch) {
       throw new Error(`Project runtime config is missing defaultBranch for ${detail.contribution.projectSlug}`);
     }
-    if (!existsSync(repo.repoPath)) {
+    if (repo.checkoutMode === 'local_path' && !existsSync(repo.repoPath)) {
       throw new Error(`Target repository path does not exist: ${repo.repoPath}`);
+    }
+    if (repo.checkoutMode === 'unconfigured') {
+      throw new Error(`Project runtime config is missing repoPath or repository clone settings for ${detail.contribution.projectSlug}`);
     }
 
     const implementationService = createConfiguredImplementationService();
@@ -487,9 +648,10 @@ export async function processClaimedJob(pool, database, claimedJob) {
         contributionId: detail.contribution.id,
         branchName,
         repositoryFullName: repo.repositoryFullName,
+        checkoutMode: repo.checkoutMode,
       },
     });
-    await ensureWorktree(repo.repoPath, branchName, repo.defaultBranch, worktreePath);
+    checkout = await ensureRepositoryCheckout(repo, branchName, worktreePath);
     await updateImplementationJob(pool, claimedJob.id, {
       branch_name: branchName,
       repository_full_name: repo.repositoryFullName,
@@ -734,17 +896,16 @@ export async function processClaimedJob(pool, database, claimedJob) {
       });
     }
   } finally {
-    if (repo && worktreePath && existsSync(worktreePath)) {
-      try {
-        await runCommand('git', ['worktree', 'remove', '--force', worktreePath], {
-          cwd: repo.repoPath,
-        });
-      } catch {
-        rmSync(worktreePath, { recursive: true, force: true });
-      }
-    }
+    await cleanupRepositoryCheckout(checkout, worktreePath);
   }
 }
+
+export const __testInternals = {
+  buildGithubExtraHeader,
+  cleanupRepositoryCheckout,
+  ensureRepositoryCheckout,
+  withGithubExtraHeader,
+};
 
 export async function runWorkerOnce() {
   if (!process.env.DATABASE_URL) {

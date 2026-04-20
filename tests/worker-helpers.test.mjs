@@ -10,7 +10,13 @@ import {
   buildPullRequestTitle,
 } from '../src/worker/helpers.js';
 import { sanitizeImplementationEdits } from '../src/worker/implementation-service.js';
-import { isDirectWorkerRun, processClaimedJob } from '../src/worker/runtime.js';
+import {
+  __testInternals,
+  isDirectWorkerRun,
+  processClaimedJob,
+  resolvePreviewDeployScriptPath,
+  resolveRepositoryWorkspaceConfig,
+} from '../src/worker/runtime.js';
 
 test('worker builds branch names with contribution id and slugged title', () => {
   assert.equal(
@@ -75,6 +81,75 @@ test('worker only treats the runtime file as a direct entry point', () => {
   assert.equal(isDirectWorkerRun(runtimePath, runtimeUrl), true);
   assert.equal(isDirectWorkerRun(runtimePath, 'file:///tmp/other.js'), false);
   assert.equal(isDirectWorkerRun(null, runtimeUrl), false);
+});
+
+test('worker resolves hosted github clone mode when no local repo path is configured', () => {
+  const resolved = resolveRepositoryWorkspaceConfig(
+    {
+      contribution: {
+        projectSlug: 'orbital-ops',
+      },
+    },
+    {
+      repository_full_name: 'customer/orbital-ops',
+      metadata: {
+        projectRuntimeConfig: {
+          executionMode: 'hosted',
+          repositoryFullName: 'customer/orbital-ops',
+          defaultBranch: 'main',
+        },
+      },
+    },
+  );
+
+  assert.equal(resolved.checkoutMode, 'github_clone');
+  assert.equal(resolved.repoPath, null);
+  assert.equal(resolved.repositoryCloneUrl, 'https://github.com/customer/orbital-ops.git');
+});
+
+test('worker keeps local checkout mode when repo path is configured', () => {
+  const resolved = resolveRepositoryWorkspaceConfig(
+    {
+      contribution: {
+        projectSlug: 'orbital-ops',
+      },
+    },
+    {
+      repository_full_name: 'customer/orbital-ops',
+      metadata: {
+        projectRuntimeConfig: {
+          executionMode: 'hosted',
+          repositoryFullName: 'customer/orbital-ops',
+          repoPath: '/srv/customer/orbital-ops',
+          defaultBranch: 'main',
+        },
+      },
+    },
+  );
+
+  assert.equal(resolved.checkoutMode, 'local_path');
+  assert.equal(resolved.repoPath, '/srv/customer/orbital-ops');
+});
+
+test('worker resolves relative preview deploy scripts against the checked out repository', () => {
+  assert.equal(
+    resolvePreviewDeployScriptPath(
+      {
+        previewDeployScript: 'scripts/deploy-preview.sh',
+      },
+      '/tmp/crowdship-ctrb-123',
+    ),
+    '/tmp/crowdship-ctrb-123/scripts/deploy-preview.sh',
+  );
+  assert.equal(
+    resolvePreviewDeployScriptPath(
+      {
+        previewDeployScript: '/srv/bin/deploy-preview.sh',
+      },
+      '/tmp/crowdship-ctrb-123',
+    ),
+    '/srv/bin/deploy-preview.sh',
+  );
 });
 
 test('implementation edits stay inside the allowed example repo surface', () => {

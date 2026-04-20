@@ -24,7 +24,7 @@ In this model:
 
 ## Execution Modes
 
-### Mode A: Hosted Crowdship Worker
+### Mode A: Hosted Remote Clone
 
 Use this when the customer is comfortable granting Crowdship scoped repository automation.
 
@@ -36,7 +36,13 @@ Expected setup:
 - Customer CI workflows for preview deploys, checks, and production deploys.
 - Callback or pollable status for PR checks and preview URLs.
 
-This is the simplest customer experience because no local agent installation is required inside the customer's infrastructure.
+Project settings contract:
+
+- `executionMode=hosted_remote_clone`
+- `repositoryFullName` and `defaultBranch` identify the target repository
+- `repoPath` and `previewDeployScript` stay blank unless a reference host is intentionally doing local repo work
+
+This is the simplest customer experience because no local agent installation or local repository checkout is required inside the customer's infrastructure.
 
 ### Mode B: Self-Hosted Runner
 
@@ -57,13 +63,18 @@ This mode increases setup complexity but preserves a stricter trust boundary for
 Every durable customer deployment should have:
 
 - Widget snippet in the customer app shell.
-- Crowdship project configuration: project slug, allowed origins, widget script URL, target repository, default branch, preview URL pattern, production URL, and automation policy.
+- Crowdship project configuration: project slug, allowed origins, widget script URL, target repository, default branch, preview URL pattern, production URL, execution mode, and implementation profile.
 - Repository authorization scoped to the target repository or org.
 - CI workflow templates for preview and production.
 - Secrets stored in customer-controlled secret managers or GitHub Actions secrets, not on the Crowdship host.
 - A documented way for Crowdship to learn PR status, CI conclusion, preview URL, and merge outcome.
 
 In the current admin shell this setup lives under `Settings -> Project settings`. That surface is the operator or owner-controlled contract for one project. It is not part of the public widget payload.
+
+Current runtime-config field split:
+
+- Shared repo target fields: `repositoryFullName`, `defaultBranch`, `previewBaseUrl`, `previewUrlPattern`, `productionBaseUrl`, `executionMode`, `implementationProfile`
+- Local-worker-only fields: `repoPath`, `previewDeployScript`
 
 ## Install Steps
 
@@ -80,16 +91,17 @@ Minimum project fields:
 - Allowed origins
 - Target repository
 - Default branch
+- Execution mode
 - Preview URL pattern
 - Production URL
-- Automation policy
+- Implementation profile
 
 Recommended split:
 
 - Public widget-safe config:
   project slug, widget script URL, allowed origins.
 - Owner-only runtime config:
-  target repository, default branch, preview deploy script or CI callback contract, preview URL pattern, production URL, automation policy, implementation profile.
+  target repository, default branch, execution mode, preview URL pattern, production URL, implementation profile, and any local-worker-only overrides such as `repoPath` or `previewDeployScript`.
 
 ### 3. Connect repository automation
 
@@ -117,7 +129,7 @@ Customer CI should own:
 
 The customer should be able to select either:
 
-- hosted Crowdship automation with scoped repo integration, or
+- hosted remote clone with scoped repo integration, or
 - self-hosted runner execution in customer infrastructure.
 
 ## Reference Deployment Note

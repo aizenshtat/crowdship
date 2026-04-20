@@ -123,6 +123,24 @@ function normalizeOptionalString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeExecutionModeValue(value) {
+  const rawValue = normalizeOptionalString(value);
+  const normalized = rawValue.toLowerCase().replace(/[\s-]+/g, '_');
+
+  switch (normalized) {
+    case 'hosted':
+    case 'remote_clone':
+    case 'hosted_remote_clone':
+      return 'hosted_remote_clone';
+    case 'self_hosted':
+    case 'self_hosted_worker':
+    case 'selfhosted':
+      return 'self_hosted';
+    default:
+      return rawValue;
+  }
+}
+
 function hasOwnProperty(value, key) {
   return isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, key);
 }
@@ -175,9 +193,35 @@ function deleteOrAssignString(target, key, value) {
   delete target[key];
 }
 
+function deleteOrAssignExecutionMode(target, key, value) {
+  const normalized = normalizeExecutionModeValue(value);
+
+  if (normalized) {
+    target[key] = normalized;
+    return;
+  }
+
+  delete target[key];
+}
+
+function serializeProjectRecord(project) {
+  if (!isPlainObject(project)) {
+    return project;
+  }
+
+  const nextProject = structuredClone(project);
+
+  if (isPlainObject(nextProject.runtimeConfig)) {
+    deleteOrAssignExecutionMode(nextProject.runtimeConfig, 'executionMode', nextProject.runtimeConfig.executionMode);
+  }
+
+  return nextProject;
+}
+
 function resolveProjectRuntimeConfig(project, { repositoryFullName = null } = {}) {
   const runtimeConfig = isPlainObject(project?.runtimeConfig) ? structuredClone(project.runtimeConfig) : {};
   const resolvedRepositoryFullName = normalizeOptionalString(repositoryFullName) || normalizeOptionalString(runtimeConfig.repositoryFullName);
+  deleteOrAssignExecutionMode(runtimeConfig, 'executionMode', runtimeConfig.executionMode);
 
   if (resolvedRepositoryFullName) {
     runtimeConfig.repositoryFullName = resolvedRepositoryFullName;
@@ -284,9 +328,10 @@ function buildProjectRecordFromPayload(source, projectSlug, existingProject = nu
     ...existingRuntimeConfig,
     ...structuredClone(inputRuntimeConfig),
   };
+  deleteOrAssignExecutionMode(runtimeConfig, 'executionMode', runtimeConfig.executionMode);
 
   if (hasOwnProperty(source, 'executionMode')) {
-    deleteOrAssignString(runtimeConfig, 'executionMode', source.executionMode);
+    deleteOrAssignExecutionMode(runtimeConfig, 'executionMode', source.executionMode);
   }
   if (hasOwnProperty(source, 'automationPolicy')) {
     deleteOrAssignString(runtimeConfig, 'automationPolicy', source.automationPolicy);
@@ -974,7 +1019,7 @@ export function createProjectHandler({ database } = {}) {
     }
 
     return buildResponse(200, {
-      project,
+      project: serializeProjectRecord(project),
     });
   };
 }
@@ -1008,7 +1053,7 @@ export function createProjectUpdateHandler({ database } = {}) {
     const updatedProject = await database.upsertProject(nextProject);
 
     return buildResponse(200, {
-      project: updatedProject,
+      project: serializeProjectRecord(updatedProject),
     });
   };
 }

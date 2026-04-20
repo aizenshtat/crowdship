@@ -71,6 +71,7 @@ Deliverables:
 - API route structure.
 - Initial database schema.
 - Project/origin config, split between widget-safe public config and owner-only runtime config.
+- Clear worker repo contract in `Project settings`: `executionMode=hosted_remote_clone` for hosted repo cloning, `executionMode=self_hosted` for customer-run workers, with `repoPath` and `previewDeployScript` reserved for local-worker overrides.
 - Sentry initialization.
 - PWA foundations for admin.
 
@@ -185,7 +186,7 @@ Do not parallelize:
 
 The hackathon reference deployment may use a shared operator-owned host for both `crowdship` and `example`. That is acceptable for proving the loop quickly, but the durable product target is documented in `docs/customer-onboarding.md`: customer-owned UI, customer-owned repository, customer-owned CI/CD, and either a scoped hosted integration or a customer-run worker.
 
-The live reference slice now includes a real admin `Project settings` surface for the `example` project. That is useful for the demo and for validating the config contract, but it does not change the durable ownership target above.
+The live reference slice now includes a real admin `Project settings` surface for the `example` project. That surface is useful for the demo and for validating the config contract, but it does not change the durable ownership target above. In particular, hosted remote-clone mode should rely on repository identity plus scoped integration, while local repo path and preview script fields remain self-hosted or reference-only overrides.
 
 ## Hackathon Demo Video Note
 
