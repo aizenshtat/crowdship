@@ -659,6 +659,138 @@ test('github webhook route accepts signed non-PR deliveries and leaves sync idle
   assert.equal(response.body.webhook.sync.reason, 'unsupported_event');
 });
 
+test('github webhook route syncs installation deliveries into project github connection metadata', async () => {
+  const database = createInMemoryContributionPersistenceAdapter();
+  const payload = JSON.stringify({
+    action: 'created',
+    installation: {
+      id: 91,
+      repository_selection: 'selected',
+      account: {
+        login: 'aizenshtat',
+      },
+    },
+    repositories: [
+      {
+        full_name: 'aizenshtat/example',
+      },
+    ],
+  });
+  const postGitHubWebhook = createGitHubWebhookHandler({
+    database,
+    env: {
+      GITHUB_APP_WEBHOOK_SECRET: 'hook-secret',
+    },
+    clock: () => new Date('2026-04-20T10:00:00Z'),
+  });
+  const response = await postGitHubWebhook({
+    request: {
+      headers: {
+        'x-github-event': 'installation',
+        'x-github-delivery': 'delivery-install-created',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', 'hook-secret').update(payload).digest('hex')}`,
+      },
+    },
+    rawBody: Buffer.from(payload, 'utf8'),
+    body: JSON.parse(payload),
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(response.body.webhook.sync.status, 'applied');
+  assert.deepEqual(response.body.webhook.sync.matchedProjectSlugs, ['example']);
+  assert.deepEqual(response.body.webhook.sync.updatedProjectSlugs, ['example']);
+  assert.equal(response.body.webhook.sync.connectionStatus, 'connected');
+
+  const storedProject = await database.getProject('example');
+  assert.deepEqual(storedProject.runtimeConfig.githubConnection, {
+    repositoryFullName: 'aizenshtat/example',
+    status: 'connected',
+    appSlug: null,
+    appName: null,
+    appUrl: null,
+    ownerLogin: null,
+    installationId: 91,
+    accountLogin: 'aizenshtat',
+    repositorySelection: 'selected',
+    updatedAt: '2026-04-20T10:00:00.000Z',
+  });
+});
+
+test('github webhook route clears saved install metadata when a repository is removed from an installation', async () => {
+  const seedProject = getProjectSeedRecord('example');
+  const database = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [
+      {
+        ...seedProject,
+        runtimeConfig: {
+          ...seedProject.runtimeConfig,
+          githubConnection: {
+            repositoryFullName: 'aizenshtat/example',
+            status: 'connected',
+            installationId: 91,
+            accountLogin: 'aizenshtat',
+            repositorySelection: 'selected',
+            updatedAt: '2026-04-19T10:00:00.000Z',
+          },
+        },
+      },
+    ],
+  });
+  const payload = JSON.stringify({
+    action: 'removed',
+    installation: {
+      id: 91,
+      repository_selection: 'selected',
+      account: {
+        login: 'aizenshtat',
+      },
+    },
+    repositories_removed: [
+      {
+        full_name: 'aizenshtat/example',
+      },
+    ],
+  });
+  const postGitHubWebhook = createGitHubWebhookHandler({
+    database,
+    env: {
+      GITHUB_APP_WEBHOOK_SECRET: 'hook-secret',
+    },
+    clock: () => new Date('2026-04-20T11:00:00Z'),
+  });
+  const response = await postGitHubWebhook({
+    request: {
+      headers: {
+        'x-github-event': 'installation_repositories',
+        'x-github-delivery': 'delivery-install-removed',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', 'hook-secret').update(payload).digest('hex')}`,
+      },
+    },
+    rawBody: Buffer.from(payload, 'utf8'),
+    body: JSON.parse(payload),
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(response.body.webhook.sync.status, 'applied');
+  assert.deepEqual(response.body.webhook.sync.matchedProjectSlugs, ['example']);
+  assert.deepEqual(response.body.webhook.sync.updatedProjectSlugs, ['example']);
+  assert.equal(response.body.webhook.sync.connectionStatus, 'not_installed');
+
+  const storedProject = await database.getProject('example');
+  assert.deepEqual(storedProject.runtimeConfig.githubConnection, {
+    repositoryFullName: 'aizenshtat/example',
+    status: 'not_installed',
+    appSlug: null,
+    appName: null,
+    appUrl: null,
+    ownerLogin: null,
+    installationId: null,
+    accountLogin: null,
+    repositorySelection: null,
+    updatedAt: '2026-04-20T11:00:00.000Z',
+  });
+});
+
 test('github webhook route rejects unsigned deliveries when webhook validation is configured', async () => {
   const postGitHubWebhook = createGitHubWebhookHandler({
     env: {

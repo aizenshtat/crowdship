@@ -435,6 +435,10 @@ async function persistProjectGitHubConnectionMetadata({ database, project, metad
 }
 
 const GITHUB_PULL_REQUEST_SYNC_ACTIONS = new Set(['opened', 'reopened', 'synchronize', 'edited', 'ready_for_review', 'closed']);
+const GITHUB_INSTALLATION_CONNECTED_ACTIONS = new Set(['created', 'new_permissions_accepted', 'unsuspend']);
+const GITHUB_INSTALLATION_DISCONNECTED_ACTIONS = new Set(['deleted', 'suspend']);
+const GITHUB_INSTALLATION_REPOSITORY_CONNECTED_ACTIONS = new Set(['added']);
+const GITHUB_INSTALLATION_REPOSITORY_DISCONNECTED_ACTIONS = new Set(['removed']);
 const GITHUB_CONTRIBUTION_ID_IN_BODY_PATTERN = /Contribution ID:\s*`([^`]+)`/i;
 const GITHUB_CONTRIBUTION_ID_IN_BRANCH_PATTERN =
   /^crowdship\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-|$)/i;
@@ -856,6 +860,204 @@ function validateContributionCiStatusPayload(payload) {
       sentryRelease: normalizeOptionalString(payload.sentryRelease) || null,
       updatedAt: normalizeOptionalTimestamp(payload.updatedAt),
     },
+  };
+}
+
+function normalizeGitHubRepositoryFullNames(value) {
+  return normalizeStringList(
+    asArray(value).map((entry) => (isPlainObject(entry) ? normalizeOptionalString(entry.full_name) : '')),
+  );
+}
+
+function getRepositoryOwnerLogin(repositoryFullName) {
+  const normalized = normalizeOptionalString(repositoryFullName);
+
+  if (!normalized || !normalized.includes('/')) {
+    return null;
+  }
+
+  const [ownerLogin] = normalized.split('/');
+  return ownerLogin || null;
+}
+
+function buildGitHubInstallationWebhookContext({ event, action, body, clock = () => new Date() } = {}) {
+  const installationId =
+    normalizeOptionalIntegerString(body?.installation?.id) ??
+    normalizeOptionalIntegerString(body?.installation?.account?.id);
+  const accountLogin =
+    normalizeOptionalString(body?.installation?.account?.login) || normalizeOptionalString(body?.account?.login) || null;
+  const repositorySelection = normalizeOptionalString(body?.installation?.repository_selection) || null;
+
+  return {
+    event,
+    action,
+    installationId: installationId ? Number.parseInt(installationId, 10) : null,
+    accountLogin,
+    repositorySelection,
+    repositoryFullNames: new Set(normalizeGitHubRepositoryFullNames(body?.repositories)),
+    repositoriesAdded: new Set(normalizeGitHubRepositoryFullNames(body?.repositories_added)),
+    repositoriesRemoved: new Set(normalizeGitHubRepositoryFullNames(body?.repositories_removed)),
+    updatedAt: clock().toISOString(),
+  };
+}
+
+function resolveGitHubInstallationConnectionUpdate(project, webhookContext) {
+  const runtimeConfig = resolveProjectRuntimeConfig(project);
+  const executionMode = normalizeExecutionModeValue(runtimeConfig.executionMode);
+
+  if (executionMode === 'self_hosted') {
+    return null;
+  }
+
+  const repositoryFullName =
+    normalizeOptionalString(runtimeConfig.repositoryFullName) ||
+    normalizeOptionalString(project?.runtimeConfig?.githubConnection?.repositoryFullName);
+
+  if (!repositoryFullName) {
+    return null;
+  }
+
+  const storedConnection = readStoredGitHubConnectionMetadata(project, {
+    repositoryFullName,
+  });
+  const matchesStoredInstallation =
+    webhookContext.installationId !== null && storedConnection?.installationId === webhookContext.installationId;
+  const ownerMatches =
+    webhookContext.accountLogin !== null && getRepositoryOwnerLogin(repositoryFullName) === webhookContext.accountLogin;
+  const repositoryListed = webhookContext.repositoryFullNames.has(repositoryFullName);
+  const repositoryAdded = webhookContext.repositoriesAdded.has(repositoryFullName);
+  const repositoryRemoved = webhookContext.repositoriesRemoved.has(repositoryFullName);
+
+  let nextStatus = null;
+  let clearInstallationFields = false;
+
+  if (webhookContext.event === 'installation') {
+    if (GITHUB_INSTALLATION_CONNECTED_ACTIONS.has(webhookContext.action)) {
+      if (
+        matchesStoredInstallation ||
+        repositoryListed ||
+        (webhookContext.repositorySelection === 'all' && ownerMatches)
+      ) {
+        nextStatus = 'connected';
+      }
+    } else if (GITHUB_INSTALLATION_DISCONNECTED_ACTIONS.has(webhookContext.action)) {
+      if (matchesStoredInstallation || repositoryListed) {
+        nextStatus = 'not_installed';
+        clearInstallationFields = true;
+      }
+    }
+  } else if (webhookContext.event === 'installation_repositories') {
+    if (GITHUB_INSTALLATION_REPOSITORY_CONNECTED_ACTIONS.has(webhookContext.action)) {
+      if (repositoryAdded) {
+        nextStatus = 'connected';
+      }
+    } else if (GITHUB_INSTALLATION_REPOSITORY_DISCONNECTED_ACTIONS.has(webhookContext.action)) {
+      if (repositoryRemoved) {
+        nextStatus = 'not_installed';
+        clearInstallationFields = true;
+      }
+    }
+  }
+
+  if (!nextStatus) {
+    return null;
+  }
+
+  return {
+    repositoryFullName,
+    metadata: {
+      repositoryFullName,
+      status: nextStatus,
+      appSlug: storedConnection?.appSlug ?? null,
+      appName: storedConnection?.appName ?? null,
+      appUrl: storedConnection?.appUrl ?? null,
+      ownerLogin: storedConnection?.ownerLogin ?? null,
+      installationId: clearInstallationFields ? null : webhookContext.installationId,
+      accountLogin: clearInstallationFields ? null : webhookContext.accountLogin,
+      repositorySelection: clearInstallationFields ? null : webhookContext.repositorySelection,
+      updatedAt: webhookContext.updatedAt,
+    },
+  };
+}
+
+async function syncGitHubInstallationWebhook({
+  action,
+  body,
+  database,
+  event,
+  clock = () => new Date(),
+} = {}) {
+  const supportedInstallationAction =
+    (event === 'installation' &&
+      (GITHUB_INSTALLATION_CONNECTED_ACTIONS.has(action) || GITHUB_INSTALLATION_DISCONNECTED_ACTIONS.has(action))) ||
+    (event === 'installation_repositories' &&
+      (GITHUB_INSTALLATION_REPOSITORY_CONNECTED_ACTIONS.has(action) ||
+        GITHUB_INSTALLATION_REPOSITORY_DISCONNECTED_ACTIONS.has(action)));
+
+  if (!supportedInstallationAction) {
+    return {
+      status: 'ignored',
+      reason: 'unsupported_action',
+    };
+  }
+
+  if (!hasReadyPersistence(database, 'listProjects') || !hasReadyPersistence(database, 'upsertProject')) {
+    return {
+      status: 'ignored',
+      reason: 'persistence_unavailable',
+    };
+  }
+
+  const webhookContext = buildGitHubInstallationWebhookContext({
+    event,
+    action,
+    body,
+    clock,
+  });
+  const projects = await database.listProjects();
+  const matchedProjectSlugs = [];
+  const updatedProjectSlugs = [];
+  let connectionStatus = null;
+
+  for (const project of projects) {
+    const nextConnection = resolveGitHubInstallationConnectionUpdate(project, webhookContext);
+
+    if (!nextConnection) {
+      continue;
+    }
+
+    const currentConnection = readStoredGitHubConnectionMetadata(project, {
+      repositoryFullName: nextConnection.repositoryFullName,
+    });
+
+    matchedProjectSlugs.push(project.slug);
+    connectionStatus = nextConnection.metadata.status;
+
+    await persistProjectGitHubConnectionMetadata({
+      database,
+      project,
+      metadata: nextConnection.metadata,
+    });
+
+    if (JSON.stringify(currentConnection) !== JSON.stringify(nextConnection.metadata)) {
+      updatedProjectSlugs.push(project.slug);
+    }
+  }
+
+  if (!matchedProjectSlugs.length) {
+    return {
+      status: 'ignored',
+      reason: 'no_matching_projects',
+    };
+  }
+
+  return {
+    status: updatedProjectSlugs.length ? 'applied' : 'unchanged',
+    event,
+    action,
+    matchedProjectSlugs,
+    updatedProjectSlugs,
+    connectionStatus,
   };
 }
 
@@ -2307,10 +2509,18 @@ export function createGitHubWebhookHandler({ database, env = process.env, idFact
             idFactory,
             clock,
           })
-        : {
-            status: 'ignored',
-            reason: 'unsupported_event',
-          };
+        : event === 'installation' || event === 'installation_repositories'
+          ? await syncGitHubInstallationWebhook({
+              action,
+              body,
+              database,
+              event,
+              clock,
+            })
+          : {
+              status: 'ignored',
+              reason: 'unsupported_event',
+            };
 
     return buildResponse(202, {
       webhook: {

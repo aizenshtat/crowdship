@@ -71,11 +71,11 @@ What is wired now:
 - `GET /api/github/callback` redirects the browser back into Crowdship Settings after an owner authorization callback or callback error.
 - `GET /api/v1/projects/:project/github-connection` now returns the saved non-secret `runtimeConfig.githubConnection` metadata together with the current live lookup result. Successful live checks refresh the saved metadata.
 - `POST /api/github/webhooks` validates `X-Hub-Signature-256` when `GITHUB_APP_WEBHOOK_SECRET` is configured.
+- `installation` and `installation_repositories` webhook deliveries now refresh saved `runtimeConfig.githubConnection` metadata for matching hosted projects when an install is created, permissions are reaccepted, repositories are added, or repositories are removed.
 - `pull_request` webhook deliveries now reconcile the recorded PR status back into Crowdship and automatically advance a contribution to `merged` when GitHub reports the PR as merged and the contribution can be identified from the PR body or Crowdship branch name.
 
 The full owner-authorized in-product connect flow still needs:
 
 - install/connect UI beyond the current settings view and project-scoped install redirect
 - owner-authorized callback token exchange and storage
-- webhook-driven installation sync for installs, permission changes, and repo-selection changes
 - first-class check-run, actions, and preview/deploy callbacks instead of comment scraping

@@ -131,6 +131,7 @@ What Crowdship stores:
 - non-secret GitHub App install metadata
 - last saved install status
 - last live verification timestamp
+- webhook-driven install sync updates from GitHub App installation and repository-selection events
 
 Crowdship should not store a customer PAT for the hosted remote-clone path.
 
