@@ -260,6 +260,7 @@ a {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .section-count {
@@ -288,6 +289,7 @@ a {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  min-width: 0;
 }
 
 .definition-list,
@@ -306,6 +308,7 @@ a {
   grid-template-columns: minmax(110px, 160px) minmax(0, 1fr);
   gap: 16px;
   padding: 14px 16px;
+  min-width: 0;
 }
 
 .definition-row + .definition-row,
@@ -318,6 +321,7 @@ a {
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+  min-width: 0;
 }
 
 .definition-row dd {
@@ -557,11 +561,13 @@ a {
 .drawer-content {
   display: grid;
   gap: 20px;
+  min-width: 0;
 }
 
 .drawer-section {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .drawer-section + .drawer-section {
@@ -599,6 +605,7 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .review-summary-item,
@@ -609,6 +616,7 @@ a {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-2);
+  min-width: 0;
 }
 
 .owner-action-card {
@@ -628,6 +636,7 @@ a {
 .review-action-grid {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .spec-card {
@@ -681,6 +690,7 @@ a {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .stack-item-title {
@@ -692,6 +702,8 @@ a {
 .stack-item-copy {
   color: var(--muted);
   font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .stack-item-copy {
