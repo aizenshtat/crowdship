@@ -1678,271 +1678,305 @@ function SettingsView({
         <div className="section-heading">
           <div>
             <h2>Install contract</h2>
-            <p>Stored values for the widget bootstrap and the production target.</p>
+            <p>Core product and widget wiring. Keep first-install values together.</p>
           </div>
         </div>
-        <div className="review-form-grid review-form-grid-three">
-          <label className="review-field">
-            <span>Project name</span>
-            <input value={projectDraft.name} onChange={(event) => onFieldChange('name', event.target.value)} />
-          </label>
-          <label className="review-field">
-            <span>Widget script URL</span>
-            <input
-              value={projectDraft.widgetScriptUrl}
-              onChange={(event) => onFieldChange('widgetScriptUrl', event.target.value)}
-            />
-          </label>
-          <label className="review-field">
-            <span>Production URL</span>
-            <input value={projectDraft.productionUrl} onChange={(event) => onFieldChange('productionUrl', event.target.value)} />
-          </label>
-        </div>
-      </section>
-
-      <section className="surface-section">
-        <div className="section-heading">
-          <div>
-            <h2>Allowed origins</h2>
-            <p>Origins that can open the widget for this project.</p>
-          </div>
-        </div>
-        <ul className="origin-list">
-          {projectDraft.allowedOrigins.map((origin, index) => (
-            <li className="origin-row" key={`${index}-${origin}`}>
-              <label className="review-field" style={{ flex: 1 }}>
-                <span>{`Origin ${index + 1}`}</span>
-                <input value={origin} onChange={(event) => onAllowedOriginChange(index, event.target.value)} />
+        <div className="settings-panel-grid">
+          <div className="settings-panel">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>Widget bootstrap</h3>
+                <p>Name, script location, and production destination.</p>
+              </div>
+            </div>
+            <div className="review-form-grid review-form-grid-three">
+              <label className="review-field">
+                <span>Project name</span>
+                <input value={projectDraft.name} onChange={(event) => onFieldChange('name', event.target.value)} />
               </label>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={projectDraft.allowedOrigins.length === 1}
-                onClick={() => onRemoveAllowedOrigin(index)}
-              >
-                Remove origin
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="review-form-actions" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
-          <button className="secondary-button" type="button" onClick={onAddAllowedOrigin}>
-            Add origin
-          </button>
-        </div>
-      </section>
+              <label className="review-field">
+                <span>Widget script URL</span>
+                <input
+                  value={projectDraft.widgetScriptUrl}
+                  onChange={(event) => onFieldChange('widgetScriptUrl', event.target.value)}
+                />
+              </label>
+              <label className="review-field">
+                <span>Production URL</span>
+                <input
+                  value={projectDraft.productionUrl}
+                  onChange={(event) => onFieldChange('productionUrl', event.target.value)}
+                />
+              </label>
+            </div>
+          </div>
 
-      <section className="surface-section">
-        <div className="section-heading">
-          <div>
-            <h2>Worker repo contract</h2>
-            <p>Repository target shared by hosted remote clone and self-hosted workers.</p>
-            <span className="section-note">{executionModeSummary}</span>
-          </div>
-        </div>
-        <div className="section-heading" style={{ marginTop: 4 }}>
-          <div>
-            <h3>GitHub connection</h3>
-            <p>Live check for the hosted GitHub App against the current repository target.</p>
-          </div>
-          <ReadinessPill state={githubConnectionPill} />
-        </div>
-        <dl className="definition-list" style={{ marginTop: 12 }}>
-          <div className="definition-row">
-            <dt>Status</dt>
-            <dd>{githubConnectionStatus === 'loading' ? 'Checking…' : githubConnectionLabel(githubConnection)}</dd>
-          </div>
-          <div className="definition-row">
-            <dt>Detail</dt>
-            <dd>{githubConnectionStatus === 'error' ? githubConnectionError : githubConnection?.message ?? 'No live check yet.'}</dd>
-          </div>
-          <div className="definition-row">
-            <dt>GitHub App</dt>
-            <dd>
-              {githubConnection?.appUrl ? (
-                <a href={githubConnection.appUrl} rel="noreferrer" target="_blank">
-                  {githubConnection.appName ?? githubConnection.appSlug ?? 'Open app settings'}
-                </a>
-              ) : githubConnection?.appConfigured ? (
-                githubConnection.appName ?? githubConnection.appSlug ?? 'Configured'
-              ) : (
-                'Not configured on the Crowdship host'
-              )}
-            </dd>
-          </div>
-          <div className="definition-row">
-            <dt>Installation</dt>
-            <dd>
-              {githubConnection?.installationId
-                ? `#${githubConnection.installationId}${githubConnection.accountLogin ? ` on ${githubConnection.accountLogin}` : ''}`
-                : githubConnection?.status === 'not_installed'
-                  ? 'Not installed on the target repository'
-                  : githubConnection?.status === 'not_required'
-                    ? 'Self-hosted mode'
-                    : 'Not available'}
-            </dd>
-          </div>
-          <div className="definition-row">
-            <dt>Saved snapshot</dt>
-            <dd>
-              {githubConnection?.persistedAt
-                ? `${githubConnectionStatusLabel(githubConnection.persistedStatus)} · ${formatTimestamp(githubConnection.persistedAt)}`
-                : 'No saved GitHub install metadata yet'}
-            </dd>
-          </div>
-          <div className="definition-row">
-            <dt>Live check</dt>
-            <dd>{githubConnection?.lastCheckedAt ? formatTimestamp(githubConnection.lastCheckedAt) : 'Not checked yet'}</dd>
-          </div>
-        </dl>
-        <div className="review-form-actions" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
-          <button className="secondary-button" type="button" onClick={onRefreshGitHubConnection}>
-            {githubConnectionStatus === 'loading' ? 'Checking…' : 'Refresh GitHub connection'}
-          </button>
-          {githubConnection?.installUrl ? (
-            <a
-              className="secondary-button"
-              href={githubConnection.installEntryUrl ?? githubConnection.installUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Install app
-            </a>
-          ) : null}
-        </div>
-        <div className="review-form-grid review-form-grid-three">
-          <label className="review-field">
-            <span>Repository full name</span>
-            <input
-              value={projectDraft.repositoryFullName}
-              onChange={(event) => onFieldChange('repositoryFullName', event.target.value)}
-              placeholder="customer/app-repo"
-            />
-          </label>
-          <label className="review-field">
-            <span>Default branch</span>
-            <input
-              value={projectDraft.defaultBranch}
-              onChange={(event) => onFieldChange('defaultBranch', event.target.value)}
-              placeholder="main"
-            />
-          </label>
-          <label className="review-field">
-            <span>Execution mode</span>
-            <select
-              value={projectDraft.executionMode}
-              onChange={(event) => onFieldChange('executionMode', event.target.value)}
-            >
-              <option value="">Choose execution mode</option>
-              {EXECUTION_MODE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+          <div className="settings-panel">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>Allowed origins</h3>
+                <p>Origins that can open the widget for this project.</p>
+              </div>
+            </div>
+            <ul className="origin-list">
+              {projectDraft.allowedOrigins.map((origin, index) => (
+                <li className="origin-row" key={`${index}-${origin}`}>
+                  <label className="review-field settings-inline-field">
+                    <span>{`Origin ${index + 1}`}</span>
+                    <input value={origin} onChange={(event) => onAllowedOriginChange(index, event.target.value)} />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={projectDraft.allowedOrigins.length === 1}
+                    onClick={() => onRemoveAllowedOrigin(index)}
+                  >
+                    Remove origin
+                  </button>
+                </li>
               ))}
-              {hasCustomExecutionMode ? <option value={projectDraft.executionMode}>{projectDraft.executionMode}</option> : null}
-            </select>
-          </label>
-          <label className="review-field">
-            <span>Preview base URL</span>
-            <input
-              value={projectDraft.previewBaseUrl}
-              onChange={(event) => onFieldChange('previewBaseUrl', event.target.value)}
-              placeholder="https://preview.customer.app"
-            />
-          </label>
-          <label className="review-field">
-            <span>Preview path template</span>
-            <input
-              value={projectDraft.previewPathTemplate}
-              onChange={(event) => onFieldChange('previewPathTemplate', event.target.value)}
-              placeholder="https://preview.customer.app/previews/{contributionId}/"
-            />
-          </label>
-          <label className="review-field">
-            <span>Implementation profile</span>
-            <input
-              value={projectDraft.implementationProfile}
-              onChange={(event) => onFieldChange('implementationProfile', event.target.value)}
-              placeholder="react_vite_app"
-            />
-            <span className="section-note">
-              Use <code>react_vite_app</code> for customer React/Vite repos. The demo <code>example</code> project can keep its legacy default.
-            </span>
-          </label>
-          <label className="review-field review-field-wide">
-            <span>Local repository path</span>
-            <input
-              value={projectDraft.repoPath}
-              onChange={(event) => onFieldChange('repoPath', event.target.value)}
-              placeholder={usesLocalRepoConfig ? '/srv/customer/app' : 'Leave blank for hosted remote clone'}
-            />
-            <span className="section-note">
-              {usesLocalRepoConfig
-                ? 'Required when the worker uses a checked-out repository on customer infrastructure.'
-                : 'Only needed for self-hosted workers or the reference host. Hosted remote clone does not need a local path.'}
-            </span>
-          </label>
-          <label className="review-field review-field-wide">
-            <span>Local preview deploy script</span>
-            <input
-              value={projectDraft.previewDeployScript}
-              onChange={(event) => onFieldChange('previewDeployScript', event.target.value)}
-              placeholder={usesLocalRepoConfig ? '/srv/customer/app/scripts/deploy-preview.sh' : 'Leave blank for hosted remote clone'}
-            />
-            <span className="section-note">
-              {usesLocalRepoConfig
-                ? 'Optional host-local helper for preview deployment after repository changes are prepared.'
-                : 'Leave blank when preview deploys are triggered by repository CI or another hosted integration.'}
-            </span>
-          </label>
+            </ul>
+            <div className="review-form-actions settings-inline-actions">
+              <button className="secondary-button" type="button" onClick={onAddAllowedOrigin}>
+                Add origin
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="surface-section">
         <div className="section-heading">
           <div>
-            <h2>Automation controls</h2>
-            <p>Owner-set defaults for what can move forward automatically after review checkpoints.</p>
+            <h2>Delivery contract</h2>
+            <p>Repository target, GitHub connection, and automation defaults.</p>
           </div>
         </div>
-        <div className="review-form-grid review-form-grid-three">
-          <label className="review-field">
-            <span>Auto-queue implementation</span>
-            <select
-              value={projectDraft.autoQueueImplementation}
-              onChange={(event) => onFieldChange('autoQueueImplementation', event.target.value)}
-            >
-              <option value="">Choose</option>
-              <option value="false">Manual</option>
-              <option value="true">Auto after spec approval</option>
-            </select>
-          </label>
-          <label className="review-field">
-            <span>Auto-open voting</span>
-            <select value={projectDraft.autoOpenVoting} onChange={(event) => onFieldChange('autoOpenVoting', event.target.value)}>
-              <option value="">Choose</option>
-              <option value="false">Manual</option>
-              <option value="true">Auto after preview approval</option>
-            </select>
-          </label>
-          <label className="review-field">
-            <span>Implementation timeout (minutes)</span>
-            <input
-              value={projectDraft.implementationTimeoutMinutes}
-              onChange={(event) => onFieldChange('implementationTimeoutMinutes', event.target.value)}
-              placeholder="30"
-              inputMode="numeric"
-            />
-          </label>
-          <label className="review-field">
-            <span>Core review vote threshold</span>
-            <input
-              value={projectDraft.coreReviewVoteThreshold}
-              onChange={(event) => onFieldChange('coreReviewVoteThreshold', event.target.value)}
-              placeholder="3"
-              inputMode="numeric"
-            />
-          </label>
+        <div className="settings-panel-grid">
+          <div className="settings-panel settings-panel-emphasis">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>GitHub connection</h3>
+                <p>Live check for the hosted GitHub App against the current repository target.</p>
+              </div>
+              <ReadinessPill state={githubConnectionPill} />
+            </div>
+            <dl className="definition-list">
+              <div className="definition-row">
+                <dt>Status</dt>
+                <dd>{githubConnectionStatus === 'loading' ? 'Checking…' : githubConnectionLabel(githubConnection)}</dd>
+              </div>
+              <div className="definition-row">
+                <dt>Detail</dt>
+                <dd>{githubConnectionStatus === 'error' ? githubConnectionError : githubConnection?.message ?? 'No live check yet.'}</dd>
+              </div>
+              <div className="definition-row">
+                <dt>GitHub App</dt>
+                <dd>
+                  {githubConnection?.appUrl ? (
+                    <a href={githubConnection.appUrl} rel="noreferrer" target="_blank">
+                      {githubConnection.appName ?? githubConnection.appSlug ?? 'Open app settings'}
+                    </a>
+                  ) : githubConnection?.appConfigured ? (
+                    githubConnection.appName ?? githubConnection.appSlug ?? 'Configured'
+                  ) : (
+                    'Not configured on the Crowdship host'
+                  )}
+                </dd>
+              </div>
+              <div className="definition-row">
+                <dt>Installation</dt>
+                <dd>
+                  {githubConnection?.installationId
+                    ? `#${githubConnection.installationId}${githubConnection.accountLogin ? ` on ${githubConnection.accountLogin}` : ''}`
+                    : githubConnection?.status === 'not_installed'
+                      ? 'Not installed on the target repository'
+                      : githubConnection?.status === 'not_required'
+                        ? 'Self-hosted mode'
+                        : 'Not available'}
+                </dd>
+              </div>
+              <div className="definition-row">
+                <dt>Saved snapshot</dt>
+                <dd>
+                  {githubConnection?.persistedAt
+                    ? `${githubConnectionStatusLabel(githubConnection.persistedStatus)} · ${formatTimestamp(githubConnection.persistedAt)}`
+                    : 'No saved GitHub install metadata yet'}
+                </dd>
+              </div>
+              <div className="definition-row">
+                <dt>Live check</dt>
+                <dd>{githubConnection?.lastCheckedAt ? formatTimestamp(githubConnection.lastCheckedAt) : 'Not checked yet'}</dd>
+              </div>
+            </dl>
+            <div className="review-form-actions settings-inline-actions">
+              <button className="secondary-button" type="button" onClick={onRefreshGitHubConnection}>
+                {githubConnectionStatus === 'loading' ? 'Checking…' : 'Refresh GitHub connection'}
+              </button>
+              {githubConnection?.installUrl ? (
+                <a
+                  className="secondary-button"
+                  href={githubConnection.installEntryUrl ?? githubConnection.installUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Install app
+                </a>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="settings-panel">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>Repository target</h3>
+                <p>{executionModeSummary}</p>
+              </div>
+            </div>
+            <div className="review-form-grid review-form-grid-three">
+              <label className="review-field">
+                <span>Repository full name</span>
+                <input
+                  value={projectDraft.repositoryFullName}
+                  onChange={(event) => onFieldChange('repositoryFullName', event.target.value)}
+                  placeholder="customer/app-repo"
+                />
+              </label>
+              <label className="review-field">
+                <span>Default branch</span>
+                <input
+                  value={projectDraft.defaultBranch}
+                  onChange={(event) => onFieldChange('defaultBranch', event.target.value)}
+                  placeholder="main"
+                />
+              </label>
+              <label className="review-field">
+                <span>Execution mode</span>
+                <select
+                  value={projectDraft.executionMode}
+                  onChange={(event) => onFieldChange('executionMode', event.target.value)}
+                >
+                  <option value="">Choose execution mode</option>
+                  {EXECUTION_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                  {hasCustomExecutionMode ? (
+                    <option value={projectDraft.executionMode}>{projectDraft.executionMode}</option>
+                  ) : null}
+                </select>
+              </label>
+              <label className="review-field">
+                <span>Preview base URL</span>
+                <input
+                  value={projectDraft.previewBaseUrl}
+                  onChange={(event) => onFieldChange('previewBaseUrl', event.target.value)}
+                  placeholder="https://preview.customer.app"
+                />
+              </label>
+              <label className="review-field">
+                <span>Preview path template</span>
+                <input
+                  value={projectDraft.previewPathTemplate}
+                  onChange={(event) => onFieldChange('previewPathTemplate', event.target.value)}
+                  placeholder="https://preview.customer.app/previews/{contributionId}/"
+                />
+              </label>
+              <label className="review-field">
+                <span>Implementation profile</span>
+                <input
+                  value={projectDraft.implementationProfile}
+                  onChange={(event) => onFieldChange('implementationProfile', event.target.value)}
+                  placeholder="react_vite_app"
+                />
+                <span className="section-note">
+                  Use <code>react_vite_app</code> for customer React/Vite repos. The demo <code>example</code> project can keep its legacy default.
+                </span>
+              </label>
+              <label className="review-field review-field-wide">
+                <span>Local repository path</span>
+                <input
+                  value={projectDraft.repoPath}
+                  onChange={(event) => onFieldChange('repoPath', event.target.value)}
+                  placeholder={usesLocalRepoConfig ? '/srv/customer/app' : 'Leave blank for hosted remote clone'}
+                />
+                <span className="section-note">
+                  {usesLocalRepoConfig
+                    ? 'Required when the worker uses a checked-out repository on customer infrastructure.'
+                    : 'Only needed for self-hosted workers or the reference host. Hosted remote clone does not need a local path.'}
+                </span>
+              </label>
+              <label className="review-field review-field-wide">
+                <span>Local preview deploy script</span>
+                <input
+                  value={projectDraft.previewDeployScript}
+                  onChange={(event) => onFieldChange('previewDeployScript', event.target.value)}
+                  placeholder={
+                    usesLocalRepoConfig
+                      ? '/srv/customer/app/scripts/deploy-preview.sh'
+                      : 'Leave blank for hosted remote clone'
+                  }
+                />
+                <span className="section-note">
+                  {usesLocalRepoConfig
+                    ? 'Optional host-local helper for preview deployment after repository changes are prepared.'
+                    : 'Leave blank when preview deploys are triggered by repository CI or another hosted integration.'}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-panel">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>Automation controls</h3>
+                <p>Owner-set defaults for what can move forward automatically after review checkpoints.</p>
+              </div>
+            </div>
+            <div className="review-form-grid review-form-grid-three">
+              <label className="review-field">
+                <span>Auto-queue implementation</span>
+                <select
+                  value={projectDraft.autoQueueImplementation}
+                  onChange={(event) => onFieldChange('autoQueueImplementation', event.target.value)}
+                >
+                  <option value="">Choose</option>
+                  <option value="false">Manual</option>
+                  <option value="true">Auto after spec approval</option>
+                </select>
+              </label>
+              <label className="review-field">
+                <span>Auto-open voting</span>
+                <select
+                  value={projectDraft.autoOpenVoting}
+                  onChange={(event) => onFieldChange('autoOpenVoting', event.target.value)}
+                >
+                  <option value="">Choose</option>
+                  <option value="false">Manual</option>
+                  <option value="true">Auto after preview approval</option>
+                </select>
+              </label>
+              <label className="review-field">
+                <span>Implementation timeout (minutes)</span>
+                <input
+                  value={projectDraft.implementationTimeoutMinutes}
+                  onChange={(event) => onFieldChange('implementationTimeoutMinutes', event.target.value)}
+                  placeholder="30"
+                  inputMode="numeric"
+                />
+              </label>
+              <label className="review-field">
+                <span>Core review vote threshold</span>
+                <input
+                  value={projectDraft.coreReviewVoteThreshold}
+                  onChange={(event) => onFieldChange('coreReviewVoteThreshold', event.target.value)}
+                  placeholder="3"
+                  inputMode="numeric"
+                />
+              </label>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1962,83 +1996,95 @@ function SettingsView({
         onSendTestNotification={onSendTestNotification}
       />
 
-      <section className="surface-section">
-        <div className="section-heading">
+      <details className="section-collapsible">
+        <summary>
           <div>
-            <h2>Widget install snippet</h2>
-            <p>The snippet below is generated from the current saved record.</p>
+            <h2>Install assets</h2>
+            <p>Snippets and first-install checks live here when onboarding or debugging an embed.</p>
           </div>
           <ReadinessPill state={savedProjectSettings ? (isProjectDirty ? 'pending' : 'ready') : 'empty'} />
-        </div>
-        {savedProjectSettings ? (
-          <div className="snippet-shell">
-            <div className="snippet-actions">
-              <CopyButton text={installSnippet} idleLabel="Copy install snippet" />
-            </div>
-            <pre className="snippet-code">
-              <code>{installSnippet}</code>
-            </pre>
-          </div>
-        ) : (
-          <div className="empty-state compact">Load the project record before copying the install snippet.</div>
-        )}
-      </section>
-
-      <section className="surface-section">
-        <div className="section-heading">
-          <div>
-            <h2>Host context starter</h2>
-            <p>Start with route and selection metadata before you add more fields.</p>
-          </div>
-        </div>
-        <div className="snippet-shell">
-          <div className="snippet-actions">
-            <CopyButton text={contextSnippet} idleLabel="Copy context starter" copiedLabel="Context copied" />
-          </div>
-          <pre className="snippet-code">
-            <code>{contextSnippet}</code>
-          </pre>
-        </div>
-      </section>
-
-      <section className="surface-section">
-        <div className="section-heading">
-          <div>
-            <h2>Optional identity starter</h2>
-            <p>Only send identity fields your product already owns and is allowed to share.</p>
-          </div>
-        </div>
-        <div className="snippet-shell">
-          <div className="snippet-actions">
-            <CopyButton text={identifySnippet} idleLabel="Copy identity starter" copiedLabel="Identity copied" />
-          </div>
-          <pre className="snippet-code">
-            <code>{identifySnippet}</code>
-          </pre>
-        </div>
-      </section>
-
-      <section className="surface-section">
-        <div className="section-heading">
-          <div>
-            <h2>Install checklist</h2>
-            <p>Use this to verify the first install without touching any server secrets.</p>
-          </div>
-        </div>
-        <ul className="status-list">
-          {installChecklist.map((item) => (
-            <li className="status-row" key={item.label}>
-              <div className="status-copy">
-                <div className="status-label">{item.label}</div>
-                <div className="status-detail">{item.detail}</div>
+        </summary>
+        <div className="section-collapsible-body settings-assets-stack">
+          <div className="settings-panel">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>Widget install snippet</h3>
+                <p>The snippet below is generated from the current saved record.</p>
               </div>
-            </li>
-          ))}
-        </ul>
-      </section>
+            </div>
+            {savedProjectSettings ? (
+              <div className="snippet-shell">
+                <div className="snippet-actions">
+                  <CopyButton text={installSnippet} idleLabel="Copy install snippet" />
+                </div>
+                <pre className="snippet-code">
+                  <code>{installSnippet}</code>
+                </pre>
+              </div>
+            ) : (
+              <div className="empty-state compact">Load the project record before copying the install snippet.</div>
+            )}
+          </div>
 
-      <section className="surface-section">
-        <div className="review-form-actions" style={{ gap: 8 }}>
+          <div className="settings-assets-grid">
+            <div className="settings-panel">
+              <div className="section-heading settings-subsection-heading">
+                <div>
+                  <h3>Host context starter</h3>
+                  <p>Start with route and selection metadata before you add more fields.</p>
+                </div>
+              </div>
+              <div className="snippet-shell">
+                <div className="snippet-actions">
+                  <CopyButton text={contextSnippet} idleLabel="Copy context starter" copiedLabel="Context copied" />
+                </div>
+                <pre className="snippet-code">
+                  <code>{contextSnippet}</code>
+                </pre>
+              </div>
+            </div>
+
+            <div className="settings-panel">
+              <div className="section-heading settings-subsection-heading">
+                <div>
+                  <h3>Optional identity starter</h3>
+                  <p>Only send identity fields your product already owns and is allowed to share.</p>
+                </div>
+              </div>
+              <div className="snippet-shell">
+                <div className="snippet-actions">
+                  <CopyButton text={identifySnippet} idleLabel="Copy identity starter" copiedLabel="Identity copied" />
+                </div>
+                <pre className="snippet-code">
+                  <code>{identifySnippet}</code>
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-panel">
+            <div className="section-heading settings-subsection-heading">
+              <div>
+                <h3>Install checklist</h3>
+                <p>Use this to verify the first install without touching any server secrets.</p>
+              </div>
+            </div>
+            <ul className="status-list">
+              {installChecklist.map((item) => (
+                <li className="status-row" key={item.label}>
+                  <div className="status-copy">
+                    <div className="status-label">{item.label}</div>
+                    <div className="status-detail">{item.detail}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </details>
+
+      <section className="surface-section settings-footer">
+        <div className="review-form-actions settings-footer-actions">
           <button
             className="secondary-button"
             type="button"
@@ -2283,6 +2329,7 @@ function ContributionDetailDrawer({
   const implementationProfile = readStringValue(runtimeConfig.implementationProfile);
   const runtimeDefaultBranch = readStringValue(runtimeConfig.defaultBranch);
   const previewTemplate = readStringValue(runtimeConfig.previewUrlPattern);
+  const reviewComments = review?.comments ?? [];
   const [commentDispositionDrafts, setCommentDispositionDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -2436,55 +2483,43 @@ function ContributionDetailDrawer({
               <div className={`review-action-banner review-action-banner-${reviewActionState}`} aria-live="polite">
                 {reviewActionState === 'idle' ? 'Keep the delivery actions here. Everything else stays below.' : reviewActionMessage}
               </div>
-              <div className="record-card owner-action-card">
-                <div className="record-card-title">Owner note</div>
-                <label className="review-field">
-                  <span>Clarification or archive note</span>
-                  <textarea
-                    rows={3}
-                    value={reviewForms.owner.note}
-                    onChange={(event) =>
-                      setReviewForms((current) => ({
-                        ...current,
-                        owner: { note: event.target.value },
-                      }))
-                    }
-                    placeholder="Tell the requester what is blocking review or why this should close."
-                  />
-                </label>
+              <label className="review-field drawer-note-field">
+                <span>Clarification or archive note</span>
+                <textarea
+                  rows={3}
+                  value={reviewForms.owner.note}
+                  onChange={(event) =>
+                    setReviewForms((current) => ({
+                      ...current,
+                      owner: { note: event.target.value },
+                    }))
+                  }
+                  placeholder="Tell the requester what is blocking review or why this should close."
+                />
+              </label>
+            </div>
+
+            <div className="drawer-summary-strip">
+              <div className="drawer-summary-item">
+                <span className="review-summary-label">Project</span>
+                <strong>{detail.contribution.projectSlug}</strong>
+                <span className="stack-item-copy">{detail.contribution.environment}</span>
+              </div>
+              <div className="drawer-summary-item">
+                <span className="review-summary-label">Route</span>
+                <strong>{detailContext?.route ?? selectedContext?.route ?? 'Not provided'}</strong>
+              </div>
+              <div className="drawer-summary-item drawer-summary-item-wide">
+                <span className="review-summary-label">Context</span>
+                <strong>{detailContext?.context ?? selectedContext?.context ?? 'No additional context'}</strong>
+              </div>
+              <div className="drawer-summary-item">
+                <span className="review-summary-label">Submitted</span>
+                <strong>{formatTimestamp(detail.contribution.createdAt)}</strong>
               </div>
             </div>
 
             <div className="drawer-content">
-              <section className="drawer-section">
-                <div className="drawer-section-heading">
-                  <h3>Request context</h3>
-                  <span className="section-note">What the requester was looking at.</span>
-                </div>
-                <dl className="definition-list">
-                  <div className="definition-row">
-                    <dt>Project</dt>
-                    <dd>{detail.contribution.projectSlug}</dd>
-                  </div>
-                  <div className="definition-row">
-                    <dt>Environment</dt>
-                    <dd>{detail.contribution.environment}</dd>
-                  </div>
-                  <div className="definition-row">
-                    <dt>Route</dt>
-                    <dd>{detailContext?.route ?? selectedContext?.route ?? 'Not provided'}</dd>
-                  </div>
-                  <div className="definition-row">
-                    <dt>Context</dt>
-                    <dd>{detailContext?.context ?? selectedContext?.context ?? 'No additional context'}</dd>
-                  </div>
-                  <div className="definition-row">
-                    <dt>Created</dt>
-                    <dd>{formatTimestamp(detail.contribution.createdAt)}</dd>
-                  </div>
-                </dl>
-              </section>
-
               <section className="drawer-section">
                 <div className="drawer-section-heading">
                   <h3>Spec</h3>
@@ -2534,8 +2569,8 @@ function ContributionDetailDrawer({
 
               <section className="drawer-section">
                 <div className="drawer-section-heading">
-                  <h3>Delivery</h3>
-                  <span className="section-note">The current engineering handoff and review evidence.</span>
+                  <h3>Current delivery</h3>
+                  <span className="section-note">The latest engineering handoff and live review evidence.</span>
                 </div>
                 <div className="review-summary-strip">
                   <div className="review-summary-item">
@@ -2560,79 +2595,6 @@ function ContributionDetailDrawer({
 
                 <div className="record-grid">
                   <div className="record-card">
-                    <div className="record-card-title">Latest worker run</div>
-                    {latestImplementationJob ? (
-                      <>
-                        <div className="stack-item-head">
-                          <span className="stack-item-title">{workerBranchName}</span>
-                          <span className={`pill ${reviewPillClassName(latestImplementationJob.status)}`}>{reviewStatusLabel(latestImplementationJob.status)}</span>
-                        </div>
-                        <div className="stack-item-copy">
-                          {targetRepository} / created {formatTimestamp(latestImplementationJob.createdAt)}
-                        </div>
-                        <div className="stack-item-copy">
-                          {verificationCommands.length > 0
-                            ? `${verificationCommands.length} verification step${verificationCommands.length === 1 ? '' : 's'} passed.`
-                            : 'Verification has not been recorded yet.'}
-                        </div>
-                        {latestImplementationJob.errorSummary ? <div className="row-alert">{latestImplementationJob.errorSummary}</div> : null}
-                      </>
-                    ) : (
-                      <div className="empty-state compact">No implementation job has been queued.</div>
-                    )}
-                  </div>
-
-                  <div className="record-card">
-                    <div className="record-card-title">Latest review links</div>
-                    {latestPullRequest ? (
-                      <div className="stack-item-copy">
-                        <a href={latestPullRequest.url} rel="noreferrer" target="_blank">
-                          PR #{latestPullRequest.number}
-                        </a>{' '}
-                        / {latestPullRequest.branchName}
-                      </div>
-                    ) : (
-                      <div className="stack-item-copy">No pull request has been recorded.</div>
-                    )}
-                    {latestPreviewDeployment ? (
-                      <div className="stack-item-copy">
-                        <a href={latestPreviewDeployment.url} rel="noreferrer" target="_blank">
-                          Preview link
-                        </a>{' '}
-                        / {reviewStatusLabel(latestPreviewDeployment.status)}
-                      </div>
-                    ) : (
-                      <div className="stack-item-copy">No preview deployment has been recorded.</div>
-                    )}
-                  </div>
-
-                  <div className="record-card">
-                    <div className="record-card-title">Automation evidence</div>
-                    <div className="stack-item-copy">
-                      Target {targetRepository} / {runtimeDefaultBranch || 'default branch not recorded'}
-                    </div>
-                    <div className="stack-item-copy">
-                      Mode
-                      {' '}
-                      {[executionModeLabelText, implementationProfile].filter(Boolean).join(' / ') ||
-                        'Automation mode not recorded.'}
-                    </div>
-                    <div className="stack-item-copy">
-                      Verification {verificationCommands.length > 0 ? verificationCommands.join(' • ') : 'No verification commands recorded.'}
-                    </div>
-                    {previewSmokeTargetUrl ? (
-                      <div className="stack-item-copy">
-                        <a href={previewSmokeTargetUrl} rel="noreferrer" target="_blank">
-                          Preview smoke target
-                        </a>
-                      </div>
-                    ) : (
-                      <div className="stack-item-copy">No preview smoke target has been recorded.</div>
-                    )}
-                    {previewTemplate ? <div className="stack-item-copy">Template {previewTemplate}</div> : null}
-                  </div>
-
-                  <div className="record-card">
                     <div className="record-card-title">Live preview evidence</div>
                     {!latestPullRequest ? (
                       <div className="stack-item-copy">Record a pull request to unlock live preview evidence.</div>
@@ -2641,9 +2603,7 @@ function ContributionDetailDrawer({
                     ) : previewEvidenceStatus === 'error' ? (
                       <>
                         <div className="row-alert">{previewEvidenceError || 'Preview evidence could not be loaded.'}</div>
-                        <div className="stack-item-copy">
-                          Use refresh after the preview workflow posts its evidence comment.
-                        </div>
+                        <div className="stack-item-copy">Use refresh after the preview workflow posts its evidence comment.</div>
                       </>
                     ) : previewEvidence ? (
                       <>
@@ -2690,8 +2650,7 @@ function ContributionDetailDrawer({
                           Sentry {previewEvidence.sentryRelease || previewEvidence.sentryReleaseLabel || 'Not available'}
                         </div>
                         <div className="stack-item-copy">
-                          New preview errors{' '}
-                          {previewEvidence.newUnhandledPreviewErrorsLabel || 'Not available'}
+                          New preview errors {previewEvidence.newUnhandledPreviewErrorsLabel || 'Not available'}
                         </div>
                         <div className="stack-item-copy">
                           Failed preview sessions {previewEvidence.failedPreviewSessionsLabel || 'Not available'}
@@ -2708,65 +2667,187 @@ function ContributionDetailDrawer({
                       <div className="stack-item-copy">Refresh preview evidence to load the latest workflow record.</div>
                     )}
                   </div>
-                </div>
 
-                <div className="record-card">
-                  <div className="record-card-title">Comment dispositions</div>
-                  {review?.comments.length ? (
-                    <ul className="detail-stack-list">
-                      {review.comments.map((comment) => {
-                        const nextDisposition = commentDispositionDrafts[comment.id] ?? comment.disposition;
+                  <div className="record-card">
+                    <div className="record-card-title">Latest review links</div>
+                    {latestPullRequest ? (
+                      <div className="stack-item-copy">
+                        <a href={latestPullRequest.url} rel="noreferrer" target="_blank">
+                          PR #{latestPullRequest.number}
+                        </a>{' '}
+                        / {latestPullRequest.branchName}
+                      </div>
+                    ) : (
+                      <div className="stack-item-copy">No pull request has been recorded.</div>
+                    )}
+                    {latestPreviewDeployment ? (
+                      <div className="stack-item-copy">
+                        <a href={latestPreviewDeployment.url} rel="noreferrer" target="_blank">
+                          Preview link
+                        </a>{' '}
+                        / {reviewStatusLabel(latestPreviewDeployment.status)}
+                      </div>
+                    ) : (
+                      <div className="stack-item-copy">No preview deployment has been recorded.</div>
+                    )}
+                  </div>
 
-                        return (
-                          <li className="stack-item" key={comment.id}>
-                            <div className="stack-item-head">
-                              <span className="stack-item-title">{comment.authorRole}</span>
-                              <span className="stack-item-meta">{formatTimestamp(comment.createdAt)}</span>
-                            </div>
-                            <div className="stack-item-copy">{comment.body}</div>
-                            <div className="comment-disposition-row">
-                              <label className="review-field">
-                                <span>Disposition</span>
-                                <select
-                                  value={nextDisposition}
-                                  onChange={(event) =>
-                                    setCommentDispositionDrafts((current) => ({
-                                      ...current,
-                                      [comment.id]: event.target.value,
-                                    }))
-                                  }
-                                >
-                                  {COMMENT_DISPOSITION_OPTIONS.map((option) => (
-                                    <option key={option} value={option}>
-                                      {option}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                disabled={reviewActionState === 'loading' || nextDisposition === comment.disposition}
-                                onClick={() =>
-                                  void submitReviewAction(
-                                    `/api/v1/contributions/${detail.contribution.id}/comments/${comment.id}/disposition`,
-                                    { disposition: nextDisposition },
-                                    'Comment disposition updated.',
-                                  )
-                                }
-                              >
-                                {reviewActionState === 'loading' ? 'Saving…' : 'Update'}
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <div className="empty-state compact">No review comments have been recorded yet.</div>
-                  )}
+                  <div className="record-card">
+                    <div className="record-card-title">Latest worker run</div>
+                    {latestImplementationJob ? (
+                      <>
+                        <div className="stack-item-head">
+                          <span className="stack-item-title">{workerBranchName}</span>
+                          <span className={`pill ${reviewPillClassName(latestImplementationJob.status)}`}>
+                            {reviewStatusLabel(latestImplementationJob.status)}
+                          </span>
+                        </div>
+                        <div className="stack-item-copy">
+                          {targetRepository} / created {formatTimestamp(latestImplementationJob.createdAt)}
+                        </div>
+                        <div className="stack-item-copy">
+                          {verificationCommands.length > 0
+                            ? `${verificationCommands.length} verification step${verificationCommands.length === 1 ? '' : 's'} passed.`
+                            : 'Verification has not been recorded yet.'}
+                        </div>
+                        {latestImplementationJob.errorSummary ? <div className="row-alert">{latestImplementationJob.errorSummary}</div> : null}
+                      </>
+                    ) : (
+                      <div className="empty-state compact">No implementation job has been queued.</div>
+                    )}
+                  </div>
+
+                  <div className="record-card">
+                    <div className="record-card-title">Automation evidence</div>
+                    <div className="stack-item-copy">
+                      Target {targetRepository} / {runtimeDefaultBranch || 'default branch not recorded'}
+                    </div>
+                    <div className="stack-item-copy">
+                      Mode
+                      {' '}
+                      {[executionModeLabelText, implementationProfile].filter(Boolean).join(' / ') ||
+                        'Automation mode not recorded.'}
+                    </div>
+                    <div className="stack-item-copy">
+                      Verification {verificationCommands.length > 0 ? verificationCommands.join(' • ') : 'No verification commands recorded.'}
+                    </div>
+                    {previewSmokeTargetUrl ? (
+                      <div className="stack-item-copy">
+                        <a href={previewSmokeTargetUrl} rel="noreferrer" target="_blank">
+                          Preview smoke target
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="stack-item-copy">No preview smoke target has been recorded.</div>
+                    )}
+                    {previewTemplate ? <div className="stack-item-copy">Template {previewTemplate}</div> : null}
+                  </div>
                 </div>
               </section>
+
+              <section className="drawer-section">
+                <div className="drawer-section-heading">
+                  <h3>Review feedback</h3>
+                  <span className="section-note">Votes and comment dispositions stay close to the delivery record.</span>
+                </div>
+                <div className="review-summary-strip review-summary-strip-compact">
+                  <div className="review-summary-item">
+                    <span className="review-summary-label">Votes</span>
+                    <strong>
+                      {voteSummary.total
+                        ? `${voteSummary.approve} approve / ${voteSummary.block} block`
+                        : 'No votes recorded'}
+                    </strong>
+                  </div>
+                  <div className="review-summary-item">
+                    <span className="review-summary-label">Comments</span>
+                    <strong>
+                      {reviewComments.length === 0
+                        ? 'No comments recorded'
+                        : `${reviewComments.length} comment${reviewComments.length === 1 ? '' : 's'}`}
+                    </strong>
+                  </div>
+                </div>
+                {reviewComments.length ? (
+                  <ul className="detail-stack-list">
+                    {reviewComments.map((comment) => {
+                      const nextDisposition = commentDispositionDrafts[comment.id] ?? comment.disposition;
+
+                      return (
+                        <li className="stack-item" key={comment.id}>
+                          <div className="stack-item-head">
+                            <span className="stack-item-title">{comment.authorRole}</span>
+                            <span className="stack-item-meta">{formatTimestamp(comment.createdAt)}</span>
+                          </div>
+                          <div className="stack-item-copy">{comment.body}</div>
+                          <div className="comment-disposition-row">
+                            <label className="review-field">
+                              <span>Disposition</span>
+                              <select
+                                value={nextDisposition}
+                                onChange={(event) =>
+                                  setCommentDispositionDrafts((current) => ({
+                                    ...current,
+                                    [comment.id]: event.target.value,
+                                  }))
+                                }
+                              >
+                                {COMMENT_DISPOSITION_OPTIONS.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={reviewActionState === 'loading' || nextDisposition === comment.disposition}
+                              onClick={() =>
+                                void submitReviewAction(
+                                  `/api/v1/contributions/${detail.contribution.id}/comments/${comment.id}/disposition`,
+                                  { disposition: nextDisposition },
+                                  'Comment disposition updated.',
+                                )
+                              }
+                            >
+                              {reviewActionState === 'loading' ? 'Saving…' : 'Update'}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <div className="empty-state compact">No review comments have been recorded yet.</div>
+                )}
+              </section>
+
+              <details className="drawer-collapsible">
+                <summary>Requester context</summary>
+                <dl className="definition-list">
+                  <div className="definition-row">
+                    <dt>Project</dt>
+                    <dd>{detail.contribution.projectSlug}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Environment</dt>
+                    <dd>{detail.contribution.environment}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Route</dt>
+                    <dd>{detailContext?.route ?? selectedContext?.route ?? 'Not provided'}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Context</dt>
+                    <dd>{detailContext?.context ?? selectedContext?.context ?? 'No additional context'}</dd>
+                  </div>
+                  <div className="definition-row">
+                    <dt>Created</dt>
+                    <dd>{formatTimestamp(detail.contribution.createdAt)}</dd>
+                  </div>
+                </dl>
+              </details>
 
               <details className="drawer-collapsible">
                 <summary>Requester conversation</summary>

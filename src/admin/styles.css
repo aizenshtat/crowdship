@@ -291,7 +291,13 @@ a {
 
 .definition-list,
 .status-list,
-.origin-list,
+.origin-list {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  min-width: 0;
+}
+
 .snippet-shell {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -366,6 +372,93 @@ a {
   font-weight: 600;
 }
 
+.settings-panel-grid,
+.settings-assets-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.settings-panel,
+.settings-assets-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-panel {
+  min-width: 0;
+}
+
+.settings-panel-emphasis {
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--surface-3);
+}
+
+.settings-subsection-heading {
+  margin-bottom: 0;
+}
+
+.settings-inline-field {
+  flex: 1;
+}
+
+.settings-inline-actions {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.section-collapsible {
+  min-width: 0;
+  padding-top: 0;
+  border-top: 1px solid var(--line);
+}
+
+.section-collapsible summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.section-collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-collapsible summary h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.section-collapsible summary p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.section-collapsible-body {
+  display: grid;
+  gap: 20px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-footer {
+  padding-top: 0;
+}
+
+.settings-footer-actions {
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
 .snippet-actions {
   display: flex;
   justify-content: flex-end;
@@ -427,8 +520,14 @@ a {
   overflow-wrap: anywhere;
 }
 
+.row-list {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
 .row-item + .row-item {
-  margin-top: 10px;
+  border-top: 1px solid var(--line);
 }
 
 .contribution-row {
@@ -436,17 +535,16 @@ a {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   width: 100%;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  padding: 18px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
   text-align: left;
 }
 
 .contribution-row-selected {
-  border-color: var(--line-strong);
-  background: var(--surface-3);
+  background: rgba(15, 118, 110, 0.06);
   box-shadow: none;
 }
 
@@ -520,7 +618,7 @@ a {
   overflow: auto;
   padding: 20px;
   border-left: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--surface);
   box-shadow: -18px 0 40px rgba(14, 23, 20, 0.14);
 }
 
@@ -552,9 +650,8 @@ a {
   gap: 10px;
   margin: 0 -20px 16px;
   padding: 16px 20px;
-  border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: rgba(244, 247, 246, 0.96);
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
 }
 
@@ -574,7 +671,7 @@ a {
 
 .drawer-content {
   display: grid;
-  gap: 20px;
+  gap: 28px;
   min-width: 0;
 }
 
@@ -585,7 +682,7 @@ a {
 }
 
 .drawer-section + .drawer-section {
-  padding-top: 20px;
+  padding-top: 24px;
   border-top: 1px solid var(--line);
 }
 
@@ -617,24 +714,39 @@ a {
 .review-summary-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 12px;
   min-width: 0;
 }
 
 .review-summary-item,
-.record-card {
+.drawer-summary-item {
   display: grid;
   gap: 4px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-2);
+  background: var(--surface-3);
   min-width: 0;
 }
 
-.owner-action-card {
+.review-summary-strip-compact {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.drawer-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
+  margin-bottom: 8px;
+}
+
+.drawer-summary-item strong {
+  overflow-wrap: anywhere;
+}
+
+.drawer-summary-item-wide {
+  grid-column: span 2;
 }
 
 .review-summary-label,
@@ -651,6 +763,25 @@ a {
   display: grid;
   gap: 12px;
   min-width: 0;
+}
+
+.record-grid {
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.record-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+
+.record-grid > .record-card:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .spec-card {
@@ -690,7 +821,7 @@ a {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-2);
+  background: var(--surface);
   overflow-wrap: anywhere;
 }
 
@@ -732,13 +863,18 @@ a {
 }
 
 .drawer-collapsible {
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
 }
 
 .drawer-collapsible summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 0;
   cursor: pointer;
   font-size: 15px;
   font-weight: 600;
@@ -753,10 +889,14 @@ a {
   margin-bottom: 14px;
 }
 
+.drawer-note-field {
+  gap: 8px;
+}
+
 .review-action-form {
   display: grid;
   gap: 10px;
-  padding-top: 10px;
+  padding: 16px 0 0;
   border-top: 1px solid var(--line);
 }
 
@@ -826,10 +966,14 @@ a {
     padding-top: 32px;
   }
 
-  .record-grid,
-  .technical-grid,
-  .review-action-grid {
+  .settings-panel-grid,
+  .settings-assets-grid,
+  .technical-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .review-action-grid {
+    grid-template-columns: 1fr;
   }
 
   .comment-disposition-row {
@@ -920,8 +1064,15 @@ a {
   }
 
   .review-form-grid-three,
-  .review-summary-strip {
+  .review-summary-strip,
+  .drawer-summary-strip,
+  .settings-assets-grid,
+  .settings-panel-grid {
     grid-template-columns: 1fr;
+  }
+
+  .drawer-summary-item-wide {
+    grid-column: span 1;
   }
 
   .drawer-panel {

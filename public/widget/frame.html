@@ -8,16 +8,17 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #edf2ef;
+        --bg: #f3f6f3;
         --panel: #ffffff;
-        --panel-2: #f6f9f7;
-        --border: #d5ddd8;
-        --text: #10211c;
-        --muted: #5a6962;
-        --accent: #17624f;
-        --accent-strong: #0f4538;
-        --danger: #9a3412;
-        --warning: #8a4b08;
+        --panel-2: #f1f5f1;
+        --border: #d4ddd6;
+        --line: #e5ece7;
+        --text: #0f1d17;
+        --muted: #5c6a63;
+        --accent: #15684f;
+        --accent-strong: #0c4636;
+        --danger: #a23b17;
+        --warning: #8a5a0a;
         --shadow: none;
         --radius: 8px;
       }
@@ -45,6 +46,12 @@
         letter-spacing: 0;
       }
 
+      button,
+      label,
+      summary {
+        -webkit-tap-highlight-color: transparent;
+      }
+
       button {
         min-height: 44px;
       }
@@ -62,8 +69,9 @@
         justify-content: space-between;
         gap: 12px;
         padding: 12px 16px;
-        background: var(--panel);
-        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.96);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(10px);
       }
 
       .banner-copy {
@@ -72,8 +80,9 @@
 
       .banner h1 {
         margin: 0;
-        font-size: 15px;
+        font-size: 16px;
         line-height: 1.3;
+        font-weight: 650;
       }
 
       .banner p {
@@ -94,11 +103,11 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        min-height: 44px;
-        padding: 10px 12px;
-        border: 1px solid var(--border);
+        min-height: 36px;
+        padding: 8px 10px;
+        border: 1px solid rgba(15, 29, 23, 0.08);
         border-radius: 8px;
-        background: var(--panel);
+        background: rgba(241, 245, 241, 0.92);
         color: var(--muted);
         font-size: 13px;
         flex: 0 0 auto;
@@ -127,101 +136,92 @@
       .surface {
         flex: 1 1 auto;
         overflow: auto;
-        padding: 14px 16px 84px;
+        display: flex;
+        justify-content: center;
+        padding: 0 0 84px;
       }
 
       .panel {
+        width: 100%;
+        max-width: 760px;
         background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 8px;
+        border: 0;
+        border-radius: 0;
         box-shadow: var(--shadow);
-        overflow: hidden;
+        overflow: visible;
       }
 
       .section {
-        padding: 12px 12px 14px;
+        padding: 20px 20px 22px;
       }
 
       .section + .section {
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--line);
       }
 
       .section-head {
         display: flex;
         justify-content: space-between;
-        align-items: baseline;
+        align-items: flex-start;
         gap: 12px;
-        margin-bottom: 8px;
+        margin-bottom: 16px;
       }
 
       .section h2 {
         margin: 0;
-        font-size: 13px;
+        font-size: 18px;
         line-height: 1.3;
-        color: var(--muted);
-        font-weight: 600;
+        color: var(--text);
+        font-weight: 650;
       }
 
       .section-head p {
         margin: 0;
         color: var(--muted);
-        font-size: 12px;
+        font-size: 14px;
+        max-width: 44ch;
       }
 
       .lifecycle {
         display: grid;
-        grid-auto-flow: column;
-        grid-auto-columns: minmax(124px, 1fr);
-        gap: 8px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
         margin: 0;
         padding: 0;
         list-style: none;
-        overflow-x: auto;
-        scrollbar-width: thin;
+        overflow-x: visible;
       }
 
       .lifecycle-step {
-        position: relative;
         min-width: 0;
-        min-height: 64px;
-        padding: 10px 10px 9px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fafcfa;
-        transition: border-color 160ms ease, background-color 160ms ease, opacity 160ms ease;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: none;
+        transition: opacity 160ms ease;
       }
 
       .lifecycle-step::before {
+        display: none;
+      }
+
+      .lifecycle-step::after {
         content: '';
-        position: absolute;
-        top: 8px;
-        left: 10px;
-        right: 10px;
-        height: 2px;
+        display: block;
+        height: 3px;
+        margin-top: 10px;
         border-radius: 999px;
-        background: var(--border);
+        background: var(--line);
       }
 
-      .lifecycle-step[data-state="current"] {
-        border-color: rgba(23, 98, 79, 0.28);
-        background: #f0f7f3;
-      }
-
-      .lifecycle-step[data-state="current"]::before {
-        background: var(--accent);
-      }
-
-      .lifecycle-step[data-state="done"] {
-        border-color: rgba(23, 98, 79, 0.16);
-        background: #ffffff;
-      }
-
-      .lifecycle-step[data-state="done"]::before {
+      .lifecycle-step[data-state="current"]::after,
+      .lifecycle-step[data-state="done"]::after {
         background: #1b7d59;
       }
 
       .lifecycle-step[data-state="upcoming"] {
-        opacity: 0.82;
+        opacity: 0.72;
       }
 
       .lifecycle-label {
@@ -231,8 +231,6 @@
         font-size: 13px;
         color: var(--text);
         font-weight: 600;
-        position: relative;
-        z-index: 1;
       }
 
       .lifecycle-dot {
@@ -253,18 +251,48 @@
         color: var(--muted);
         font-size: 12px;
         line-height: 1.35;
-        position: relative;
-        z-index: 1;
+      }
+
+      .compose-shell {
+        display: grid;
+        gap: 18px;
+      }
+
+      .compose-lead {
+        display: grid;
+        gap: 8px;
+      }
+
+      .compose-kicker {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
+        text-transform: uppercase;
+      }
+
+      .compose-lead h2 {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.12;
+      }
+
+      .compose-lead p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.5;
+        max-width: 46ch;
       }
 
       .summary-grid {
         display: grid;
-        gap: 10px;
+        gap: 12px;
       }
 
       .details {
-        border-top: 1px solid var(--border);
-        padding-top: 10px;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
       }
 
       .details:first-of-type {
@@ -276,7 +304,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: 12px;
         min-height: 44px;
         list-style: none;
         cursor: pointer;
@@ -292,7 +320,7 @@
 
       .details summary::after {
         content: '+';
-        font-size: 18px;
+        font-size: 16px;
         line-height: 1;
         color: var(--muted);
       }
@@ -302,13 +330,13 @@
       }
 
       .details-body {
-        padding: 0 0 14px;
+        padding: 4px 0 8px;
       }
 
       .summary-row {
         display: grid;
-        grid-template-columns: 96px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 12px;
         align-items: start;
       }
 
@@ -327,25 +355,21 @@
         color: var(--muted);
       }
 
-      .request-meta {
+      .request-meta,
+      .compose-tools {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
+        gap: 12px;
         align-items: end;
-        margin-top: 12px;
-      }
-
-      .field.compact {
-        margin-top: 0;
       }
 
       .type-select {
         width: 100%;
         min-height: 44px;
-        padding: 12px 12px;
+        padding: 11px 14px;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--panel-2);
         color: var(--text);
       }
 
@@ -356,8 +380,8 @@
 
       .field {
         display: grid;
-        gap: 6px;
-        margin-top: 10px;
+        gap: 8px;
+        margin-top: 0;
       }
 
       .field:first-of-type {
@@ -376,12 +400,38 @@
         border-radius: 8px;
         background: #fff;
         color: var(--text);
-        padding: 12px 12px;
+        padding: 12px 14px;
       }
 
       .field textarea {
         min-height: 160px;
         resize: none;
+      }
+
+      .field-primary {
+        gap: 0;
+        padding: 18px 0 20px;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .field-primary textarea {
+        min-height: 220px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        font-size: 18px;
+        line-height: 1.6;
+      }
+
+      .field-primary textarea::placeholder {
+        color: #79877f;
+      }
+
+      .field-primary:focus-within {
+        border-top-color: rgba(21, 104, 79, 0.36);
+        border-bottom-color: rgba(21, 104, 79, 0.36);
       }
 
       .field input:focus,
@@ -392,12 +442,16 @@
         outline-offset: 2px;
       }
 
+      .field-primary textarea:focus {
+        outline: none;
+      }
+
       .attachment-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 8px;
+        margin-bottom: 0;
       }
 
       .attachment-head p {
@@ -408,7 +462,7 @@
 
       .attachment-compact {
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
 
       .file-button {
@@ -417,12 +471,13 @@
         justify-content: center;
         min-height: 44px;
         padding: 10px 14px;
-        border: 1px solid var(--accent);
+        border: 1px solid rgba(21, 104, 79, 0.22);
         border-radius: 8px;
-        background: #e4f1eb;
+        background: var(--panel-2);
         color: var(--accent-strong);
         cursor: pointer;
         white-space: nowrap;
+        font-weight: 600;
       }
 
       .file-button input {
@@ -435,16 +490,18 @@
       }
 
       .tray-empty {
-        border: 1px dashed var(--border);
-        border-radius: 8px;
-        padding: 12px;
+        border-top: 1px dashed var(--border);
+        border-bottom: 1px dashed var(--border);
+        border-radius: 0;
+        padding: 12px 0;
         color: var(--muted);
-        background: #fafcfa;
+        background: none;
       }
 
       .attachment-list {
         display: grid;
-        gap: 8px;
+        gap: 0;
+        border-top: 1px solid var(--line);
       }
 
       .attachment-item {
@@ -453,10 +510,11 @@
         gap: 10px;
         align-items: center;
         min-height: 44px;
-        padding: 10px 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fff;
+        padding: 12px 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: none;
       }
 
       .attachment-name {
@@ -476,15 +534,23 @@
       .primary-button {
         min-height: 44px;
         border-radius: 8px;
-        border: 1px solid var(--border);
+        border: 1px solid transparent;
         background: #fff;
         color: var(--text);
         padding: 10px 14px;
         cursor: pointer;
+        font-weight: 600;
       }
 
       .remove-button {
+        border-color: rgba(162, 59, 23, 0.14);
+        background: #fff6f3;
         color: var(--danger);
+      }
+
+      .secondary-button {
+        border-color: rgba(15, 29, 23, 0.1);
+        background: var(--panel-2);
       }
 
       .primary-button {
@@ -505,11 +571,12 @@
         position: sticky;
         bottom: 0;
         display: grid;
-        gap: 8px;
-        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-        border-top: 1px solid var(--border);
-        background: rgba(239, 244, 241, 0.98);
-        backdrop-filter: blur(8px);
+        gap: 10px;
+        margin: 12px -20px -22px;
+        padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(10px);
       }
 
       .actions-row {
@@ -521,14 +588,16 @@
 
       .review-card {
         display: grid;
-        gap: 12px;
+        gap: 18px;
       }
 
       .review-head {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 12px;
+        gap: 16px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--line);
       }
 
       .review-kicker {
@@ -541,13 +610,13 @@
 
       .review-head h3 {
         margin: 0;
-        font-size: 17px;
-        line-height: 1.25;
+        font-size: 24px;
+        line-height: 1.15;
       }
 
       .review-section {
         display: grid;
-        gap: 6px;
+        gap: 8px;
       }
 
       .review-label {
@@ -559,36 +628,57 @@
 
       .review-text {
         margin: 0;
-        font-size: 14px;
+        font-size: 16px;
+        line-height: 1.6;
         color: var(--text);
+        max-width: 70ch;
       }
 
       .review-columns {
         display: grid;
-        gap: 10px;
+        gap: 24px;
       }
 
       .review-list,
       .stack-list {
-        list-style: none;
         margin: 0;
         padding: 0;
         display: grid;
-        gap: 8px;
       }
 
-      .review-list li,
+      .review-list {
+        list-style: disc;
+        gap: 10px;
+        padding-left: 20px;
+      }
+
+      .review-list li {
+        padding: 0;
+        background: none;
+        overflow-wrap: anywhere;
+      }
+
+      .review-list li::marker {
+        color: var(--accent);
+      }
+
+      .stack-list {
+        gap: 0;
+        border-top: 1px solid var(--line);
+      }
+
       .stack-item {
-        padding: 10px 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fbfcfb;
+        padding: 12px 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: none;
         overflow-wrap: anywhere;
       }
 
       .stack-item-head {
         display: flex;
-        align-items: baseline;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
       }
@@ -604,20 +694,21 @@
       }
 
       .stack-item-copy {
-        margin-top: 4px;
+        margin-top: 6px;
         color: var(--muted);
-        font-size: 13px;
+        font-size: 14px;
       }
 
       .review-actions {
         display: grid;
-        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
       }
 
       .review-links {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 10px;
       }
 
       .button-link {
@@ -627,16 +718,30 @@
         text-decoration: none;
       }
 
+      #comment-form .review-actions {
+        grid-template-columns: 1fr;
+      }
+
+      #close-button {
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
       .review-metrics {
         display: grid;
-        gap: 8px;
+        gap: 0;
+        border-top: 1px solid var(--line);
       }
 
       .review-metric {
-        padding: 10px 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fbfcfb;
+        display: grid;
+        gap: 4px;
+        padding: 12px 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: none;
       }
 
       .review-metric-label {
@@ -648,7 +753,7 @@
 
       .review-metric-value {
         margin-top: 4px;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
         overflow-wrap: anywhere;
       }
@@ -671,16 +776,16 @@
 
       .review-form {
         display: grid;
-        gap: 8px;
+        gap: 10px;
       }
 
       .review-form textarea {
         width: 100%;
-        min-height: 108px;
-        padding: 12px;
+        min-height: 120px;
+        padding: 12px 14px;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--panel-2);
         color: var(--text);
         resize: none;
       }
@@ -693,20 +798,20 @@
       .vote-summary-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
+        gap: 10px;
       }
 
       .vote-summary-item {
-        padding: 10px 12px;
-        border: 1px solid var(--border);
+        padding: 12px;
+        border: 0;
         border-radius: 8px;
-        background: #fbfcfb;
+        background: var(--panel-2);
         text-align: left;
       }
 
       .vote-summary-item strong {
         display: block;
-        font-size: 18px;
+        font-size: 20px;
         line-height: 1.1;
       }
 
@@ -719,14 +824,16 @@
 
       .chat-card {
         display: grid;
-        gap: 10px;
+        gap: 18px;
       }
 
       .chat-head {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 12px;
+        gap: 16px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--line);
       }
 
       .chat-kicker {
@@ -739,22 +846,24 @@
 
       .chat-head h3 {
         margin: 0;
-        font-size: 17px;
-        line-height: 1.25;
+        font-size: 24px;
+        line-height: 1.15;
       }
 
       .chat-summary {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
+        gap: 12px;
+        padding: 0 0 14px;
+        border-bottom: 1px solid var(--line);
       }
 
       .chat-summary-item {
         min-width: 0;
-        padding: 10px 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fbfcfb;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: none;
       }
 
       .chat-summary-label {
@@ -772,25 +881,29 @@
 
       .chat-thread {
         display: grid;
-        gap: 8px;
+        gap: 0;
+        border-top: 1px solid var(--line);
       }
 
       .chat-message {
         display: grid;
         gap: 8px;
-        padding: 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fbfcfb;
+        padding: 14px 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: none;
       }
 
       .chat-message[data-role="agent"] {
-        background: #fff;
+        background: none;
       }
 
       .chat-message[data-role="requester"] {
-        border-color: rgba(23, 98, 79, 0.16);
-        background: #eff8f4;
+        padding: 14px 14px 14px 16px;
+        border-left: 3px solid rgba(21, 104, 79, 0.34);
+        border-radius: 0 8px 8px 0;
+        background: rgba(21, 104, 79, 0.04);
       }
 
       .chat-message-head {
@@ -818,9 +931,20 @@
       }
 
       .chat-choices {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
         gap: 8px;
+      }
+
+      .chat-choice-group {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .chat-choice-group-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
       }
 
       .chat-question-list {
@@ -828,28 +952,30 @@
         margin: 0;
         padding: 0;
         display: grid;
-        gap: 8px;
+        gap: 0;
+        border-top: 1px solid var(--line);
       }
 
       .chat-question-item {
         display: grid;
-        grid-template-columns: 28px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 12px;
         align-items: start;
-        padding: 10px 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #fff;
+        padding: 14px 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: none;
       }
 
       .chat-question-index {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         border-radius: 999px;
-        background: #e4f1eb;
+        background: var(--panel-2);
         color: var(--accent-strong);
         font-size: 13px;
         font-weight: 600;
@@ -872,30 +998,56 @@
       }
 
       .chat-choice {
-        min-height: 40px;
-        padding: 8px 12px;
-        border: 1px solid var(--accent);
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 44px;
+        gap: 12px;
+        padding: 11px 14px;
+        border: 1px solid rgba(21, 104, 79, 0.22);
         border-radius: 8px;
-        background: #e4f1eb;
-        color: var(--accent-strong);
+        background: #fff;
+        color: var(--text);
         cursor: pointer;
+        font-weight: 600;
+        text-align: left;
+        transition: border-color 160ms ease, background-color 160ms ease;
+      }
+
+      .chat-choice::after {
+        content: 'Send';
+        color: var(--accent-strong);
+        font-size: 12px;
+        font-weight: 600;
+        flex: 0 0 auto;
+      }
+
+      .chat-choice[data-fill-reply="true"]::after {
+        content: 'Add';
       }
 
       .chat-choice[data-selected="true"] {
-        background: var(--accent);
-        color: #fff;
+        background: #e8f4ef;
+        border-color: rgba(21, 104, 79, 0.42);
+        color: var(--accent-strong);
+      }
+
+      .chat-choice[data-selected="true"]::after {
+        content: 'Added';
       }
 
       .chat-composer {
         position: sticky;
         bottom: 0;
         display: grid;
-        gap: 8px;
-        padding: 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.98);
-        backdrop-filter: blur(6px);
+        gap: 10px;
+        margin: 0 -20px -22px;
+        padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(10px);
       }
 
       .chat-composer-top {
@@ -913,6 +1065,10 @@
 
       .chat-composer textarea {
         min-height: 96px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: var(--panel-2);
         resize: none;
       }
 
@@ -924,30 +1080,31 @@
       }
 
       .status-chip-inline {
-        min-height: 32px;
-        padding: 6px 10px;
+        min-height: 36px;
+        padding: 8px 10px;
       }
 
       .status-block {
-        border: 1px solid var(--border);
+        border: 0;
+        border-left: 4px solid var(--border);
         border-radius: 8px;
-        padding: 12px;
-        background: #fff;
+        padding: 12px 14px;
+        background: var(--panel-2);
         color: var(--text);
       }
 
       .status-block[data-tone="error"] {
-        border-color: rgba(154, 52, 18, 0.35);
-        background: #fff7f2;
+        border-left-color: rgba(162, 59, 23, 0.55);
+        background: #fff5f1;
       }
 
       .status-block[data-tone="working"] {
-        border-color: rgba(138, 75, 8, 0.35);
+        border-left-color: rgba(138, 90, 10, 0.45);
         background: #fffaf1;
       }
 
       .status-block[data-tone="ready"] {
-        border-color: rgba(23, 98, 79, 0.3);
+        border-left-color: rgba(21, 104, 79, 0.45);
         background: #f1f8f4;
       }
 
@@ -981,25 +1138,33 @@
 
       @media (max-width: 540px) {
         .banner,
-        .surface,
         .actions {
           padding-left: 12px;
           padding-right: 12px;
         }
 
-        .lifecycle {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+        .section {
+          padding-left: 16px;
+          padding-right: 16px;
         }
 
-        .lifecycle-step {
-          min-height: 58px;
-          padding: 10px;
+        .lifecycle {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          overflow-x: auto;
+        }
+
+        .compose-lead h2,
+        .review-head h3,
+        .chat-head h3 {
+          font-size: 22px;
         }
 
         .lifecycle-copy {
           display: none;
         }
 
+        .compose-tools,
         .request-meta {
           grid-template-columns: 1fr;
         }
@@ -1008,7 +1173,13 @@
           grid-template-columns: 88px minmax(0, 1fr);
         }
 
-        .actions-row {
+        .actions {
+          margin-left: -16px;
+          margin-right: -16px;
+        }
+
+        .actions-row,
+        .review-actions {
           grid-template-columns: 1fr;
         }
 
@@ -1023,14 +1194,21 @@
         }
 
         .chat-head,
-        .chat-composer-top {
+        .chat-composer-top,
+        .chat-message-head {
           flex-direction: column;
           align-items: flex-start;
         }
 
         .chat-summary,
-        .chat-composer-actions {
+        .chat-composer-actions,
+        .vote-summary-grid {
           grid-template-columns: 1fr;
+        }
+
+        .chat-composer {
+          margin-left: -16px;
+          margin-right: -16px;
         }
       }
 
@@ -1077,39 +1255,50 @@
 
           <section class="section hidden" id="lifecycle-section" aria-labelledby="lifecycle-title">
             <div class="section-head">
-              <h2 id="lifecycle-title">Lifecycle</h2>
-              <p id="lifecycle-copy">Track request, questions, scope, and delivery.</p>
+              <h2 id="lifecycle-title">Flow</h2>
+              <p id="lifecycle-copy">From request to preview without losing the thread.</p>
             </div>
             <ol class="lifecycle" id="lifecycle-list">
               <li class="lifecycle-step" data-step="compose" data-state="current" aria-current="step">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Request</span></div>
-                <p class="lifecycle-copy">Write the outcome and attach proof.</p>
+                <p class="lifecycle-copy">Describe the outcome and add proof only if it helps.</p>
               </li>
               <li class="lifecycle-step" data-step="chat" data-state="upcoming">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Questions</span></div>
-                <p class="lifecycle-copy">Answer the open questions.</p>
+                <p class="lifecycle-copy">Answer what is still unclear.</p>
               </li>
               <li class="lifecycle-step" data-step="spec" data-state="upcoming">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Spec</span></div>
-                <p class="lifecycle-copy">Review the drafted scope.</p>
+                <p class="lifecycle-copy">Approve the scope or tighten it.</p>
               </li>
               <li class="lifecycle-step" data-step="delivery" data-state="upcoming">
                 <div class="lifecycle-label"><span class="lifecycle-dot" aria-hidden="true"></span><span>Delivery</span></div>
-                <p class="lifecycle-copy">Track implementation, preview, and launch.</p>
+                <p class="lifecycle-copy">Track implementation, preview, and rollout.</p>
               </li>
             </ol>
           </section>
 
           <form id="compose-form" class="hidden" novalidate>
-            <div class="section">
-              <div class="field">
-                <label for="request-body">What should this product do better?</label>
-                <textarea id="request-body" name="body" maxlength="4000" placeholder="Tell us what should change, and what outcome you need."></textarea>
+            <div class="section compose-shell">
+              <div class="compose-lead">
+                <p class="compose-kicker">Start here</p>
+                <h2>What should this product do better?</h2>
+                <p>Describe the outcome first. Add supporting files or page context only if they help explain the request.</p>
+              </div>
+
+              <div class="field field-primary">
+                <label class="sr-only" for="request-body">What should this product do better?</label>
+                <textarea
+                  id="request-body"
+                  name="body"
+                  maxlength="4000"
+                  placeholder="Describe the change and the outcome you need."
+                ></textarea>
               </div>
 
               <input id="request-title" name="title" type="hidden" />
 
-              <div class="request-meta">
+              <div class="compose-tools">
                 <label class="field compact" for="request-kind">
                   <span>Request type</span>
                   <select id="request-kind" name="kind" class="type-select" aria-label="Request type">
@@ -1135,7 +1324,7 @@
               </div>
 
               <details class="details">
-                <summary>Context</summary>
+                <summary>Shared context</summary>
                 <div class="details-body">
                   <dl class="summary-grid" id="context-summary" aria-live="polite"></dl>
                 </div>
@@ -1153,8 +1342,8 @@
 
           <section class="section hidden" id="chat-section" aria-labelledby="chat-title">
             <div class="section-head">
-              <h2 id="chat-title">Clarification chat</h2>
-              <p id="chat-copy">Answer the open questions.</p>
+              <h2 id="chat-title">A few questions</h2>
+              <p id="chat-copy">Answer what is still missing so the scope stays accurate.</p>
             </div>
             <div class="chat-card">
               <div class="chat-head">
@@ -1170,15 +1359,15 @@
 
               <div class="chat-summary" aria-label="Conversation summary">
                 <div class="chat-summary-item">
-                  <div class="chat-summary-label">Contribution</div>
+                  <div class="chat-summary-label">Request</div>
                   <div class="chat-summary-value" id="chat-title-value">Not provided</div>
                 </div>
                 <div class="chat-summary-item">
-                  <div class="chat-summary-label">Context</div>
+                  <div class="chat-summary-label">Page</div>
                   <div class="chat-summary-value" id="chat-context-value">No shared context.</div>
                 </div>
                 <div class="chat-summary-item">
-                  <div class="chat-summary-label">Attachments</div>
+                  <div class="chat-summary-label">Files</div>
                   <div class="chat-summary-value" id="chat-attachment-value">0 files</div>
                 </div>
               </div>
@@ -1189,7 +1378,7 @@
 
               <form class="chat-composer" id="chat-form" novalidate>
                 <div class="chat-composer-top">
-                  <p>Tap suggested answers or write one combined reply before sending.</p>
+                  <p>Tap a suggestion to load it below, then edit it if needed before sending.</p>
                 </div>
                 <label class="sr-only" for="chat-reply">Reply to the agent</label>
                 <textarea
@@ -1207,8 +1396,8 @@
 
           <section class="section hidden" id="review-section" aria-labelledby="review-title">
             <div class="section-head">
-              <h2 id="review-title">Contribution review</h2>
-              <p id="review-copy">Approve the scope or refine it.</p>
+              <h2 id="review-title">Review the scope</h2>
+              <p id="review-copy">Approve the scope or ask for a tighter draft.</p>
             </div>
             <div class="review-card">
               <div class="review-head">
@@ -1224,70 +1413,13 @@
 
               <div class="status-block hidden" id="delivery-status" aria-live="polite"></div>
 
-	              <div class="review-links hidden" id="delivery-links"></div>
-
-	              <div class="review-metrics hidden" id="delivery-summary"></div>
-
-              <div class="review-section hidden" id="preview-review-section">
-                <div class="review-label">Preview review</div>
-                <div class="review-actions" id="preview-review-actions">
-                  <button type="button" class="primary-button" id="preview-approve-button">Approve preview</button>
-                  <button type="button" class="secondary-button" id="preview-request-changes-button">Request changes</button>
-                </div>
-                <form class="review-form hidden" id="preview-request-form" novalidate>
-                  <label class="sr-only" for="preview-request-note">Request changes</label>
-                  <textarea
-                    id="preview-request-note"
-                    maxlength="2000"
-                    placeholder="Describe what still needs to change."
-                  ></textarea>
-                  <div class="review-actions">
-                    <button type="submit" class="primary-button" id="preview-request-submit-button">Send change request</button>
-                    <button type="button" class="secondary-button" id="preview-request-cancel-button">Keep current preview</button>
-                  </div>
-                </form>
-              </div>
-
-	              <div class="review-section hidden" id="vote-summary-section">
-                <div class="review-label">Vote status</div>
-                <div class="vote-summary-grid" id="vote-summary"></div>
-              </div>
-
-              <div class="review-actions hidden" id="vote-actions">
-                <button type="button" class="primary-button" id="vote-approve-button">Approve change</button>
-                <button type="button" class="secondary-button" id="vote-block-button">Block for now</button>
-              </div>
-
-              <div class="status-block hidden" id="comment-status" aria-live="polite"></div>
-
-              <div class="review-section hidden" id="comment-list-section">
-                <div class="review-label">Comments</div>
-                <div class="stack-list" id="comment-list"></div>
-              </div>
-
-              <form class="review-form hidden" id="comment-form" novalidate>
-                <div class="review-label" id="comment-form-label">Comment</div>
-                <label class="sr-only" for="comment-body">Comment</label>
-                <textarea id="comment-body" maxlength="2000" placeholder="Add context or request a change."></textarea>
-                <div class="review-actions">
-                  <button type="submit" class="primary-button" id="comment-submit-button">Send comment</button>
-                </div>
-              </form>
-
-              <details class="details hidden" id="timeline-details" open>
-                <summary>Progress timeline</summary>
-                <div class="details-body">
-                  <div class="stack-list" id="timeline-list"></div>
-                </div>
-              </details>
-
               <div class="review-section">
                 <div class="review-label">Goal</div>
                 <p class="review-text" id="spec-goal">No spec yet.</p>
               </div>
 
               <div class="review-section">
-                <div class="review-label">User problem</div>
+                <div class="review-label">Problem</div>
                 <p class="review-text" id="spec-user-problem">No spec yet.</p>
               </div>
 
@@ -1301,27 +1433,6 @@
                   <ul class="review-list" id="spec-non-goals"></ul>
                 </div>
               </div>
-
-              <details class="details">
-                <summary>Attachments</summary>
-                <div class="details-body">
-                  <div class="stack-list" id="review-attachments"></div>
-                </div>
-              </details>
-
-              <details class="details">
-                <summary>Request context</summary>
-                <div class="details-body">
-                  <dl class="summary-grid" id="review-context"></dl>
-                </div>
-              </details>
-
-              <details class="details">
-                <summary>Conversation</summary>
-                <div class="details-body">
-                  <div class="stack-list" id="message-list"></div>
-                </div>
-              </details>
 
               <div class="review-actions" id="review-actions">
                 <button type="button" class="primary-button" id="approve-button">Approve Spec</button>
@@ -1341,6 +1452,84 @@
                 <button type="button" class="primary-button" id="refine-submit-button">Send refinement</button>
                 <button type="button" class="secondary-button" id="refine-cancel-button">Keep current spec</button>
               </div>
+
+              <div class="review-links hidden" id="delivery-links"></div>
+
+              <div class="review-metrics hidden" id="delivery-summary"></div>
+
+              <div class="review-section hidden" id="preview-review-section">
+                <div class="review-label">Preview</div>
+                <div class="review-actions" id="preview-review-actions">
+                  <button type="button" class="primary-button" id="preview-approve-button">Approve preview</button>
+                  <button type="button" class="secondary-button" id="preview-request-changes-button">Request changes</button>
+                </div>
+                <form class="review-form hidden" id="preview-request-form" novalidate>
+                  <label class="sr-only" for="preview-request-note">Request changes</label>
+                  <textarea
+                    id="preview-request-note"
+                    maxlength="2000"
+                    placeholder="Describe what still needs to change."
+                  ></textarea>
+                  <div class="review-actions">
+                    <button type="submit" class="primary-button" id="preview-request-submit-button">Send change request</button>
+                    <button type="button" class="secondary-button" id="preview-request-cancel-button">Keep current preview</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="review-section hidden" id="vote-summary-section">
+                <div class="review-label">Votes</div>
+                <div class="vote-summary-grid" id="vote-summary"></div>
+              </div>
+
+              <div class="review-actions hidden" id="vote-actions">
+                <button type="button" class="primary-button" id="vote-approve-button">Approve change</button>
+                <button type="button" class="secondary-button" id="vote-block-button">Block for now</button>
+              </div>
+
+              <div class="status-block hidden" id="comment-status" aria-live="polite"></div>
+
+              <div class="review-section hidden" id="comment-list-section">
+                <div class="review-label">Notes</div>
+                <div class="stack-list" id="comment-list"></div>
+              </div>
+
+              <form class="review-form hidden" id="comment-form" novalidate>
+                <div class="review-label" id="comment-form-label">Add a note</div>
+                <label class="sr-only" for="comment-body">Comment</label>
+                <textarea id="comment-body" maxlength="2000" placeholder="Add context or request a change."></textarea>
+                <div class="review-actions">
+                  <button type="submit" class="primary-button" id="comment-submit-button">Send comment</button>
+                </div>
+              </form>
+
+              <details class="details hidden" id="timeline-details">
+                <summary>Delivery log</summary>
+                <div class="details-body">
+                  <div class="stack-list" id="timeline-list"></div>
+                </div>
+              </details>
+
+              <details class="details">
+                <summary>Supporting files</summary>
+                <div class="details-body">
+                  <div class="stack-list" id="review-attachments"></div>
+                </div>
+              </details>
+
+              <details class="details">
+                <summary>Shared context</summary>
+                <div class="details-body">
+                  <dl class="summary-grid" id="review-context"></dl>
+                </div>
+              </details>
+
+              <details class="details">
+                <summary>Clarification log</summary>
+                <div class="details-body">
+                  <div class="stack-list" id="message-list"></div>
+                </div>
+              </details>
             </div>
           </section>
         </div>
@@ -2048,7 +2237,9 @@
                           ? '<div class="chat-question-format">Answer format: ' + escapeHtml(choice.suggestedAnswerFormat) + '</div>'
                           : '') +
                         (questionChoices.length
-                          ? '<div class="chat-choices chat-question-suggestions">' +
+                          ? '<div class="chat-choice-group chat-question-suggestions">' +
+                            '<div class="chat-choice-group-label">Suggested replies. Tap one to load it below.</div>' +
+                            '<div class="chat-choices">' +
                             questionChoices
                               .map(function (questionChoice) {
                                 var isSelected = state.selectedQuestionChoices[choice.id] === questionChoice.label;
@@ -2069,6 +2260,7 @@
                                 );
                               })
                               .join('') +
+                            '</div>' +
                             '</div>'
                           : '') +
                         '</div>' +
@@ -2077,7 +2269,9 @@
                     })
                     .join('') +
                   '</ol>'
-                : '<div class="chat-choices">' +
+                : '<div class="chat-choice-group">' +
+                  '<div class="chat-choice-group-label">Quick replies. Tap one to send it now.</div>' +
+                  '<div class="chat-choices">' +
                   choices
                     .map(function (choice) {
                       return (
@@ -2093,6 +2287,7 @@
                       );
                     })
                     .join('') +
+                  '</div>' +
                   '</div>'
               : '') +
             '</article>'
@@ -2129,7 +2324,7 @@
               : 'Add a bit more detail.';
           chatCopy.textContent = latestAgentQuestion && latestAgentQuestion.messageType === 'ask_user_questions'
             ? hasSuggestedChoices(latestAgentQuestion)
-              ? 'Tap suggested answers or write your own reply. Short bullets are fine.'
+              ? 'Tap a suggested reply to load it into the composer, or answer in your own words.'
               : 'Answer the questions below in one reply. Short bullets are fine.'
             : latestAgentQuestion
               ? "Choose one of the agent's options or answer in your own words."
@@ -2474,11 +2669,11 @@
 
           reviewState.textContent = isSpecPendingApproval ? 'Spec ready' : 'Delivery tracked';
           reviewHeading.textContent = isSpecPendingApproval
-            ? 'Review spec v' + currentSpec.versionNumber + '.'
+            ? 'Confirm spec v' + currentSpec.versionNumber + '.'
             : 'Track the approved change.';
           reviewCopy.textContent = isSpecPendingApproval
-            ? 'Approve the scope or ask for changes before any implementation work starts.'
-            : 'Crowdship keeps the approved scope visible while implementation, preview, and review move forward.';
+            ? 'Check the goal, problem, and acceptance criteria, then approve the scope or refine it.'
+            : 'The approved scope stays visible here while implementation, preview, and review move forward.';
           setReviewChip(isSpecPendingApproval ? 'working' : 'ready', isSpecPendingApproval ? 'Waiting for approval' : 'Delivery active');
           specGoal.textContent = currentSpec.goal || 'No goal recorded.';
           specUserProblem.textContent = currentSpec.userProblem || 'No user problem recorded.';
@@ -2500,8 +2695,8 @@
             messageList,
             conversation.map(function (message) {
               return {
-                title: message.authorRole,
-                meta: message.createdAt,
+                title: (message.authorRole || message.role || 'agent') === 'requester' ? 'You' : 'Agent',
+                meta: formatDateTime(message.createdAt),
                 copy: message.body,
               };
             }),
