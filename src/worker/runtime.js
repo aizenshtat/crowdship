@@ -511,27 +511,22 @@ async function ensurePullRequest(
   detail,
   verification,
   previewUrl = null,
+  { runCommandImpl = runCommand, writeFileSyncImpl = writeFileSync } = {},
 ) {
-  const existing = await runCommand(
+  const existing = await runCommandImpl(
     'gh',
     ['pr', 'list', '--repo', repositoryFullName, '--head', branchName, '--state', 'open', '--json', 'number,url'],
     { cwd: worktreePath },
   );
   const existingPullRequests = existing.stdout ? JSON.parse(existing.stdout) : [];
 
-  if (existingPullRequests[0]) {
-    return {
-      number: existingPullRequests[0].number,
-      url: existingPullRequests[0].url,
-      created: false,
-    };
-  }
-
   const latestSpec = detail.specVersions
     .slice()
     .sort((left, right) => right.versionNumber - left.versionNumber)[0];
   const bodyPath = join(worktreePath, '.crowdship-pr-body.md');
-  writeFileSync(
+  const pullRequestTitle = buildPullRequestTitle(detail.contribution.title);
+
+  writeFileSyncImpl(
     bodyPath,
     buildPullRequestBody({
       contributionId: detail.contribution.id,
@@ -544,7 +539,31 @@ async function ensurePullRequest(
     'utf8',
   );
 
-  const created = await runCommand(
+  if (existingPullRequests[0]) {
+    await runCommandImpl(
+      'gh',
+      [
+        'pr',
+        'edit',
+        String(existingPullRequests[0].number),
+        '--repo',
+        repositoryFullName,
+        '--title',
+        pullRequestTitle,
+        '--body-file',
+        bodyPath,
+      ],
+      { cwd: worktreePath },
+    );
+
+    return {
+      number: existingPullRequests[0].number,
+      url: existingPullRequests[0].url,
+      created: false,
+    };
+  }
+
+  const created = await runCommandImpl(
     'gh',
     [
       'pr',
@@ -557,7 +576,7 @@ async function ensurePullRequest(
       '--head',
       branchName,
       '--title',
-      buildPullRequestTitle(detail.contribution.title),
+      pullRequestTitle,
       '--body-file',
       bodyPath,
     ],
@@ -904,6 +923,7 @@ export const __testInternals = {
   buildGithubExtraHeader,
   cleanupRepositoryCheckout,
   ensureRepositoryCheckout,
+  ensurePullRequest,
   withGithubExtraHeader,
 };
 

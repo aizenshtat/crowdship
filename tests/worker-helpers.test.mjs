@@ -152,6 +152,80 @@ test('worker resolves relative preview deploy scripts against the checked out re
   );
 });
 
+test('worker refreshes an existing pull request instead of creating another one', async () => {
+  const commands = [];
+  const writes = [];
+
+  const detail = {
+    contribution: {
+      id: 'ctrb-123',
+      title: 'Add anomaly replay for signal drops',
+    },
+    specVersions: [
+      {
+        versionNumber: 2,
+        spec: {
+          acceptanceCriteria: ['Replay starts from the selected anomaly row.'],
+        },
+      },
+    ],
+  };
+
+  const result = await __testInternals.ensurePullRequest(
+    '/tmp/crowdship-ctrb-123',
+    'customer/orbital-ops',
+    'main',
+    'crowdship/ctrb-123-add-anomaly-replay-for-signal-drops',
+    detail,
+    ['npm test'],
+    'https://preview.orbital.test/previews/ctrb-123/',
+    {
+      async runCommandImpl(command, args, options) {
+        commands.push({ command, args, options });
+
+        if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+          return {
+            stdout: JSON.stringify([
+              {
+                number: 42,
+                url: 'https://github.com/customer/orbital-ops/pull/42',
+              },
+            ]),
+          };
+        }
+
+        if (command === 'gh' && args[0] === 'pr' && args[1] === 'edit') {
+          return {
+            stdout: '',
+          };
+        }
+
+        throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+      },
+      writeFileSyncImpl(path, content, encoding) {
+        writes.push({ path, content, encoding });
+      },
+    },
+  );
+
+  assert.deepEqual(result, {
+    number: 42,
+    url: 'https://github.com/customer/orbital-ops/pull/42',
+    created: false,
+  });
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0].command, 'gh');
+  assert.deepEqual(commands[0].args.slice(0, 2), ['pr', 'list']);
+  assert.equal(commands[1].command, 'gh');
+  assert.deepEqual(commands[1].args.slice(0, 2), ['pr', 'edit']);
+  assert.ok(commands[1].args.includes('--body-file'));
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].encoding, 'utf8');
+  assert.match(writes[0].path, /\.crowdship-pr-body\.md$/);
+  assert.match(writes[0].content, /Contribution ID: `ctrb-123`/);
+  assert.match(writes[0].content, /https:\/\/preview\.orbital\.test\/previews\/ctrb-123\//);
+});
+
 test('implementation edits stay inside the allowed example repo surface', () => {
   const edits = sanitizeImplementationEdits('/tmp/example', [
     {
