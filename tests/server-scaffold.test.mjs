@@ -105,6 +105,170 @@ function requestBinary({ port, method, path, body, headers = {} }) {
   });
 }
 
+function parseEventStreamEvent(rawEvent) {
+  const normalized = rawEvent.replace(/\r\n/g, '\n').trim();
+
+  if (!normalized || normalized.startsWith(':') || normalized.startsWith('retry:')) {
+    return null;
+  }
+
+  let event = 'message';
+  let eventSpecified = false;
+  let id = null;
+  const dataLines = [];
+
+  normalized.split('\n').forEach((line) => {
+    if (!line || line.startsWith(':')) {
+      return;
+    }
+    if (line.startsWith('event:')) {
+      event = line.slice('event:'.length).trim();
+      eventSpecified = true;
+      return;
+    }
+    if (line.startsWith('id:')) {
+      id = line.slice('id:'.length).trim();
+      return;
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trimStart());
+    }
+  });
+
+  if (!eventSpecified && !id && !dataLines.length) {
+    return null;
+  }
+
+  return {
+    event,
+    id,
+    data: dataLines.join('\n'),
+  };
+}
+
+function openEventStream({ port, path, headers = {} }) {
+  return new Promise((resolve, reject) => {
+    const queuedEvents = [];
+    const pending = [];
+    let response = null;
+    let buffer = '';
+    let closed = false;
+
+    const settlePending = (error) => {
+      while (pending.length) {
+        const waiter = pending.shift();
+        if (error) {
+          waiter.reject(error);
+        } else {
+          waiter.resolve(null);
+        }
+      }
+    };
+
+    const req = request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'GET',
+        path,
+        headers: {
+          accept: 'text/event-stream',
+          ...headers,
+        },
+      },
+      (res) => {
+        response = res;
+        response.setEncoding('utf8');
+
+        response.on('data', (chunk) => {
+          buffer += chunk.replace(/\r\n/g, '\n');
+
+          while (buffer.includes('\n\n')) {
+            const boundary = buffer.indexOf('\n\n');
+            const rawEvent = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+
+            const parsed = parseEventStreamEvent(rawEvent);
+
+            if (!parsed) {
+              continue;
+            }
+
+            if (pending.length) {
+              pending.shift().resolve(parsed);
+            } else {
+              queuedEvents.push(parsed);
+            }
+          }
+        });
+
+        response.on('close', () => {
+          closed = true;
+          settlePending();
+        });
+
+        resolve({
+          get status() {
+            return response ? response.statusCode : null;
+          },
+          get headers() {
+            return response ? response.headers : {};
+          },
+          nextEvent(timeoutMs = 4000) {
+            if (queuedEvents.length) {
+              return Promise.resolve(queuedEvents.shift());
+            }
+
+            if (closed) {
+              return Promise.resolve(null);
+            }
+
+            return new Promise((resolveEvent, rejectEvent) => {
+              const timeout = setTimeout(() => {
+                const index = pending.findIndex((entry) => entry.resolve === resolveWrapped);
+                if (index >= 0) {
+                  pending.splice(index, 1);
+                }
+                rejectEvent(new Error(`Timed out waiting for SSE event from ${path}.`));
+              }, timeoutMs);
+
+              const resolveWrapped = (value) => {
+                clearTimeout(timeout);
+                resolveEvent(value);
+              };
+              const rejectWrapped = (error) => {
+                clearTimeout(timeout);
+                rejectEvent(error);
+              };
+
+              pending.push({
+                resolve: resolveWrapped,
+                reject: rejectWrapped,
+              });
+            });
+          },
+          close() {
+            closed = true;
+            settlePending();
+            if (response && !response.destroyed) {
+              response.destroy();
+            }
+            req.destroy();
+          },
+        });
+      },
+    );
+
+    req.on('error', (error) => {
+      closed = true;
+      settlePending(error);
+      reject(error);
+    });
+
+    req.end();
+  });
+}
+
 function buildCreatePayload() {
   return {
     project: 'example',
@@ -299,6 +463,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/messages',
       'POST /api/v1/contributions/:id/spec-approval',
       'GET /api/v1/contributions/:id/progress',
+      'GET /api/v1/contributions/:id/stream',
       'POST /api/v1/contributions/:id/queue-implementation',
       'POST /api/v1/contributions/:id/pull-requests',
       'POST /api/v1/contributions/:id/preview-deployments',
@@ -1174,6 +1339,75 @@ test('api server persists contributions and spec approval through the real http 
     assert.equal(progress.body.lifecycle.currentState, SPEC_APPROVED_CONTRIBUTION_STATE);
     assert.equal(progress.body.lifecycle.events.at(-1).kind, 'spec_approved');
   } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('api server streams contribution snapshots through the real http runtime', async () => {
+  const server = createApiServer({
+    specService: createStubSpecService(),
+    progressStreamPollMs: 20,
+    keepAliveMs: 200,
+  });
+
+  await new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  let stream = null;
+
+  try {
+    const address = server.address();
+    assert.equal(typeof address, 'object');
+    assert.ok(address);
+
+    const created = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const contributionId = created.body.contribution.id;
+
+    stream = await openEventStream({
+      port: address.port,
+      path: `/api/v1/contributions/${contributionId}/stream`,
+    });
+
+    assert.equal(stream.status, 200);
+    assert.match(String(stream.headers['content-type'] || ''), /^text\/event-stream\b/);
+
+    const initialEvent = await stream.nextEvent();
+    assert.equal(initialEvent.event, 'snapshot');
+    const initialPayload = JSON.parse(initialEvent.data);
+    assert.equal(initialPayload.contributionId, contributionId);
+    assert.equal(initialPayload.contribution.state, 'draft_chat');
+    assert.equal(initialPayload.contributionDetail.contribution.id, contributionId);
+
+    const clarified = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: {
+        body: 'Replay should open from the anomaly row and keep the mission layout unchanged.',
+      },
+    });
+
+    assert.equal(clarified.status, 200);
+    assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+
+    const updatedEvent = await stream.nextEvent();
+    assert.equal(updatedEvent.event, 'snapshot');
+    const updatedPayload = JSON.parse(updatedEvent.data);
+    assert.equal(updatedPayload.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+    assert.equal(updatedPayload.lifecycle.currentState, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+    assert.equal(updatedPayload.contributionDetail.spec.current.versionNumber, 1);
+  } finally {
+    if (stream) {
+      stream.close();
+    }
     await new Promise((resolve) => server.close(resolve));
   }
 });

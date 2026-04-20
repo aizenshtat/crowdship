@@ -1384,6 +1384,8 @@
           attachmentSeed: 0,
           pollTimer: 0,
           pollInFlight: false,
+          streamSource: null,
+          streamContributionId: '',
         };
 
         var connectionChip = document.getElementById('connection-chip');
@@ -2142,7 +2144,7 @@
           composeForm.classList.add('hidden');
           reviewSection.classList.add('hidden');
           lifecycleSection.classList.remove('hidden');
-          stopContributionPolling();
+          stopContributionLiveUpdates();
           state.previewRequestOpen = false;
           state.previewRequestNote = '';
         }
@@ -2536,14 +2538,14 @@
           }
 
           setPhase(normalizeReviewPhase(detail));
-          syncContributionPolling();
+          syncContributionLiveUpdates();
         }
 
         function showComposeSurface() {
           chatSection.classList.add('hidden');
           reviewSection.classList.add('hidden');
           composeForm.classList.remove('hidden');
-          stopContributionPolling();
+          stopContributionLiveUpdates();
           state.previewRequestOpen = false;
           state.previewRequestNote = '';
           renderContext();
@@ -2593,12 +2595,12 @@
             showComposeSurface();
           }
 
-          syncContributionPolling();
+          syncContributionLiveUpdates();
         }
 
         function showError(title, copy) {
           state.ready = false;
-          stopContributionPolling();
+          stopContributionLiveUpdates();
           loadingState.classList.add('hidden');
           errorState.classList.remove('hidden');
           lifecycleSection.classList.add('hidden');
@@ -2848,11 +2850,24 @@
             });
         }
 
+        function stopContributionStream() {
+          if (state.streamSource) {
+            state.streamSource.close();
+            state.streamSource = null;
+          }
+          state.streamContributionId = '';
+        }
+
         function stopContributionPolling() {
           if (state.pollTimer) {
             clearTimeout(state.pollTimer);
             state.pollTimer = 0;
           }
+        }
+
+        function stopContributionLiveUpdates() {
+          stopContributionStream();
+          stopContributionPolling();
         }
 
         function queueContributionPoll() {
@@ -2876,6 +2891,80 @@
           if (!state.pollTimer && !state.pollInFlight) {
             queueContributionPoll();
           }
+        }
+
+        function connectContributionStream(contributionId) {
+          if (!window.EventSource || !contributionId) {
+            return false;
+          }
+
+          stopContributionPolling();
+          stopContributionStream();
+
+          var source = new window.EventSource(
+            '/api/v1/contributions/' + encodeURIComponent(contributionId) + '/stream'
+          );
+
+          state.streamSource = source;
+          state.streamContributionId = contributionId;
+
+          source.addEventListener('snapshot', function (event) {
+            var payload = null;
+
+            try {
+              payload = JSON.parse(event.data || 'null');
+            } catch (error) {
+              return;
+            }
+
+            var nextDetail = getContributionDetail(payload) || payload;
+
+            if (!nextDetail || !nextDetail.contribution || nextDetail.contribution.id !== contributionId) {
+              return;
+            }
+
+            state.contributionDetail = nextDetail;
+            if (getContributionState(state.contributionDetail) === 'draft_chat') {
+              renderChat(state.contributionDetail);
+            } else {
+              renderReview();
+            }
+          });
+
+          source.addEventListener('error', function () {
+            if (state.streamSource !== source) {
+              return;
+            }
+
+            if (source.readyState === 2) {
+              stopContributionStream();
+              syncContributionPolling();
+            }
+          });
+
+          return true;
+        }
+
+        function syncContributionLiveUpdates() {
+          var contributionId =
+            state.contributionDetail && state.contributionDetail.contribution
+              ? state.contributionDetail.contribution.id
+              : '';
+
+          if (!shouldPollContribution(state.contributionDetail) || !contributionId) {
+            stopContributionLiveUpdates();
+            return;
+          }
+
+          if (state.streamSource && state.streamContributionId === contributionId) {
+            return;
+          }
+
+          if (connectContributionStream(contributionId)) {
+            return;
+          }
+
+          syncContributionPolling();
         }
 
         function fetchContributionDetail(options) {
@@ -2915,7 +3004,7 @@
             })
             .finally(function () {
               state.pollInFlight = false;
-              syncContributionPolling();
+              syncContributionLiveUpdates();
             });
         }
 
@@ -3372,7 +3461,7 @@
         });
 
         closeButton.addEventListener('click', function () {
-          stopContributionPolling();
+          stopContributionLiveUpdates();
           window.parent.postMessage({ source: 'crowdship', type: 'crowdship:close-request' }, '*');
         });
 
@@ -3392,7 +3481,7 @@
             return;
           }
           if (data.type === 'crowdship:close') {
-            stopContributionPolling();
+            stopContributionLiveUpdates();
             window.close();
           }
         });

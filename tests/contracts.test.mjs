@@ -135,6 +135,7 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(frame, /Clarification chat/);
   assert.match(frame, /Answer the questions below in one reply/);
   assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(state\.contributionDetail\.contribution\.id\) \+ '\/messages/);
+  assert.match(frame, /new window\.EventSource\(\s*'\/api\/v1\/contributions\/' \+ encodeURIComponent\(contributionId\) \+ '\/stream'/);
   assert.match(frame, /body: uploadTarget\.draft\.file/);
   assert.match(frame, /'X-Crowdship-Attachment-Id': uploadTarget\.attachmentId/);
   assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(contributionId\) \+ '\/attachments/);

@@ -16,6 +16,35 @@ function jsonResponse(res, status, body, extraHeaders = {}) {
   res.end(body == null ? '' : JSON.stringify(body));
 }
 
+function eventStreamResponse(res, status, start, extraHeaders = {}, request = null) {
+  const headers = {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+    ...extraHeaders,
+  };
+
+  res.writeHead(status, headers);
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+  res.write('retry: 2000\n\n');
+
+  Promise.resolve(start({ request, response: res })).catch((error) => {
+    if (res.writableEnded || res.destroyed) {
+      return;
+    }
+
+    const payload = JSON.stringify({
+      error: 'stream_failed',
+      message: error instanceof Error ? error.message : 'Stream failed.',
+    });
+    res.write(`event: error\ndata: ${payload}\n\n`);
+    res.end();
+  });
+}
+
 function readRequestBody(request) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -134,6 +163,11 @@ function createRequestHandler(options = {}) {
       query: Object.fromEntries(requestUrl.searchParams.entries()),
       request,
     });
+
+    if (result && result.responseMode === 'stream') {
+      eventStreamResponse(response, result.status, result.start, result.headers, request);
+      return;
+    }
 
     jsonResponse(response, result.status, result.body);
   };

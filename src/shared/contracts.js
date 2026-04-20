@@ -178,6 +178,12 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     handler: 'getContributionProgress',
   }),
   Object.freeze({
+    method: 'GET',
+    path: '/api/v1/contributions/:id/stream',
+    handler: 'getContributionStream',
+    responseMode: 'stream',
+  }),
+  Object.freeze({
     method: 'POST',
     path: '/api/v1/contributions/:id/queue-implementation',
     handler: 'postQueueImplementation',

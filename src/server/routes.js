@@ -72,6 +72,15 @@ function buildResponse(status, body) {
   };
 }
 
+function buildEventStreamResponse({ status = 200, headers = {}, start }) {
+  return {
+    status,
+    headers,
+    responseMode: 'stream',
+    start,
+  };
+}
+
 function notWiredResponse(message = 'Persistence is not wired yet.') {
   return buildResponse(501, {
     error: 'not_wired',
@@ -908,6 +917,42 @@ function buildContributionSnapshot(detail) {
       comments: comments.map(serializeComment),
     },
   };
+}
+
+function buildContributionProgressStreamPayload(detail) {
+  const snapshot = buildContributionSnapshot(detail);
+
+  return {
+    contributionId: detail.contribution.id,
+    contribution: snapshot.contribution,
+    lifecycle: snapshot.lifecycle,
+    contributionDetail: snapshot,
+  };
+}
+
+function writeEventStreamEvent(response, { event = 'message', id = null, data = null }) {
+  if (!response || response.writableEnded || response.destroyed) {
+    return;
+  }
+
+  const lines = [];
+
+  if (id) {
+    lines.push(`id: ${id}`);
+  }
+
+  if (event) {
+    lines.push(`event: ${event}`);
+  }
+
+  if (data != null) {
+    const payload = typeof data === 'string' ? data : JSON.stringify(data);
+    payload.split('\n').forEach((line) => {
+      lines.push(`data: ${line}`);
+    });
+  }
+
+  response.write(`${lines.join('\n')}\n\n`);
 }
 
 function canQueueImplementationFromState(state) {
@@ -1857,6 +1902,126 @@ export function createContributionProgressHandler({ database } = {}) {
       lifecycle: {
         currentState: progress.contribution.state,
         events: asArray(progress.progressEvents).map(serializeProgressEvent),
+      },
+    });
+  };
+}
+
+export function createContributionStreamHandler({
+  database,
+  progressStreamPollMs = Number.parseInt(process.env.CROWDSHIP_PROGRESS_STREAM_POLL_MS ?? '', 10) || 1500,
+  keepAliveMs = 15000,
+} = {}) {
+  return async ({ params = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail')) {
+      return notWiredResponse('Contribution detail persistence is not wired yet.');
+    }
+
+    const initialDetail = await database.getContributionDetail(contributionId);
+
+    if (!initialDetail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    return buildEventStreamResponse({
+      start({ request, response }) {
+        let closed = false;
+        let syncInFlight = false;
+        let lastSnapshot = '';
+
+        const closeStream = () => {
+          if (closed) {
+            return;
+          }
+
+          closed = true;
+          clearInterval(pollTimer);
+          clearInterval(keepAliveTimer);
+          if (!response.writableEnded && !response.destroyed) {
+            response.end();
+          }
+        };
+
+        const pushDetail = (detail) => {
+          if (closed || !detail || !detail.contribution) {
+            return;
+          }
+
+          const payload = buildContributionProgressStreamPayload(detail);
+          const serialized = JSON.stringify(payload);
+
+          if (serialized === lastSnapshot) {
+            return;
+          }
+
+          lastSnapshot = serialized;
+          writeEventStreamEvent(response, {
+            event: 'snapshot',
+            id: payload.lifecycle.events.at(-1)?.id || payload.contributionId,
+            data: serialized,
+          });
+        };
+
+        const syncDetail = async () => {
+          if (closed || syncInFlight) {
+            return;
+          }
+
+          syncInFlight = true;
+
+          try {
+            const detail = await database.getContributionDetail(contributionId);
+
+            if (!detail) {
+              writeEventStreamEvent(response, {
+                event: 'terminated',
+                id: contributionId,
+                data: { contributionId, message: 'Contribution is no longer available.' },
+              });
+              closeStream();
+              return;
+            }
+
+            pushDetail(detail);
+          } catch (error) {
+            writeEventStreamEvent(response, {
+              event: 'error',
+              id: contributionId,
+              data: {
+                error: 'stream_sync_failed',
+                message: error instanceof Error ? error.message : 'Contribution stream sync failed.',
+              },
+            });
+          } finally {
+            syncInFlight = false;
+          }
+        };
+
+        const keepAliveTimer = setInterval(() => {
+          if (!closed && !response.writableEnded && !response.destroyed) {
+            response.write(`: keep-alive ${Date.now()}\n\n`);
+          }
+        }, keepAliveMs);
+        const pollTimer = setInterval(() => {
+          void syncDetail();
+        }, progressStreamPollMs);
+
+        request?.on('close', closeStream);
+        response.on('close', closeStream);
+
+        pushDetail(initialDetail);
       },
     });
   };
@@ -3190,6 +3355,7 @@ export function createRouteHandlers(options = {}) {
     postContributionMessage: createContributionMessageHandler(options),
     postSpecApproval: createSpecApprovalHandler(options),
     getContributionProgress: createContributionProgressHandler(options),
+    getContributionStream: createContributionStreamHandler(options),
     postQueueImplementation: createQueueImplementationHandler(options),
     postPullRequest: createPullRequestHandler(options),
     postPreviewDeployment: createPreviewDeploymentHandler(options),
