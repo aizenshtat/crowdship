@@ -1223,8 +1223,11 @@ function SettingsView({
             <input
               value={projectDraft.implementationProfile}
               onChange={(event) => onFieldChange('implementationProfile', event.target.value)}
-              placeholder="default"
+              placeholder="react_vite_app"
             />
+            <span className="section-note">
+              Use <code>react_vite_app</code> for customer React/Vite repos. The demo <code>example</code> project can keep its legacy default.
+            </span>
           </label>
           <label className="review-field review-field-wide">
             <span>Local repository path</span>

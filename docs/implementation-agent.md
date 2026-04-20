@@ -11,6 +11,7 @@ The agent never runs directly from an unapproved user prompt.
 - Approved spec version.
 - Contribution ID.
 - Project configuration.
+- Implementation profile.
 - Repository URL.
 - Branch naming policy.
 - Safe app context.
@@ -44,6 +45,24 @@ crowdship/ctrb-123-anomaly-replay-for-signal-drops
 11. Open or update the PR.
 12. Store PR URL and branch name.
 13. Wait for preview deployment status.
+
+## Implementation Profiles
+
+The worker does not infer an arbitrary repository shape.
+
+Supported profiles:
+
+- `orbital_ops_reference`: legacy default for the demo `example` repo.
+- `react_vite_app`: reusable profile for React, TypeScript, and Vite apps.
+
+Each profile defines:
+
+- allowed file prefixes the model may edit
+- repository files used as implementation context
+- repository/runtime label used in the prompt
+- design/integration guardrails for that app family
+
+For non-example projects, `runtimeConfig.implementationProfile` must be set before Crowdship can generate edits.
 
 ## Progress Events
 

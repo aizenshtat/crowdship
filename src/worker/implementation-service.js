@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 
-const EXAMPLE_CONTEXT_FILES = Object.freeze([
+const DEFAULT_CONTEXT_FILES = Object.freeze([
   'package.json',
   'src/App.tsx',
   'src/data.ts',
@@ -11,12 +11,38 @@ const EXAMPLE_CONTEXT_FILES = Object.freeze([
   'tests/widget-integration.test.mjs',
 ]);
 
-const EXAMPLE_ALLOWED_PREFIXES = Object.freeze([
+const DEFAULT_ALLOWED_PREFIXES = Object.freeze([
   'package.json',
   'src/',
   'tests/',
   'public/',
 ]);
+
+export const IMPLEMENTATION_PROFILES = Object.freeze({
+  orbital_ops_reference: Object.freeze({
+    id: 'orbital_ops_reference',
+    appLabel: 'Orbital Ops reference app',
+    runtimeLabel: 'React 19 + TypeScript + Vite',
+    allowedPrefixes: DEFAULT_ALLOWED_PREFIXES,
+    contextFiles: DEFAULT_CONTEXT_FILES,
+    styleGuard:
+      'Preserve Crowdship widget integration and the Orbital Ops visual language unless the approved spec requires otherwise.',
+  }),
+  react_vite_app: Object.freeze({
+    id: 'react_vite_app',
+    appLabel: 'customer-owned React, TypeScript, and Vite app',
+    runtimeLabel: 'React + TypeScript + Vite',
+    allowedPrefixes: DEFAULT_ALLOWED_PREFIXES,
+    contextFiles: DEFAULT_CONTEXT_FILES,
+    styleGuard: 'Preserve the host app design system and existing Crowdship integration unless the approved spec requires otherwise.',
+  }),
+});
+
+export const SUPPORTED_IMPLEMENTATION_PROFILES = Object.freeze(Object.keys(IMPLEMENTATION_PROFILES));
+
+const LEGACY_PROJECT_IMPLEMENTATION_PROFILES = Object.freeze({
+  example: 'orbital_ops_reference',
+});
 
 export class ImplementationServiceError extends Error {
   constructor(message, { code = 'implementation_generation_failed', statusCode = 502 } = {}) {
@@ -41,13 +67,29 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function ensureSupportedProject(projectSlug) {
-  if (projectSlug !== 'example') {
-    throw new ImplementationServiceError(`Unsupported project slug for implementation edits: ${projectSlug}`, {
-      code: 'unsupported_project',
-      statusCode: 500,
-    });
+function getSupportedProfileList() {
+  return SUPPORTED_IMPLEMENTATION_PROFILES.join(', ');
+}
+
+export function resolveImplementationProfile(detail, runtimeConfig = null) {
+  const projectSlug = cleanText(detail?.contribution?.projectSlug);
+  const configuredProfileId = cleanText(runtimeConfig?.implementationProfile);
+  const profileId = configuredProfileId || LEGACY_PROJECT_IMPLEMENTATION_PROFILES[projectSlug] || '';
+  const profile = IMPLEMENTATION_PROFILES[profileId] ?? null;
+
+  if (profile) {
+    return profile;
   }
+
+  throw new ImplementationServiceError(
+    configuredProfileId
+      ? `Unsupported implementation profile "${configuredProfileId}". Supported profiles: ${getSupportedProfileList()}.`
+      : `Project "${projectSlug || 'unknown'}" requires runtimeConfig.implementationProfile. Supported profiles: ${getSupportedProfileList()}.`,
+    {
+      code: 'unsupported_implementation_profile',
+      statusCode: 500,
+    },
+  );
 }
 
 function getLatestSpec(detail) {
@@ -56,7 +98,7 @@ function getLatestSpec(detail) {
     .sort((left, right) => (right?.versionNumber ?? 0) - (left?.versionNumber ?? 0))[0] ?? null;
 }
 
-function sanitizeEditPath(worktreePath, rawPath, { allowedPrefixes = EXAMPLE_ALLOWED_PREFIXES } = {}) {
+function sanitizeEditPath(worktreePath, rawPath, { allowedPrefixes = DEFAULT_ALLOWED_PREFIXES } = {}) {
   const normalized = cleanText(rawPath).replace(/\\/g, '/');
   if (!normalized) {
     throw new ImplementationServiceError('Implementation edit path is missing.', {
@@ -95,11 +137,17 @@ function sanitizeEditPath(worktreePath, rawPath, { allowedPrefixes = EXAMPLE_ALL
   };
 }
 
+export function collectImplementationContext(worktreePath, profile = IMPLEMENTATION_PROFILES.orbital_ops_reference) {
+  return asArray(profile?.contextFiles)
+    .filter((path) => existsSync(resolve(worktreePath, path)))
+    .map((path) => ({
+      path,
+      content: readFileSync(resolve(worktreePath, path), 'utf8'),
+    }));
+}
+
 export function collectExampleImplementationContext(worktreePath) {
-  return EXAMPLE_CONTEXT_FILES.filter((path) => existsSync(resolve(worktreePath, path))).map((path) => ({
-    path,
-    content: readFileSync(resolve(worktreePath, path), 'utf8'),
-  }));
+  return collectImplementationContext(worktreePath, IMPLEMENTATION_PROFILES.orbital_ops_reference);
 }
 
 export function sanitizeImplementationEdits(worktreePath, files, options = {}) {
@@ -138,8 +186,8 @@ export function sanitizeImplementationEdits(worktreePath, files, options = {}) {
   return edits;
 }
 
-export function writeImplementationEdits(worktreePath, files) {
-  const edits = sanitizeImplementationEdits(worktreePath, files);
+export function writeImplementationEdits(worktreePath, files, options = {}) {
+  const edits = sanitizeImplementationEdits(worktreePath, files, options);
 
   for (const edit of edits) {
     mkdirSync(dirname(edit.absolutePath), { recursive: true });
@@ -149,17 +197,17 @@ export function writeImplementationEdits(worktreePath, files) {
   return edits.map((edit) => ({ path: edit.path, reason: edit.reason }));
 }
 
-function buildImplementationMessages(mode, payload) {
+function buildImplementationMessages(mode, payload, profile) {
   const system = [
-    'You are Crowdship implementation worker for the Orbital Ops reference app.',
-    'You are editing a real React, TypeScript, and Vite repository.',
+    `You are Crowdship implementation worker for the ${profile.appLabel}.`,
+    `You are editing a real ${profile.runtimeLabel} repository.`,
     'Implement only the approved scope, using the existing design and code patterns.',
     'Prefer changing existing files over creating new ones.',
     'Do not output markdown, explanations, diffs, or placeholders.',
     'Return full replacement file contents for changed files only.',
     'The result must contain real product code changes, not docs-only changes.',
     'Keep the change narrow, testable, and likely to pass npm test and npm run build.',
-    'Preserve Crowdship widget integration and the Orbital Ops visual language unless the approved spec requires otherwise.',
+    profile.styleGuard,
     'Update tests when the visible behavior or integration contract changes.',
   ].join(' ');
 
@@ -246,9 +294,10 @@ function parseToolArguments(payload, toolName) {
   return JSON.parse(toolCall.function.arguments);
 }
 
-function buildImplementationPayload({ detail, worktreePath, verificationFailure = null }) {
+function buildImplementationPayload({ detail, worktreePath, verificationFailure = null, runtimeConfig = null }) {
+  const profile = resolveImplementationProfile(detail, runtimeConfig);
   const latestSpec = getLatestSpec(detail);
-  const repoFiles = collectExampleImplementationContext(worktreePath);
+  const repoFiles = collectImplementationContext(worktreePath, profile);
 
   return {
     project: detail.contribution.projectSlug,
@@ -280,8 +329,9 @@ function buildImplementationPayload({ detail, worktreePath, verificationFailure 
       sizeBytes: attachment.sizeBytes,
     })),
     repository: {
-      runtime: 'React 19 + TypeScript + Vite',
-      allowedFilePrefixes: EXAMPLE_ALLOWED_PREFIXES,
+      profile: profile.id,
+      runtime: profile.runtimeLabel,
+      allowedFilePrefixes: profile.allowedPrefixes,
       contextFiles: repoFiles,
     },
     verificationFailure,
@@ -359,20 +409,26 @@ export function createOpenAiImplementationService({
   }
 
   return {
-    async generateChanges({ detail, worktreePath }) {
-      ensureSupportedProject(detail?.contribution?.projectSlug);
+    async generateChanges({ detail, worktreePath, runtimeConfig = null }) {
+      const profile = resolveImplementationProfile(detail, runtimeConfig);
       const rawResult = await requestEditPayload(
-        buildImplementationMessages('initial', buildImplementationPayload({ detail, worktreePath })),
+        buildImplementationMessages(
+          'initial',
+          buildImplementationPayload({ detail, worktreePath, runtimeConfig }),
+          profile,
+        ),
       );
 
       return {
-        summary: cleanText(rawResult?.summary, 'Implemented the approved spec in the example repo.'),
-        files: sanitizeImplementationEdits(worktreePath, rawResult?.files),
+        summary: cleanText(rawResult?.summary, 'Implemented the approved spec in the target repository.'),
+        files: sanitizeImplementationEdits(worktreePath, rawResult?.files, {
+          allowedPrefixes: profile.allowedPrefixes,
+        }),
       };
     },
 
-    async repairChanges({ detail, worktreePath, verificationFailure }) {
-      ensureSupportedProject(detail?.contribution?.projectSlug);
+    async repairChanges({ detail, worktreePath, verificationFailure, runtimeConfig = null }) {
+      const profile = resolveImplementationProfile(detail, runtimeConfig);
       const rawResult = await requestEditPayload(
         buildImplementationMessages(
           'repair',
@@ -380,13 +436,17 @@ export function createOpenAiImplementationService({
             detail,
             worktreePath,
             verificationFailure,
+            runtimeConfig,
           }),
+          profile,
         ),
       );
 
       return {
         summary: cleanText(rawResult?.summary, 'Adjusted the implementation to resolve verification errors.'),
-        files: sanitizeImplementationEdits(worktreePath, rawResult?.files),
+        files: sanitizeImplementationEdits(worktreePath, rawResult?.files, {
+          allowedPrefixes: profile.allowedPrefixes,
+        }),
       };
     },
   };

@@ -118,6 +118,7 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /Mark completed/);
   assert.match(admin, /Archive/);
   assert.match(admin, /Publish settings/);
+  assert.match(admin, /react_vite_app/);
   assert.match(admin, /Automation evidence/);
   assert.match(admin, /Comment dispositions/);
   assert.match(admin, /Live preview evidence/);

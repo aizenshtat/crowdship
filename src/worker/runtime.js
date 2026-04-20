@@ -21,6 +21,7 @@ import {
 } from './helpers.js';
 import {
   createConfiguredImplementationService,
+  resolveImplementationProfile,
   writeImplementationEdits,
 } from './implementation-service.js';
 
@@ -699,11 +700,17 @@ export async function processClaimedJob(pool, database, claimedJob) {
         branchName,
       },
     });
+    const implementationProfile = resolveImplementationProfile(detail, repo);
+    const implementationEditOptions = {
+      allowedPrefixes: implementationProfile.allowedPrefixes,
+    };
+
     const implementationResult = await implementationService.generateChanges({
       detail,
       worktreePath,
+      runtimeConfig: repo,
     });
-    const changedFiles = writeImplementationEdits(worktreePath, implementationResult.files);
+    const changedFiles = writeImplementationEdits(worktreePath, implementationResult.files, implementationEditOptions);
     await emitProgress(database, detail.contribution.id, {
       nextState: 'agent_running',
       kind: 'agent_step',
@@ -763,8 +770,9 @@ export async function processClaimedJob(pool, database, claimedJob) {
             stdout: error.stdout ?? '',
             stderr: error.stderr ?? '',
           },
+          runtimeConfig: repo,
         });
-        const repairedFiles = writeImplementationEdits(worktreePath, repairResult.files);
+        const repairedFiles = writeImplementationEdits(worktreePath, repairResult.files, implementationEditOptions);
         await emitProgress(database, detail.contribution.id, {
           nextState: 'agent_running',
           kind: 'agent_step',

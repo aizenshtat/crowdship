@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +12,12 @@ import {
   buildPullRequestBody,
   buildPullRequestTitle,
 } from '../src/worker/helpers.js';
-import { sanitizeImplementationEdits } from '../src/worker/implementation-service.js';
+import {
+  createOpenAiImplementationService,
+  resolveImplementationProfile,
+  sanitizeImplementationEdits,
+  writeImplementationEdits,
+} from '../src/worker/implementation-service.js';
 import {
   __testInternals,
   isDirectWorkerRun,
@@ -152,6 +160,28 @@ test('worker resolves relative preview deploy scripts against the checked out re
   );
 });
 
+test('example keeps the legacy default implementation profile', () => {
+  const profile = resolveImplementationProfile({
+    contribution: {
+      projectSlug: 'example',
+    },
+  });
+
+  assert.equal(profile.id, 'orbital_ops_reference');
+});
+
+test('non-example projects require an explicit implementation profile', () => {
+  assert.throws(
+    () =>
+      resolveImplementationProfile({
+        contribution: {
+          projectSlug: 'customer-app',
+        },
+      }),
+    /runtimeConfig\.implementationProfile/,
+  );
+});
+
 test('worker refreshes an existing pull request instead of creating another one', async () => {
   const commands = [];
   const writes = [];
@@ -224,6 +254,120 @@ test('worker refreshes an existing pull request instead of creating another one'
   assert.match(writes[0].path, /\.crowdship-pr-body\.md$/);
   assert.match(writes[0].content, /Contribution ID: `ctrb-123`/);
   assert.match(writes[0].content, /https:\/\/preview\.orbital\.test\/previews\/ctrb-123\//);
+});
+
+test('implementation service supports the react_vite_app profile for non-example repos', async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), 'crowdship-react-vite-profile-'));
+  mkdirSync(join(worktreePath, 'src'), { recursive: true });
+  writeFileSync(join(worktreePath, 'package.json'), '{"name":"customer-app"}\n', 'utf8');
+  writeFileSync(join(worktreePath, 'src/App.tsx'), 'export function App() { return null; }\n', 'utf8');
+
+  const requests = [];
+  const service = createOpenAiImplementationService({
+    apiKey: 'test-key',
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    function: {
+                      name: 'submit_repo_edits',
+                      arguments: JSON.stringify({
+                        summary: 'Updated the customer app.',
+                        files: [
+                          {
+                            path: 'src/App.tsx',
+                            content: 'export function App() { return "ready"; }\n',
+                          },
+                        ],
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
+      );
+    },
+  });
+
+  const detail = {
+    contribution: {
+      id: 'ctrb-456',
+      projectSlug: 'customer-app',
+      title: 'Add anomaly replay',
+      payload: {},
+    },
+    attachments: [],
+    specVersions: [],
+  };
+
+  const result = await service.generateChanges({
+    detail,
+    worktreePath,
+    runtimeConfig: {
+      implementationProfile: 'react_vite_app',
+    },
+  });
+
+  assert.equal(result.summary, 'Updated the customer app.');
+  assert.equal(result.files[0].path, 'src/App.tsx');
+  const payload = JSON.parse(requests[0].messages[1].content).implementationRequest;
+  assert.equal(payload.repository.profile, 'react_vite_app');
+  assert.equal(payload.repository.runtime, 'React + TypeScript + Vite');
+  assert.deepEqual(payload.repository.allowedFilePrefixes, ['package.json', 'src/', 'tests/', 'public/']);
+});
+
+test('writeImplementationEdits respects custom profile allowlists', () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), 'crowdship-write-profile-'));
+
+  const written = writeImplementationEdits(
+    worktreePath,
+    [
+      {
+        path: 'src/App.tsx',
+        content: 'export function App() { return "ready"; }\n',
+      },
+    ],
+    {
+      allowedPrefixes: ['src/'],
+    },
+  );
+
+  assert.deepEqual(written, [
+    {
+      path: 'src/App.tsx',
+      reason: 'Approved spec implementation update',
+    },
+  ]);
+  assert.equal(readFileSync(join(worktreePath, 'src/App.tsx'), 'utf8'), 'export function App() { return "ready"; }\n');
+  assert.throws(
+    () =>
+      writeImplementationEdits(
+        worktreePath,
+        [
+          {
+            path: 'docs/runbook.md',
+            content: '# no\n',
+          },
+        ],
+        {
+          allowedPrefixes: ['src/'],
+        },
+      ),
+    /outside the allowed repo surface/,
+  );
 });
 
 test('implementation edits stay inside the allowed example repo surface', () => {

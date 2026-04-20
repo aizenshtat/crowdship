@@ -76,6 +76,20 @@ Current runtime-config field split:
 - Shared repo target fields: `repositoryFullName`, `defaultBranch`, `previewBaseUrl`, `previewUrlPattern`, `productionBaseUrl`, `executionMode`, `implementationProfile`
 - Local-worker-only fields: `repoPath`, `previewDeployScript`
 
+## Supported Implementation Profiles
+
+Crowdship only writes to repositories through explicit implementation profiles. That keeps the edit surface narrow and testable instead of pretending every repo is safe to modify.
+
+Current profiles:
+
+- `orbital_ops_reference`: legacy default for the demo `example` repo. This keeps the current Orbital Ops path working without extra setup.
+- `react_vite_app`: first reusable customer profile for React, TypeScript, and Vite apps. It limits edits to `package.json`, `src/`, `tests/`, and `public/`, and uses only the context files that exist in the checked-out repository.
+
+Rule:
+
+- `example` can continue using the legacy default profile.
+- Non-example projects must set `runtimeConfig.implementationProfile` explicitly.
+
 ## Install Steps
 
 ### 1. Install the widget
@@ -92,6 +106,7 @@ Minimum project fields:
 - Target repository
 - Default branch
 - Execution mode
+- Implementation profile
 - Preview URL pattern
 - Production URL
 - Implementation profile
