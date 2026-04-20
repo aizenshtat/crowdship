@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   createGitHubAppJwt,
   createGitHubInstallationAccessToken,
+  getGitHubAppMetadata,
   getGitHubAppConfig,
   getGitHubAppInstallationForRepository,
   getGitHubRepositoryAccessToken,
@@ -110,6 +111,64 @@ test('github app installation lookup reads repository installation metadata', as
   assert.equal(responses[0].url, 'https://api.github.com/repos/customer/orbital-ops/installation');
   assert.equal(responses[0].options.method, 'GET');
   assert.match(responses[0].options.headers.authorization, /^Bearer /);
+});
+
+test('github app metadata lookup returns the app slug and owner', async () => {
+  const metadata = await getGitHubAppMetadata({
+    config: {
+      appId: '12345',
+      privateKey: generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: {
+          format: 'pem',
+          type: 'pkcs8',
+        },
+        publicKeyEncoding: {
+          format: 'pem',
+          type: 'spki',
+        },
+      }).privateKey,
+    },
+    async fetchImpl(url, options) {
+      assert.equal(url, 'https://api.github.com/app');
+      assert.equal(options.method, 'GET');
+      return new Response(
+        JSON.stringify({
+          id: 55,
+          slug: 'aizenshtat-crowdship',
+          name: 'Aizenshtat CrowdShip',
+          html_url: 'https://github.com/apps/aizenshtat-crowdship',
+          owner: {
+            login: 'aizenshtat',
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
+      );
+    },
+    nowMs: Date.UTC(2026, 3, 20, 12, 0, 0),
+  });
+
+  assert.deepEqual(metadata, {
+    id: 55,
+    slug: 'aizenshtat-crowdship',
+    name: 'Aizenshtat CrowdShip',
+    htmlUrl: 'https://github.com/apps/aizenshtat-crowdship',
+    ownerLogin: 'aizenshtat',
+    raw: {
+      id: 55,
+      slug: 'aizenshtat-crowdship',
+      name: 'Aizenshtat CrowdShip',
+      html_url: 'https://github.com/apps/aizenshtat-crowdship',
+      owner: {
+        login: 'aizenshtat',
+      },
+    },
+  });
 });
 
 test('github app installation token exchange returns the repo token', async () => {

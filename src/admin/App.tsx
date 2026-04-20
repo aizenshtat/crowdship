@@ -228,6 +228,22 @@ type ProjectSettingsEnvelope = {
   wrapped: boolean;
 };
 
+type GitHubConnectionRecord = {
+  status: string;
+  message: string;
+  executionMode: string | null;
+  repositoryFullName: string | null;
+  appConfigured: boolean;
+  appSlug: string | null;
+  appName: string | null;
+  appUrl: string | null;
+  installUrl: string | null;
+  ownerLogin: string | null;
+  installationId: number | null;
+  accountLogin: string | null;
+  repositorySelection: string | null;
+};
+
 type ProjectSettingsActionState = 'idle' | 'saving' | 'success' | 'error';
 type EditableProjectField = Exclude<keyof ProjectSettingsRecord, 'slug' | 'allowedOrigins' | 'createdAt' | 'updatedAt'>;
 
@@ -591,6 +607,27 @@ function parsePreviewEvidenceResponse(value: unknown): PreviewEvidenceRecord {
   };
 }
 
+function parseGitHubConnectionResponse(value: unknown): GitHubConnectionRecord {
+  const root = asObject(value);
+  const connection = asObject(root.githubConnection);
+
+  return {
+    status: readStringValue(connection.status) || 'unconfigured',
+    message: readStringValue(connection.message) || 'GitHub connection status is unavailable.',
+    executionMode: readStringValue(connection.executionMode) || null,
+    repositoryFullName: readStringValue(connection.repositoryFullName) || null,
+    appConfigured: readBooleanValue(connection.appConfigured) ?? false,
+    appSlug: readStringValue(connection.appSlug) || null,
+    appName: readStringValue(connection.appName) || null,
+    appUrl: readStringValue(connection.appUrl) || null,
+    installUrl: readStringValue(connection.installUrl) || null,
+    ownerLogin: readStringValue(connection.ownerLogin) || null,
+    installationId: readNumberValue(connection.installationId),
+    accountLogin: readStringValue(connection.accountLogin) || null,
+    repositorySelection: readStringValue(connection.repositorySelection) || null,
+  };
+}
+
 function serializeProjectSettings(project: ProjectSettingsRecord) {
   return JSON.stringify({
     ...project,
@@ -647,6 +684,36 @@ function executionModeDetail(value: string) {
 
 function executionModeUsesLocalRepoConfig(value: string) {
   return normalizeExecutionModeValue(value) === SELF_HOSTED_EXECUTION_MODE;
+}
+
+function githubConnectionPillState(connection: GitHubConnectionRecord | null): ReadinessState {
+  switch (connection?.status) {
+    case 'connected':
+    case 'not_required':
+      return 'ready';
+    case 'not_installed':
+    case 'missing_repository':
+      return 'pending';
+    default:
+      return 'empty';
+  }
+}
+
+function githubConnectionLabel(connection: GitHubConnectionRecord | null) {
+  switch (connection?.status) {
+    case 'connected':
+      return 'Connected';
+    case 'not_required':
+      return 'Optional';
+    case 'not_installed':
+      return 'Install needed';
+    case 'missing_repository':
+      return 'Repository missing';
+    case 'unconfigured':
+      return 'Host not configured';
+    default:
+      return 'Unavailable';
+  }
 }
 
 function buildInstallSnippet(project: ProjectSettingsRecord) {
@@ -1154,6 +1221,9 @@ function SettingsView({
   settingsError,
   savedProjectSettings,
   projectDraft,
+  githubConnection,
+  githubConnectionStatus,
+  githubConnectionError,
   projectActionState,
   projectActionMessage,
   isProjectDirty,
@@ -1166,6 +1236,7 @@ function SettingsView({
   onAddAllowedOrigin,
   onRemoveAllowedOrigin,
   onResetDraft,
+  onRefreshGitHubConnection,
   onRetry,
   onSubmit,
 }: {
@@ -1173,6 +1244,9 @@ function SettingsView({
   settingsError: string;
   savedProjectSettings: ProjectSettingsRecord | null;
   projectDraft: ProjectSettingsRecord;
+  githubConnection: GitHubConnectionRecord | null;
+  githubConnectionStatus: 'idle' | 'loading' | 'ready' | 'error';
+  githubConnectionError: string;
   projectActionState: ProjectSettingsActionState;
   projectActionMessage: string;
   isProjectDirty: boolean;
@@ -1185,6 +1259,7 @@ function SettingsView({
   onAddAllowedOrigin: () => void;
   onRemoveAllowedOrigin: (index: number) => void;
   onResetDraft: () => void;
+  onRefreshGitHubConnection: () => void;
   onRetry: () => void;
   onSubmit: () => void;
 }) {
@@ -1195,6 +1270,7 @@ function SettingsView({
     !EXECUTION_MODE_OPTIONS.some((option) => option.value === projectDraft.executionMode);
   const settingsPillState: ReadinessState =
     settingsStatus === 'error' ? 'empty' : settingsStatus === 'ready' && !isProjectDirty ? 'ready' : 'pending';
+  const githubConnectionPill = githubConnectionPillState(githubConnection);
   const bannerClassName =
     projectActionState === 'saving'
       ? 'review-action-banner review-action-banner-loading'
@@ -1345,6 +1421,59 @@ function SettingsView({
             <p>Repository target shared by hosted remote clone and self-hosted workers.</p>
             <span className="section-note">{executionModeSummary}</span>
           </div>
+        </div>
+        <div className="section-heading" style={{ marginTop: 4 }}>
+          <div>
+            <h3>GitHub connection</h3>
+            <p>Live check for the hosted GitHub App against the current repository target.</p>
+          </div>
+          <ReadinessPill state={githubConnectionPill} />
+        </div>
+        <dl className="definition-list" style={{ marginTop: 12 }}>
+          <div className="definition-row">
+            <dt>Status</dt>
+            <dd>{githubConnectionStatus === 'loading' ? 'Checking…' : githubConnectionLabel(githubConnection)}</dd>
+          </div>
+          <div className="definition-row">
+            <dt>Detail</dt>
+            <dd>{githubConnectionStatus === 'error' ? githubConnectionError : githubConnection?.message ?? 'No live check yet.'}</dd>
+          </div>
+          <div className="definition-row">
+            <dt>GitHub App</dt>
+            <dd>
+              {githubConnection?.appUrl ? (
+                <a href={githubConnection.appUrl} rel="noreferrer" target="_blank">
+                  {githubConnection.appName ?? githubConnection.appSlug ?? 'Open app settings'}
+                </a>
+              ) : githubConnection?.appConfigured ? (
+                githubConnection.appName ?? githubConnection.appSlug ?? 'Configured'
+              ) : (
+                'Not configured on the Crowdship host'
+              )}
+            </dd>
+          </div>
+          <div className="definition-row">
+            <dt>Installation</dt>
+            <dd>
+              {githubConnection?.installationId
+                ? `#${githubConnection.installationId}${githubConnection.accountLogin ? ` on ${githubConnection.accountLogin}` : ''}`
+                : githubConnection?.status === 'not_installed'
+                  ? 'Not installed on the target repository'
+                  : githubConnection?.status === 'not_required'
+                    ? 'Self-hosted mode'
+                    : 'Not available'}
+            </dd>
+          </div>
+        </dl>
+        <div className="review-form-actions" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
+          <button className="secondary-button" type="button" onClick={onRefreshGitHubConnection}>
+            {githubConnectionStatus === 'loading' ? 'Checking…' : 'Refresh GitHub connection'}
+          </button>
+          {githubConnection?.installUrl ? (
+            <a className="secondary-button" href={githubConnection.installUrl} rel="noreferrer" target="_blank">
+              Install app
+            </a>
+          ) : null}
         </div>
         <div className="review-form-grid review-form-grid-three">
           <label className="review-field">
@@ -2732,6 +2861,7 @@ export function App() {
   const initialContributionId =
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('contribution') : null;
   const projectSettingsEndpoint = `/api/v1/projects/${encodeURIComponent(DEFAULT_PROJECT_SLUG)}`;
+  const projectGitHubConnectionEndpoint = `${projectSettingsEndpoint}/github-connection`;
 
   const [activeSection, setActiveSection] = useState<AdminSection>('inbox');
   const [intakeQueue, setIntakeQueue] = useState<ContributionSummary[]>([]);
@@ -2751,6 +2881,9 @@ export function App() {
   const [projectSettingsEnvelope, setProjectSettingsEnvelope] = useState<ProjectSettingsEnvelope | null>(null);
   const [savedProjectSettings, setSavedProjectSettings] = useState<ProjectSettingsRecord | null>(null);
   const [projectDraft, setProjectDraft] = useState<ProjectSettingsRecord>(() => createEmptyProjectSettings(DEFAULT_PROJECT_SLUG));
+  const [githubConnectionStatus, setGitHubConnectionStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [githubConnectionError, setGitHubConnectionError] = useState('');
+  const [githubConnection, setGitHubConnection] = useState<GitHubConnectionRecord | null>(null);
   const [projectActionState, setProjectActionState] = useState<ProjectSettingsActionState>('idle');
   const [projectActionMessage, setProjectActionMessage] = useState('');
   const [reviewForms, setReviewForms] = useState({
@@ -2817,6 +2950,33 @@ export function App() {
       return null;
     }
   }, [projectSettingsEndpoint]);
+
+  const loadGitHubConnection = useCallback(async () => {
+    setGitHubConnectionStatus('loading');
+    setGitHubConnectionError('');
+
+    try {
+      const response = await fetch(projectGitHubConnectionEndpoint, {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, 'GitHub connection request failed'));
+      }
+
+      const payload = await readJsonBody(response);
+      const parsed = parseGitHubConnectionResponse(payload);
+      setGitHubConnection(parsed);
+      setGitHubConnectionStatus('ready');
+      return parsed;
+    } catch (error) {
+      setGitHubConnection(null);
+      setGitHubConnectionStatus('error');
+      setGitHubConnectionError(error instanceof Error ? error.message : 'Could not load GitHub connection.');
+      return null;
+    }
+  }, [projectGitHubConnectionEndpoint]);
 
   const loadContributions = useCallback(async () => {
     try {
@@ -2925,8 +3085,24 @@ export function App() {
   );
 
   useEffect(() => {
-    void loadProjectSettings();
-  }, [loadProjectSettings]);
+    let cancelled = false;
+
+    async function load() {
+      const project = await loadProjectSettings();
+
+      if (cancelled || !project) {
+        return;
+      }
+
+      await loadGitHubConnection();
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadGitHubConnection, loadProjectSettings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3162,11 +3338,12 @@ export function App() {
       setProjectSettingsError('');
       setProjectActionState('success');
       setProjectActionMessage('Project settings published.');
+      await loadGitHubConnection();
     } catch (error) {
       setProjectActionState('error');
       setProjectActionMessage(error instanceof Error ? error.message : 'Could not update project settings.');
     }
-  }, [projectDraft, projectSettingsEndpoint, projectSettingsEnvelope]);
+  }, [loadGitHubConnection, projectDraft, projectSettingsEndpoint, projectSettingsEnvelope]);
 
   async function submitReviewAction(path: string, body: Record<string, string>, successMessage: string) {
     if (!selectedContributionId) {
@@ -3361,6 +3538,9 @@ export function App() {
             settingsError={projectSettingsError}
             savedProjectSettings={savedProjectSettings}
             projectDraft={projectDraft}
+            githubConnection={githubConnection}
+            githubConnectionStatus={githubConnectionStatus}
+            githubConnectionError={githubConnectionError}
             projectActionState={projectActionState}
             projectActionMessage={projectActionMessage}
             isProjectDirty={isProjectDirty}
@@ -3373,9 +3553,12 @@ export function App() {
             onAddAllowedOrigin={addAllowedOrigin}
             onRemoveAllowedOrigin={removeAllowedOrigin}
             onResetDraft={resetProjectDraft}
+            onRefreshGitHubConnection={() => {
+              void loadGitHubConnection();
+            }}
             onRetry={() => {
               clearProjectActionFeedback();
-              void loadProjectSettings();
+              void Promise.all([loadProjectSettings(), loadGitHubConnection()]);
             }}
             onSubmit={() => {
               void publishProjectSettings();

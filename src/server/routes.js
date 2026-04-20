@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  getGitHubAppConfig,
+  getGitHubAppInstallationForRepository,
+  getGitHubAppMetadata,
+  isGitHubApiError,
+} from '../github/app-auth.js';
+import {
   AGENT_QUEUED_CONTRIBUTION_STATE,
   API_ROUTE_DEFINITIONS,
   COMPLETED_CONTRIBUTION_PROGRESS_EVENT_KIND,
@@ -1131,6 +1137,119 @@ export function createProjectHandler({ database } = {}) {
     return buildResponse(200, {
       project: serializeProjectRecord(project),
     });
+  };
+}
+
+export function createProjectGitHubConnectionHandler({ database, fetchImpl = fetch } = {}) {
+  return async ({ params = {} } = {}) => {
+    const projectSlug = normalizeOptionalString(params.project);
+
+    if (!projectSlug) {
+      return buildResponse(400, {
+        error: 'invalid_project_slug',
+        message: 'Project slug is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getProject')) {
+      return notWiredResponse('Project persistence is not wired yet.');
+    }
+
+    const project = await database.getProject(projectSlug);
+
+    if (!project) {
+      return buildResponse(404, {
+        error: 'project_not_found',
+        project: projectSlug,
+      });
+    }
+
+    const runtimeConfig = resolveProjectRuntimeConfig(project);
+    const repositoryFullName = normalizeOptionalString(runtimeConfig.repositoryFullName) || null;
+    const executionMode = normalizeExecutionModeValue(runtimeConfig.executionMode);
+    const appConfig = getGitHubAppConfig();
+    const responsePayload = {
+      project: projectSlug,
+      githubConnection: {
+        status: 'unconfigured',
+        message: 'GitHub App credentials are not configured on the Crowdship host.',
+        executionMode: executionMode || null,
+        repositoryFullName,
+        appConfigured: Boolean(appConfig),
+        appSlug: null,
+        appName: null,
+        appUrl: null,
+        installUrl: null,
+        ownerLogin: null,
+        installationId: null,
+        accountLogin: null,
+        repositorySelection: null,
+      },
+    };
+
+    if (executionMode === 'self_hosted') {
+      responsePayload.githubConnection.status = 'not_required';
+      responsePayload.githubConnection.message =
+        'Self-hosted worker mode uses customer-side credentials, so the hosted GitHub App is optional.';
+      return buildResponse(200, responsePayload);
+    }
+
+    if (!repositoryFullName) {
+      responsePayload.githubConnection.status = 'missing_repository';
+      responsePayload.githubConnection.message =
+        'Set the target repository before checking the hosted GitHub App connection.';
+      return buildResponse(200, responsePayload);
+    }
+
+    if (!appConfig) {
+      return buildResponse(200, responsePayload);
+    }
+
+    try {
+      const metadata = await getGitHubAppMetadata({
+        config: appConfig,
+        fetchImpl,
+      });
+      responsePayload.githubConnection.appSlug = metadata.slug;
+      responsePayload.githubConnection.appName = metadata.name;
+      responsePayload.githubConnection.appUrl = metadata.htmlUrl;
+      responsePayload.githubConnection.ownerLogin = metadata.ownerLogin;
+      responsePayload.githubConnection.installUrl = metadata.slug
+        ? `https://github.com/apps/${encodeURIComponent(metadata.slug)}/installations/new`
+        : null;
+    } catch (error) {
+      return buildResponse(502, {
+        error: 'github_app_lookup_failed',
+        message: error instanceof Error ? error.message : 'Could not load GitHub App metadata.',
+      });
+    }
+
+    try {
+      const installation = await getGitHubAppInstallationForRepository({
+        repositoryFullName,
+        config: appConfig,
+        fetchImpl,
+      });
+      responsePayload.githubConnection.status = 'connected';
+      responsePayload.githubConnection.message =
+        'GitHub App credentials are live and the target repository is installed.';
+      responsePayload.githubConnection.installationId = installation.id;
+      responsePayload.githubConnection.accountLogin = installation.accountLogin;
+      responsePayload.githubConnection.repositorySelection = installation.repositorySelection;
+      return buildResponse(200, responsePayload);
+    } catch (error) {
+      if (isGitHubApiError(error) && error.status === 404) {
+        responsePayload.githubConnection.status = 'not_installed';
+        responsePayload.githubConnection.message =
+          `The GitHub App exists, but it is not installed on ${repositoryFullName}.`;
+        return buildResponse(200, responsePayload);
+      }
+
+      return buildResponse(502, {
+        error: 'github_installation_lookup_failed',
+        message: error instanceof Error ? error.message : 'Could not check the GitHub App installation.',
+      });
+    }
   };
 }
 
@@ -3437,6 +3556,7 @@ export function createRouteHandlers(options = {}) {
     getDemoVideo: createDemoVideoStatusHandler(options),
     postDemoVideoUpload: createDemoVideoUploadHandler(options),
     getProject: createProjectHandler(options),
+    getProjectGitHubConnection: createProjectGitHubConnectionHandler(options),
     putProject: createProjectUpdateHandler(options),
     getProjectPublicConfig: createProjectPublicConfigHandler(options),
     getContributions: createContributionListHandler(options),

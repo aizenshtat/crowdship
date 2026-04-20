@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
@@ -16,6 +17,7 @@ import {
   createContributionDetailHandler,
   createContributionHandler,
   createContributionMessageHandler,
+  createProjectGitHubConnectionHandler,
   createContributionProgressHandler,
   createRouteHandlers,
   createSpecApprovalHandler,
@@ -26,6 +28,20 @@ import {
 } from '../src/server/persistence.js';
 import { createApiServer } from '../src/server/http.js';
 import { SCHEMA_TABLE_NAMES } from '../src/server/schema.js';
+
+function generatePrivateKeyPem() {
+  return generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: {
+      format: 'pem',
+      type: 'pkcs8',
+    },
+    publicKeyEncoding: {
+      format: 'pem',
+      type: 'spki',
+    },
+  }).privateKey;
+}
 
 function requestJson({ port, method, path, body, headers = {} }) {
   return new Promise((resolve, reject) => {
@@ -455,6 +471,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/demo-video/upload',
       'GET /api/v1/projects/:project',
       'PUT /api/v1/projects/:project',
+      'GET /api/v1/projects/:project/github-connection',
       'GET /api/v1/projects/:project/public-config',
       'GET /api/v1/contributions',
       'POST /api/v1/contributions',
@@ -874,6 +891,168 @@ test('project route rejects a mismatched slug in the update payload', async () =
   assert.equal(response.status, 400);
   assert.equal(response.body.error, 'invalid_project_payload');
   assert.match(response.body.issues[0], /slug must match/);
+});
+
+test('project github connection route reports a connected hosted install', async () => {
+  const getProjectGitHubConnection = createProjectGitHubConnectionHandler({
+    database: createInMemoryContributionPersistenceAdapter(),
+    fetchImpl: async (url) => {
+      if (url === 'https://api.github.com/app') {
+        return new Response(
+          JSON.stringify({
+            id: 55,
+            slug: 'aizenshtat-crowdship',
+            name: 'Aizenshtat CrowdShip',
+            html_url: 'https://github.com/apps/aizenshtat-crowdship',
+            owner: {
+              login: 'aizenshtat',
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        );
+      }
+
+      if (url === 'https://api.github.com/repos/aizenshtat/example/installation') {
+        return new Response(
+          JSON.stringify({
+            id: 91,
+            repository_selection: 'selected',
+            account: {
+              login: 'aizenshtat',
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch request: ${url}`);
+    },
+  });
+  const previousAppId = process.env.GITHUB_APP_ID;
+  const previousPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+
+  process.env.GITHUB_APP_ID = '12345';
+  process.env.GITHUB_APP_PRIVATE_KEY = generatePrivateKeyPem();
+
+  try {
+    const response = await getProjectGitHubConnection({
+      params: { project: 'example' },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.githubConnection.status, 'connected');
+    assert.equal(response.body.githubConnection.repositoryFullName, 'aizenshtat/example');
+    assert.equal(response.body.githubConnection.appSlug, 'aizenshtat-crowdship');
+    assert.equal(response.body.githubConnection.installationId, 91);
+  } finally {
+    if (previousAppId == null) {
+      delete process.env.GITHUB_APP_ID;
+    } else {
+      process.env.GITHUB_APP_ID = previousAppId;
+    }
+
+    if (previousPrivateKey == null) {
+      delete process.env.GITHUB_APP_PRIVATE_KEY;
+    } else {
+      process.env.GITHUB_APP_PRIVATE_KEY = previousPrivateKey;
+    }
+  }
+});
+
+test('project github connection route reports a missing installation without failing the settings view', async () => {
+  const previousAppId = process.env.GITHUB_APP_ID;
+  const previousPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [
+      {
+        ...getProjectSeedRecord('example'),
+        runtimeConfig: {
+          ...getProjectSeedRecord('example').runtimeConfig,
+          repositoryFullName: 'customer/orbital-ops',
+          executionMode: 'hosted_remote_clone',
+        },
+      },
+    ],
+  });
+
+  process.env.GITHUB_APP_ID = '12345';
+  process.env.GITHUB_APP_PRIVATE_KEY = generatePrivateKeyPem();
+
+  try {
+    const handler = createProjectGitHubConnectionHandler({
+      database: persistence,
+      fetchImpl: async (url) => {
+        if (url === 'https://api.github.com/app') {
+          return new Response(
+            JSON.stringify({
+              id: 55,
+              slug: 'aizenshtat-crowdship',
+              name: 'Aizenshtat CrowdShip',
+              html_url: 'https://github.com/apps/aizenshtat-crowdship',
+              owner: {
+                login: 'aizenshtat',
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          );
+        }
+
+        if (url === 'https://api.github.com/repos/customer/orbital-ops/installation') {
+          return new Response(
+            JSON.stringify({
+              message: 'Not Found',
+            }),
+            {
+              status: 404,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          );
+        }
+
+        throw new Error(`Unexpected fetch request: ${url}`);
+      },
+    });
+    const response = await handler({
+      params: { project: 'example' },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.githubConnection.status, 'not_installed');
+    assert.match(response.body.githubConnection.message, /not installed/i);
+    assert.equal(
+      response.body.githubConnection.installUrl,
+      'https://github.com/apps/aizenshtat-crowdship/installations/new',
+    );
+  } finally {
+    if (previousAppId == null) {
+      delete process.env.GITHUB_APP_ID;
+    } else {
+      process.env.GITHUB_APP_ID = previousAppId;
+    }
+
+    if (previousPrivateKey == null) {
+      delete process.env.GITHUB_APP_PRIVATE_KEY;
+    } else {
+      process.env.GITHUB_APP_PRIVATE_KEY = previousPrivateKey;
+    }
+  }
 });
 
 test('contribution creation validates project existence through persistence', async () => {

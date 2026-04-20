@@ -150,6 +150,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     method: 'GET',
+    path: '/api/v1/projects/:project/github-connection',
+    handler: 'getProjectGitHubConnection',
+  }),
+  Object.freeze({
+    method: 'GET',
     path: '/api/v1/projects/:project/public-config',
     handler: 'getProjectPublicConfig',
   }),

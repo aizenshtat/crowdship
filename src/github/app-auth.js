@@ -54,6 +54,10 @@ async function readGitHubJsonResponse(response) {
   return body;
 }
 
+export function isGitHubApiError(error) {
+  return Boolean(error && typeof error === 'object' && error.name === 'GitHubApiError');
+}
+
 export function getGitHubAppConfig(env = process.env) {
   const appId = normalizeOptionalString(env.GITHUB_APP_ID);
   const privateKey = normalizePemValue(env.GITHUB_APP_PRIVATE_KEY);
@@ -97,6 +101,26 @@ export function createGitHubAppJwt(
   signer.end();
 
   return `${signingInput}.${encodeBase64Url(signer.sign(privateKey))}`;
+}
+
+export async function getGitHubAppMetadata(
+  { config, fetchImpl = fetch, nowMs = Date.now() },
+) {
+  const token = createGitHubAppJwt(config, { nowMs });
+  const response = await fetchImpl(`${GITHUB_API_ORIGIN}/app`, {
+    headers: buildGitHubApiHeaders(token),
+    method: 'GET',
+  });
+  const body = await readGitHubJsonResponse(response);
+
+  return {
+    id: body?.id ?? null,
+    slug: normalizeOptionalString(body?.slug),
+    name: normalizeOptionalString(body?.name),
+    htmlUrl: normalizeOptionalString(body?.html_url),
+    ownerLogin: normalizeOptionalString(body?.owner?.login),
+    raw: body,
+  };
 }
 
 export async function getGitHubAppInstallationForRepository(
