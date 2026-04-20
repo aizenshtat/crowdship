@@ -233,6 +233,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     method: 'POST',
+    path: '/api/v1/contributions/:id/comments/:commentId/disposition',
+    handler: 'postCommentDisposition',
+  }),
+  Object.freeze({
+    method: 'POST',
     path: '/api/v1/contributions/:id/mark-merged',
     handler: 'postMarkMerged',
   }),
@@ -676,6 +681,35 @@ export function validateCommentPayload(payload) {
           body: payload.body.trim(),
           disposition: payload.disposition.trim(),
           authorUserId: normalizeOptionalString(payload.authorUserId) || null,
+        },
+      }
+    : {
+        ok: false,
+        errors,
+      };
+}
+
+export function validateCommentDispositionPayload(payload) {
+  const errors = [];
+
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  validateStringField(payload.disposition, 'disposition', errors, { required: true });
+
+  if (isNonEmptyString(payload.disposition) && !COMMENT_DISPOSITIONS.includes(payload.disposition)) {
+    errors.push(`disposition must be one of ${COMMENT_DISPOSITIONS.join(', ')}`);
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          disposition: payload.disposition.trim(),
         },
       }
     : {

@@ -304,6 +304,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/start-core-review',
       'POST /api/v1/contributions/:id/votes',
       'POST /api/v1/contributions/:id/comments',
+      'POST /api/v1/contributions/:id/comments/:commentId/disposition',
       'POST /api/v1/contributions/:id/mark-merged',
       'POST /api/v1/contributions/:id/start-production-deploy',
       'POST /api/v1/contributions/:id/complete',
@@ -1150,6 +1151,18 @@ test('api server supports delivery evidence, voting, and merged state through th
 
     assert.equal(comment.status, 201);
     assert.equal(comment.body.review.comments.length, 1);
+
+    const updatedComment = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/comments/${comment.body.review.comments[0].id}/disposition`,
+      body: {
+        disposition: 'incorporated',
+      },
+    });
+
+    assert.equal(updatedComment.status, 200);
+    assert.equal(updatedComment.body.review.comments[0].disposition, 'incorporated');
 
     const flagged = await requestJson({
       port: address.port,

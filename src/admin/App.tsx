@@ -1417,6 +1417,13 @@ function ContributionDetailDrawer({
   const implementationProfile = readStringValue(runtimeConfig.implementationProfile);
   const runtimeDefaultBranch = readStringValue(runtimeConfig.defaultBranch);
   const previewTemplate = readStringValue(runtimeConfig.previewUrlPattern);
+  const [commentDispositionDrafts, setCommentDispositionDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setCommentDispositionDrafts(
+      Object.fromEntries((review?.comments ?? []).map((comment) => [comment.id, comment.disposition])),
+    );
+  }, [review]);
 
   return (
     <div className="drawer-layer" role="presentation">
@@ -1832,6 +1839,63 @@ function ContributionDetailDrawer({
                       <div className="stack-item-copy">Refresh preview evidence to load the latest workflow record.</div>
                     )}
                   </div>
+                </div>
+
+                <div className="record-card">
+                  <div className="record-card-title">Comment dispositions</div>
+                  {review?.comments.length ? (
+                    <ul className="detail-stack-list">
+                      {review.comments.map((comment) => {
+                        const nextDisposition = commentDispositionDrafts[comment.id] ?? comment.disposition;
+
+                        return (
+                          <li className="stack-item" key={comment.id}>
+                            <div className="stack-item-head">
+                              <span className="stack-item-title">{comment.authorRole}</span>
+                              <span className="stack-item-meta">{formatTimestamp(comment.createdAt)}</span>
+                            </div>
+                            <div className="stack-item-copy">{comment.body}</div>
+                            <div className="comment-disposition-row">
+                              <label className="review-field">
+                                <span>Disposition</span>
+                                <select
+                                  value={nextDisposition}
+                                  onChange={(event) =>
+                                    setCommentDispositionDrafts((current) => ({
+                                      ...current,
+                                      [comment.id]: event.target.value,
+                                    }))
+                                  }
+                                >
+                                  {COMMENT_DISPOSITION_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={reviewActionState === 'loading' || nextDisposition === comment.disposition}
+                                onClick={() =>
+                                  void submitReviewAction(
+                                    `/api/v1/contributions/${detail.contribution.id}/comments/${comment.id}/disposition`,
+                                    { disposition: nextDisposition },
+                                    'Comment disposition updated.',
+                                  )
+                                }
+                              >
+                                {reviewActionState === 'loading' ? 'Saving…' : 'Update'}
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <div className="empty-state compact">No review comments have been recorded yet.</div>
+                  )}
                 </div>
               </section>
 

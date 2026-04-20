@@ -735,6 +735,7 @@ export function createInMemoryContributionPersistenceAdapter({
       previewDeployments: nextPreviewDeployments = [],
       votes: nextVotes = [],
       comments: nextComments = [],
+      updatedComments = [],
       approvedSpecVersionId,
       approvedAt,
     }) {
@@ -787,6 +788,16 @@ export function createInMemoryContributionPersistenceAdapter({
       if (nextComments.length > 0) {
         const existingComments = comments.get(contributionId) ?? [];
         setStoredList(comments, contributionId, existingComments.concat(nextComments));
+      }
+
+      if (updatedComments.length > 0) {
+        const existingComments = comments.get(contributionId) ?? [];
+        const byId = new Map(updatedComments.map((comment) => [comment.id, comment]));
+        setStoredList(
+          comments,
+          contributionId,
+          existingComments.map((comment) => byId.get(comment.id) ?? comment),
+        );
       }
 
       if (approvedSpecVersionId) {
@@ -1023,6 +1034,7 @@ export function createPostgresContributionPersistenceAdapter({
       previewDeployments = [],
       votes = [],
       comments = [],
+      updatedComments = [],
       approvedSpecVersionId,
       approvedAt,
     }) {
@@ -1298,6 +1310,17 @@ export function createPostgresContributionPersistenceAdapter({
               comment.metadata == null ? null : JSON.stringify(comment.metadata),
               comment.createdAt,
             ],
+          );
+        }
+
+        for (const comment of updatedComments) {
+          await client.query(
+            `
+              UPDATE comments
+              SET disposition = $2
+              WHERE id = $1 AND contribution_id = $3
+            `,
+            [comment.id, comment.disposition, contributionId],
           );
         }
 

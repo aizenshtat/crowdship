@@ -119,9 +119,11 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /Archive/);
   assert.match(admin, /Publish settings/);
   assert.match(admin, /Automation evidence/);
+  assert.match(admin, /Comment dispositions/);
   assert.match(admin, /Live preview evidence/);
   assert.match(admin, /Refresh preview evidence/);
   assert.match(admin, /\/api\/v1\/contributions\/\$\{contributionId\}\/preview-evidence/);
+  assert.match(admin, /\/api\/v1\/contributions\/\$\{detail\.contribution\.id\}\/comments\/\$\{comment\.id\}\/disposition/);
   assert.match(admin, /Widget install snippet/);
   assert.match(widget, /window\.Crowdship = api/);
   assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);

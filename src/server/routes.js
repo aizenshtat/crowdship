@@ -34,6 +34,7 @@ import {
   STARTED_PRODUCTION_DEPLOY_PROGRESS_EVENT_KIND,
   VOTING_OPEN_CONTRIBUTION_STATE,
   validateCommentPayload,
+  validateCommentDispositionPayload,
   validateContributionCreatePayload,
   validateContributionMessagePayload,
   validatePreviewReviewPayload,
@@ -2571,6 +2572,76 @@ export function createCommentHandler({
   };
 }
 
+export function createCommentDispositionHandler({
+  database,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+    const commentId = typeof params.commentId === 'string' ? params.commentId.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!commentId) {
+      return buildResponse(400, {
+        error: 'invalid_comment_id',
+        message: 'Comment id is required.',
+      });
+    }
+
+    const validation = validateCommentDispositionPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_comment_disposition_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Comment disposition persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const comment = asArray(detail.comments).find((entry) => entry.id === commentId);
+
+    if (!comment) {
+      return buildResponse(404, {
+        error: 'comment_not_found',
+        contributionId,
+        commentId,
+      });
+    }
+
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: detail.contribution.state,
+      updatedAt: clock().toISOString(),
+      updatedComments: [
+        {
+          ...comment,
+          disposition: validation.value.disposition,
+        },
+      ],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
 export function createMarkMergedHandler({
   database,
   idFactory = randomUUID,
@@ -2917,6 +2988,7 @@ export function createRouteHandlers(options = {}) {
     postStartCoreReview: createStartCoreReviewHandler(options),
     postVote: createVoteHandler(options),
     postComment: createCommentHandler(options),
+    postCommentDisposition: createCommentDispositionHandler(options),
     postMarkMerged: createMarkMergedHandler(options),
     postStartProductionDeploy: createStartProductionDeployHandler(options),
     postCompleteContribution: createCompleteContributionHandler(options),
