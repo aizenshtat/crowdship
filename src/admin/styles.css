@@ -228,6 +228,13 @@ a {
   font-weight: 600;
 }
 
+.section-heading h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
 .content-header p,
 .section-heading p,
 .section-note,
@@ -389,6 +396,13 @@ a {
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+}
+
+.copy-button:disabled,
+.primary-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .copy-button:focus-visible,
@@ -800,6 +814,11 @@ a {
 .review-form-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.notification-actions {
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 @media (min-width: 960px) {

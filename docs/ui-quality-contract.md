@@ -70,6 +70,7 @@ PWA direction:
 - Push notifications should be used for meaningful contribution events: spec needs approval, preview ready, revision requested, voting threshold reached, core review needed, production shipped.
 - On iOS/iPadOS, Web Push is for Home Screen web apps and notification permission must be requested from a direct user interaction.
 - No silent push assumptions: notifications must be user-visible and respectful.
+- The first admin notification slice may start with local browser notifications and badge updates while richer push plumbing is still pending, but it still needs per-project controls and quiet mode.
 - Notification settings must include quiet modes and per-project controls.
 - Badge counts should represent actionable items, not vanity activity.
 

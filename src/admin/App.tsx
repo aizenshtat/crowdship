@@ -1,4 +1,23 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import {
+  ADMIN_NOTIFICATION_POLL_INTERVAL_MS,
+  countActionableNotifications,
+  createDefaultNotificationSettings,
+  deliverAdminNotification,
+  deriveContributionNotificationEvents,
+  getBrowserNotificationPermission,
+  isQuietModeActive,
+  loadNotificationSettings,
+  mergeProjectNotificationOptions,
+  persistNotificationSettings,
+  requestBrowserNotificationPermission,
+  syncAdminBadgeCount,
+  syncNotificationSettings,
+  type ContributionNotificationCandidate,
+  type NotificationPermissionState,
+  type NotificationSettings,
+  type ProjectNotificationOption,
+} from './notifications';
 
 type AdminSection = 'inbox' | 'settings' | 'operations';
 type AdminBucket = 'attention' | 'ready' | 'active' | 'waiting' | 'done';
@@ -145,6 +164,7 @@ type PreviewEvidenceRecord = {
 
 type ContributionSummary = {
   id: string;
+  projectSlug: string;
   title: string;
   state: string;
   createdAt: string;
@@ -859,6 +879,19 @@ function parseAdminSection(value: string | null): AdminSection {
   return value === 'settings' || value === 'operations' ? value : 'inbox';
 }
 
+function notificationPermissionLabel(permission: NotificationPermissionState) {
+  switch (permission) {
+    case 'granted':
+      return 'Granted';
+    case 'denied':
+      return 'Blocked';
+    case 'default':
+      return 'Not requested';
+    default:
+      return 'Unsupported';
+  }
+}
+
 function readGitHubRedirectNotice(searchParams: URLSearchParams | null): {
   state: ProjectSettingsActionState;
   message: string;
@@ -1293,6 +1326,188 @@ function BucketPill({ bucket }: { bucket: AdminBucket }) {
   return <span className={`pill ${bucketClassName(bucket)}`}>{bucketLabel(bucket)}</span>;
 }
 
+function NotificationSettingsSection({
+  notificationSettings,
+  notificationPermission,
+  projectOptions,
+  badgeCount,
+  quietModeActive,
+  notificationMessage,
+  notificationActionState,
+  onEnabledChange,
+  onQuietModeEnabledChange,
+  onQuietModeChange,
+  onProjectEnabledChange,
+  onRequestPermission,
+  onSendTestNotification,
+}: {
+  notificationSettings: NotificationSettings;
+  notificationPermission: NotificationPermissionState;
+  projectOptions: ProjectNotificationOption[];
+  badgeCount: number;
+  quietModeActive: boolean;
+  notificationMessage: string;
+  notificationActionState: 'idle' | 'loading' | 'success' | 'error';
+  onEnabledChange: (enabled: boolean) => void;
+  onQuietModeEnabledChange: (enabled: boolean) => void;
+  onQuietModeChange: (field: 'start' | 'end', value: string) => void;
+  onProjectEnabledChange: (projectSlug: string, enabled: boolean) => void;
+  onRequestPermission: () => void;
+  onSendTestNotification: () => void;
+}) {
+  const deliveryState: ReadinessState =
+    notificationPermission === 'granted' && notificationSettings.enabled
+      ? quietModeActive
+        ? 'pending'
+        : 'ready'
+      : notificationPermission === 'denied'
+        ? 'empty'
+        : 'pending';
+  const bannerClassName =
+    notificationActionState === 'loading'
+      ? 'review-action-banner review-action-banner-loading'
+      : notificationActionState === 'success'
+        ? 'review-action-banner review-action-banner-success'
+        : notificationActionState === 'error'
+          ? 'review-action-banner review-action-banner-error'
+          : 'review-action-banner';
+  const bannerMessage =
+    notificationMessage ||
+    (notificationSettings.enabled
+      ? notificationPermission === 'granted'
+        ? quietModeActive
+          ? 'Quiet mode is active. Badge counts keep tracking actionable work while alerts wait.'
+          : 'Actionable contribution alerts are on for this device.'
+        : notificationPermission === 'denied'
+          ? 'The browser has blocked alerts for Crowdship on this device.'
+          : 'Turn on browser permission to deliver alerts from the admin PWA.'
+      : 'Alerts are paused on this device. Badge counts stay clear until you turn them on.');
+
+  return (
+    <section className="surface-section">
+      <div className="section-heading">
+        <div>
+          <h2>Admin notifications</h2>
+          <p>Local browser alerts and badge counts for actionable contribution events. Stored on this device only.</p>
+        </div>
+        <ReadinessPill state={deliveryState} />
+      </div>
+      <div aria-live="polite" className={bannerClassName}>
+        {bannerMessage}
+      </div>
+      <dl className="definition-list" style={{ marginTop: 12 }}>
+        <div className="definition-row">
+          <dt>Permission</dt>
+          <dd>{notificationPermissionLabel(notificationPermission)}</dd>
+        </div>
+        <div className="definition-row">
+          <dt>Delivery</dt>
+          <dd>
+            {notificationSettings.enabled
+              ? quietModeActive
+                ? 'Quiet mode is active'
+                : 'Alerts can fire from live contribution changes'
+              : 'Alerts are paused'}
+          </dd>
+        </div>
+        <div className="definition-row">
+          <dt>Quiet mode</dt>
+          <dd>
+            {notificationSettings.quietMode.enabled
+              ? `${notificationSettings.quietMode.start} to ${notificationSettings.quietMode.end} local time`
+              : 'Off'}
+          </dd>
+        </div>
+        <div className="definition-row">
+          <dt>Badge count</dt>
+          <dd>{badgeCount === 0 ? 'No actionable items on enabled projects' : `${badgeCount} actionable item${badgeCount === 1 ? '' : 's'}`}</dd>
+        </div>
+      </dl>
+      <div className="review-form-grid review-form-grid-three">
+        <label className="review-field">
+          <span>Alerts on this device</span>
+          <select
+            value={notificationSettings.enabled ? 'true' : 'false'}
+            onChange={(event) => onEnabledChange(event.target.value === 'true')}
+          >
+            <option value="false">Paused</option>
+            <option value="true">On</option>
+          </select>
+        </label>
+        <label className="review-field">
+          <span>Quiet mode</span>
+          <select
+            value={notificationSettings.quietMode.enabled ? 'true' : 'false'}
+            onChange={(event) => onQuietModeEnabledChange(event.target.value === 'true')}
+          >
+            <option value="false">Off</option>
+            <option value="true">On</option>
+          </select>
+        </label>
+        <label className="review-field">
+          <span>Quiet mode starts</span>
+          <input
+            type="time"
+            value={notificationSettings.quietMode.start}
+            onChange={(event) => onQuietModeChange('start', event.target.value)}
+            disabled={!notificationSettings.quietMode.enabled}
+          />
+        </label>
+        <label className="review-field">
+          <span>Quiet mode ends</span>
+          <input
+            type="time"
+            value={notificationSettings.quietMode.end}
+            onChange={(event) => onQuietModeChange('end', event.target.value)}
+            disabled={!notificationSettings.quietMode.enabled}
+          />
+        </label>
+      </div>
+      <div className="review-form-actions notification-actions">
+        <button className="secondary-button" type="button" onClick={onRequestPermission}>
+          {notificationPermission === 'granted' ? 'Permission enabled' : 'Enable browser alerts'}
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={onSendTestNotification}
+          disabled={!notificationSettings.enabled || notificationPermission !== 'granted'}
+        >
+          Send test alert
+        </button>
+      </div>
+      <div className="section-heading" style={{ marginTop: 4 }}>
+        <div>
+          <h3>Per-project controls</h3>
+          <p>Pause alerts for any project without muting the rest of the cockpit.</p>
+        </div>
+      </div>
+      <ul className="status-list">
+        {projectOptions.map((project) => {
+          const projectPreference = notificationSettings.projects[project.slug];
+          const enabled = projectPreference?.enabled ?? true;
+
+          return (
+            <li className="status-row" key={project.slug}>
+              <div className="status-copy">
+                <div className="status-label">{projectPreference?.label ?? project.label}</div>
+                <div className="status-detail">{project.slug}</div>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onProjectEnabledChange(project.slug, !enabled)}
+              >
+                {enabled ? 'Pause alerts' : 'Allow alerts'}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function SettingsView({
   settingsStatus,
   settingsError,
@@ -1308,12 +1523,25 @@ function SettingsView({
   identifySnippet,
   contextSnippet,
   installChecklist,
+  notificationSettings,
+  notificationPermission,
+  notificationProjectOptions,
+  notificationBadgeCount,
+  notificationQuietModeActive,
+  notificationMessage,
+  notificationActionState,
   onFieldChange,
   onAllowedOriginChange,
   onAddAllowedOrigin,
   onRemoveAllowedOrigin,
   onResetDraft,
   onRefreshGitHubConnection,
+  onNotificationEnabledChange,
+  onQuietModeEnabledChange,
+  onQuietModeChange,
+  onProjectNotificationChange,
+  onRequestNotificationPermission,
+  onSendTestNotification,
   onRetry,
   onSubmit,
 }: {
@@ -1331,12 +1559,25 @@ function SettingsView({
   identifySnippet: string;
   contextSnippet: string;
   installChecklist: Array<{ label: string; detail: string }>;
+  notificationSettings: NotificationSettings;
+  notificationPermission: NotificationPermissionState;
+  notificationProjectOptions: ProjectNotificationOption[];
+  notificationBadgeCount: number;
+  notificationQuietModeActive: boolean;
+  notificationMessage: string;
+  notificationActionState: 'idle' | 'loading' | 'success' | 'error';
   onFieldChange: (field: EditableProjectField, value: string) => void;
   onAllowedOriginChange: (index: number, value: string) => void;
   onAddAllowedOrigin: () => void;
   onRemoveAllowedOrigin: (index: number) => void;
   onResetDraft: () => void;
   onRefreshGitHubConnection: () => void;
+  onNotificationEnabledChange: (enabled: boolean) => void;
+  onQuietModeEnabledChange: (enabled: boolean) => void;
+  onQuietModeChange: (field: 'start' | 'end', value: string) => void;
+  onProjectNotificationChange: (projectSlug: string, enabled: boolean) => void;
+  onRequestNotificationPermission: () => void;
+  onSendTestNotification: () => void;
   onRetry: () => void;
   onSubmit: () => void;
 }) {
@@ -1704,6 +1945,22 @@ function SettingsView({
           </label>
         </div>
       </section>
+
+      <NotificationSettingsSection
+        notificationSettings={notificationSettings}
+        notificationPermission={notificationPermission}
+        projectOptions={notificationProjectOptions}
+        badgeCount={notificationBadgeCount}
+        quietModeActive={notificationQuietModeActive}
+        notificationMessage={notificationMessage}
+        notificationActionState={notificationActionState}
+        onEnabledChange={onNotificationEnabledChange}
+        onQuietModeEnabledChange={onQuietModeEnabledChange}
+        onQuietModeChange={onQuietModeChange}
+        onProjectEnabledChange={onProjectNotificationChange}
+        onRequestPermission={onRequestNotificationPermission}
+        onSendTestNotification={onSendTestNotification}
+      />
 
       <section className="surface-section">
         <div className="section-heading">
@@ -2961,6 +3218,10 @@ export function App() {
       : parseAdminSection(initialSearchParams?.get('section') ?? null);
   const projectSettingsEndpoint = `/api/v1/projects/${encodeURIComponent(DEFAULT_PROJECT_SLUG)}`;
   const projectGitHubConnectionEndpoint = `${projectSettingsEndpoint}/github-connection`;
+  const defaultNotificationProjects = useMemo<ProjectNotificationOption[]>(
+    () => [{ slug: DEFAULT_PROJECT_SLUG, label: 'Default project' }],
+    [],
+  );
 
   const [activeSection, setActiveSection] = useState<AdminSection>(initialSection);
   const [intakeQueue, setIntakeQueue] = useState<ContributionSummary[]>([]);
@@ -2987,6 +3248,18 @@ export function App() {
     initialGitHubRedirectNotice?.state ?? 'idle',
   );
   const [projectActionMessage, setProjectActionMessage] = useState(initialGitHubRedirectNotice?.message ?? '');
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() =>
+    typeof window === 'undefined'
+      ? createDefaultNotificationSettings(defaultNotificationProjects)
+      : loadNotificationSettings(window.localStorage, defaultNotificationProjects),
+  );
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>(() =>
+    getBrowserNotificationPermission(),
+  );
+  const [notificationActionState, setNotificationActionState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const notificationBaselineRef = useRef(false);
+  const previousNotificationItemsRef = useRef<ContributionNotificationCandidate[]>([]);
   const [reviewForms, setReviewForms] = useState({
     implementation: {
       repositoryFullName: '',
@@ -3017,6 +3290,46 @@ export function App() {
       disposition: 'note',
     },
   });
+  const notificationProjectOptions = useMemo(
+    () =>
+      mergeProjectNotificationOptions([
+        ...(savedProjectSettings
+          ? [
+              {
+                slug: savedProjectSettings.slug,
+                label: savedProjectSettings.name.trim() || savedProjectSettings.slug,
+              },
+            ]
+          : defaultNotificationProjects),
+        ...intakeQueue.map((item) => ({
+          slug: item.projectSlug,
+          label:
+            savedProjectSettings && item.projectSlug === savedProjectSettings.slug
+              ? savedProjectSettings.name.trim() || item.projectSlug
+              : item.projectSlug,
+        })),
+      ]),
+    [defaultNotificationProjects, intakeQueue, savedProjectSettings],
+  );
+  const notificationItems = useMemo<ContributionNotificationCandidate[]>(
+    () =>
+      intakeQueue.map((item) => ({
+        id: item.id,
+        projectSlug: item.projectSlug,
+        title: item.title,
+        state: item.state,
+        updatedAt: item.updatedAt,
+      })),
+    [intakeQueue],
+  );
+  const notificationBadgeCount = useMemo(
+    () => countActionableNotifications(notificationItems, notificationSettings),
+    [notificationItems, notificationSettings],
+  );
+  const notificationQuietModeActive = useMemo(
+    () => isQuietModeActive(notificationSettings),
+    [notificationSettings],
+  );
 
   const clearProjectActionFeedback = useCallback(() => {
     setProjectActionState('idle');
@@ -3186,6 +3499,22 @@ export function App() {
   );
 
   useEffect(() => {
+    setNotificationSettings((current) => syncNotificationSettings(current, notificationProjectOptions));
+  }, [notificationProjectOptions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    persistNotificationSettings(window.localStorage, notificationSettings);
+  }, [notificationSettings]);
+
+  useEffect(() => {
+    setNotificationPermission(getBrowserNotificationPermission());
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function load() {
@@ -3206,44 +3535,37 @@ export function App() {
   }, [loadGitHubConnection, loadProjectSettings]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const response = await fetch('/api/v1/contributions', {
-          credentials: 'same-origin',
-          headers: { accept: 'application/json' },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Contribution intake returned ${response.status}`);
-        }
-
-        const payload = (await response.json()) as {
-          contributions?: ContributionSummary[];
-        };
-
-        if (cancelled) {
-          return;
-        }
-
-        setIntakeQueue(payload.contributions ?? []);
-        setIntakeStatus('ready');
-        setIntakeError('');
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setIntakeStatus('error');
-        setIntakeError(error instanceof Error ? error.message : 'Could not load contribution intake.');
-      }
+    if (typeof window === 'undefined') {
+      return;
     }
 
-    void load();
+    void loadContributions();
+
+    const intervalId = window.setInterval(() => {
+      if (!document.hidden) {
+        void loadContributions();
+      }
+    }, ADMIN_NOTIFICATION_POLL_INTERVAL_MS);
+
+    const handleFocus = () => {
+      void loadContributions();
+      setNotificationPermission(getBrowserNotificationPermission());
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void loadContributions();
+        setNotificationPermission(getBrowserNotificationPermission());
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -3335,6 +3657,40 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    void syncAdminBadgeCount(notificationBadgeCount);
+  }, [notificationBadgeCount]);
+
+  useEffect(() => {
+    if (intakeStatus !== 'ready') {
+      return;
+    }
+
+    if (!notificationBaselineRef.current) {
+      notificationBaselineRef.current = true;
+      previousNotificationItemsRef.current = notificationItems;
+      return;
+    }
+
+    const events = deriveContributionNotificationEvents(
+      previousNotificationItemsRef.current,
+      notificationItems,
+      notificationSettings,
+    );
+
+    previousNotificationItemsRef.current = notificationItems;
+
+    if (
+      events.length === 0 ||
+      notificationPermission !== 'granted' ||
+      isQuietModeActive(notificationSettings)
+    ) {
+      return;
+    }
+
+    void Promise.all(events.map((event) => deliverAdminNotification(event)));
+  }, [intakeStatus, notificationItems, notificationPermission, notificationSettings]);
 
   useEffect(() => {
     if (!detail) {
@@ -3475,6 +3831,126 @@ export function App() {
     }
   }, [loadGitHubConnection, projectDraft, projectSettingsEndpoint, projectSettingsEnvelope]);
 
+  const updateNotificationSettings = useCallback((updater: (current: NotificationSettings) => NotificationSettings) => {
+    setNotificationActionState('idle');
+    setNotificationMessage('');
+    setNotificationSettings((current) => updater(current));
+  }, []);
+
+  const updateNotificationEnabled = useCallback(
+    (enabled: boolean) => {
+      updateNotificationSettings((current) => ({
+        ...current,
+        enabled,
+      }));
+    },
+    [updateNotificationSettings],
+  );
+
+  const updateQuietModeEnabled = useCallback(
+    (enabled: boolean) => {
+      updateNotificationSettings((current) => ({
+        ...current,
+        quietMode: {
+          ...current.quietMode,
+          enabled,
+        },
+      }));
+    },
+    [updateNotificationSettings],
+  );
+
+  const updateQuietModeField = useCallback(
+    (field: 'start' | 'end', value: string) => {
+      updateNotificationSettings((current) =>
+        syncNotificationSettings(
+          {
+            ...current,
+            quietMode: {
+              ...current.quietMode,
+              [field]: value,
+            },
+          },
+          notificationProjectOptions,
+        ),
+      );
+    },
+    [notificationProjectOptions, updateNotificationSettings],
+  );
+
+  const updateProjectNotification = useCallback(
+    (projectSlug: string, enabled: boolean) => {
+      updateNotificationSettings((current) => ({
+        ...current,
+        projects: {
+          ...current.projects,
+          [projectSlug]: {
+            enabled,
+            label: current.projects[projectSlug]?.label ?? projectSlug,
+          },
+        },
+      }));
+    },
+    [updateNotificationSettings],
+  );
+
+  const requestNotificationPermission = useCallback(async () => {
+    setNotificationActionState('loading');
+    setNotificationMessage('Requesting browser permission.');
+
+    try {
+      const permission = await requestBrowserNotificationPermission();
+      setNotificationPermission(permission);
+
+      if (permission === 'granted') {
+        updateNotificationEnabled(true);
+        setNotificationActionState('success');
+        setNotificationMessage('Browser alerts are enabled for this device.');
+        return;
+      }
+
+      setNotificationActionState(permission === 'denied' ? 'error' : 'success');
+      setNotificationMessage(
+        permission === 'denied'
+          ? 'The browser blocked alerts for Crowdship.'
+          : permission === 'unsupported'
+            ? 'This browser does not support web notifications.'
+            : 'Permission request closed without enabling alerts.',
+      );
+    } catch (error) {
+      setNotificationActionState('error');
+      setNotificationMessage(error instanceof Error ? error.message : 'Could not request browser permission.');
+    }
+  }, [updateNotificationEnabled]);
+
+  const sendTestNotification = useCallback(async () => {
+    if (!notificationSettings.enabled || notificationPermission !== 'granted') {
+      setNotificationActionState('error');
+      setNotificationMessage('Turn on browser alerts before sending a test alert.');
+      return;
+    }
+
+    setNotificationActionState('loading');
+    setNotificationMessage('Sending a test alert.');
+
+    try {
+      await deliverAdminNotification({
+        contributionId: 'test-alert',
+        projectSlug: savedProjectSettings?.slug ?? DEFAULT_PROJECT_SLUG,
+        state: 'spec_pending_approval',
+        tag: 'crowdship:test-alert',
+        title: 'Crowdship test alert',
+        body: 'Admin notifications are wired for this device.',
+        url: '/?section=settings',
+      });
+      setNotificationActionState('success');
+      setNotificationMessage('Test alert sent.');
+    } catch (error) {
+      setNotificationActionState('error');
+      setNotificationMessage(error instanceof Error ? error.message : 'Could not send the test alert.');
+    }
+  }, [notificationPermission, notificationSettings.enabled, savedProjectSettings?.slug]);
+
   async function submitReviewAction(path: string, body: Record<string, string>, successMessage: string) {
     if (!selectedContributionId) {
       return;
@@ -3526,6 +4002,25 @@ export function App() {
         detail: 'Offline shell is registered.',
       },
       {
+        label: 'Admin alerts',
+        state:
+          notificationPermission === 'granted' && notificationSettings.enabled
+            ? notificationQuietModeActive
+              ? 'pending'
+              : 'ready'
+            : notificationPermission === 'denied'
+              ? 'empty'
+              : 'pending',
+        detail:
+          notificationPermission === 'granted' && notificationSettings.enabled
+            ? notificationQuietModeActive
+              ? `Quiet mode is active until ${notificationSettings.quietMode.end}.`
+              : `${notificationBadgeCount} actionable item${notificationBadgeCount === 1 ? '' : 's'} on enabled projects.`
+            : notificationPermission === 'denied'
+              ? 'The browser has blocked notifications for Crowdship.'
+              : 'Turn on browser alerts from Settings to get local delivery.',
+      },
+      {
         label: 'Sentry init hook',
         state: sentryDsn ? 'ready' : 'pending',
         detail: sentryDsn ? 'VITE_SENTRY_DSN is set.' : 'Set VITE_SENTRY_DSN to enable browser capture.',
@@ -3548,7 +4043,16 @@ export function App() {
               : 'Loading live intake from the API.',
       },
     ],
-    [intakeQueue.length, intakeStatus, sentryDsn],
+    [
+      intakeQueue.length,
+      intakeStatus,
+      notificationBadgeCount,
+      notificationPermission,
+      notificationQuietModeActive,
+      notificationSettings.enabled,
+      notificationSettings.quietMode.end,
+      sentryDsn,
+    ],
   );
 
   const sortedContributions = useMemo(
@@ -3624,6 +4128,17 @@ export function App() {
           <span className="chip chip-ready">Shell ready</span>
           <span className="chip chip-neutral">{sentryDsn ? 'Sentry env present' : 'Sentry env missing'}</span>
           <span className="chip chip-neutral">
+            {notificationSettings.enabled
+              ? notificationQuietModeActive
+                ? 'Quiet mode'
+                : notificationPermission === 'granted'
+                  ? 'Alerts on'
+                  : notificationPermission === 'denied'
+                    ? 'Alerts blocked'
+                    : 'Alerts need permission'
+              : 'Alerts off'}
+          </span>
+          <span className="chip chip-neutral">
             {intakeStatus === 'loading'
               ? 'Loading inbox'
               : intakeStatus === 'error'
@@ -3678,6 +4193,13 @@ export function App() {
             identifySnippet={identifySnippet}
             contextSnippet={contextSnippet}
             installChecklist={installChecklist}
+            notificationSettings={notificationSettings}
+            notificationPermission={notificationPermission}
+            notificationProjectOptions={notificationProjectOptions}
+            notificationBadgeCount={notificationBadgeCount}
+            notificationQuietModeActive={notificationQuietModeActive}
+            notificationMessage={notificationMessage}
+            notificationActionState={notificationActionState}
             onFieldChange={updateProjectField}
             onAllowedOriginChange={updateAllowedOrigin}
             onAddAllowedOrigin={addAllowedOrigin}
@@ -3685,6 +4207,16 @@ export function App() {
             onResetDraft={resetProjectDraft}
             onRefreshGitHubConnection={() => {
               void loadGitHubConnection();
+            }}
+            onNotificationEnabledChange={updateNotificationEnabled}
+            onQuietModeEnabledChange={updateQuietModeEnabled}
+            onQuietModeChange={updateQuietModeField}
+            onProjectNotificationChange={updateProjectNotification}
+            onRequestNotificationPermission={() => {
+              void requestNotificationPermission();
+            }}
+            onSendTestNotification={() => {
+              void sendTestNotification();
             }}
             onRetry={() => {
               clearProjectActionFeedback();

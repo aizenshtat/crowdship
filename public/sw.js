@@ -1,4 +1,4 @@
-const CACHE_NAME = 'crowdship-admin-shell-v1';
+const CACHE_NAME = 'crowdship-admin-shell-v2';
 const SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -42,5 +42,32 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(request).then((cachedResponse) => cachedResponse || fetch(request)),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  const targetUrl = event.notification?.data?.url;
+
+  event.notification?.close();
+
+  if (!targetUrl) {
+    return;
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
+      const destination = new URL(targetUrl, self.location.origin).href;
+
+      for (const client of clients) {
+        if (!('focus' in client)) {
+          continue;
+        }
+
+        await client.navigate(destination);
+        return client.focus();
+      }
+
+      return self.clients.openWindow(destination);
+    }),
   );
 });

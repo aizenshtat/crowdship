@@ -36,6 +36,7 @@ test('quality infrastructure files exist', () => {
     'scripts/run-migrations.sh',
     'src/admin/App.tsx',
     'src/admin/main.tsx',
+    'src/admin/notifications.ts',
     'src/server/completion-service.js',
     'src/server/persistence.js',
     'src/server/schema.js',
@@ -98,8 +99,10 @@ test('package scripts expose local quality commands', () => {
 
 test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   const admin = read('src/admin/App.tsx');
+  const notifications = read('src/admin/notifications.ts');
   const widget = read('public/widget/v1.js');
   const frame = read('public/widget/frame.html');
+  const serviceWorker = read('public/sw.js');
   const manifest = JSON.parse(read('public/manifest.webmanifest'));
 
   assert.match(admin, /Contribution review/);
@@ -126,6 +129,10 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /Comment dispositions/);
   assert.match(admin, /Live preview evidence/);
   assert.match(admin, /Refresh preview evidence/);
+  assert.match(admin, /Admin notifications/);
+  assert.match(admin, /Enable browser alerts/);
+  assert.match(admin, /Quiet mode/);
+  assert.match(admin, /Per-project controls/);
   assert.match(admin, /\/api\/v1\/contributions\/\$\{contributionId\}\/preview-evidence/);
   assert.match(admin, /\/api\/v1\/contributions\/\$\{detail\.contribution\.id\}\/comments\/\$\{comment\.id\}\/disposition/);
   assert.match(admin, /Widget install snippet/);
@@ -150,6 +157,11 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(contributionId\) \+ '\/attachments/);
   assert.match(frame, /Approve Spec/);
   assert.match(frame, /Refine Spec/);
+  assert.match(notifications, /ADMIN_NOTIFICATION_POLL_INTERVAL_MS/);
+  assert.match(notifications, /deriveContributionNotificationEvents/);
+  assert.match(notifications, /syncAdminBadgeCount/);
+  assert.match(serviceWorker, /notificationclick/);
+  assert.match(serviceWorker, /clients\.openWindow/);
   assert.match(read('docs/widget-contract.md'), /"hostOrigin": "https:\/\/example\.aizenshtat\.eu"/);
   assert.match(read('docs/widget-contract.md'), /browser-derived host origin/i);
   assert.match(read('docs/widget-contract.md'), /POST \/api\/v1\/contributions\/:id\/messages/);
