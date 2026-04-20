@@ -213,6 +213,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     method: 'POST',
+    path: '/api/v1/contributions/:id/ci-status',
+    handler: 'postContributionCiStatus',
+  }),
+  Object.freeze({
+    method: 'POST',
     path: '/api/v1/contributions/:id/preview-review',
     handler: 'postPreviewReview',
   }),

@@ -427,6 +427,21 @@ function createStubSpecService() {
   };
 }
 
+async function setProjectCiStatusToken(database, token = 'test-ci-status-token') {
+  const project = await database.getProject('example');
+  assert.ok(project);
+
+  await database.upsertProject({
+    ...structuredClone(project),
+    runtimeConfig: {
+      ...structuredClone(project.runtimeConfig ?? {}),
+      ciStatusToken: token,
+    },
+  });
+
+  return token;
+}
+
 test('shared contribution states preserve the lifecycle order', () => {
   assert.deepEqual(CONTRIBUTION_STATES, [
     'draft_chat',
@@ -491,6 +506,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/pull-requests',
       'POST /api/v1/contributions/:id/preview-deployments',
       'GET /api/v1/contributions/:id/preview-evidence',
+      'POST /api/v1/contributions/:id/ci-status',
       'POST /api/v1/contributions/:id/preview-review',
       'POST /api/v1/contributions/:id/open-voting',
       'POST /api/v1/contributions/:id/request-clarification',
@@ -638,8 +654,8 @@ test('github webhook route syncs merged pull requests back into contribution sta
       number: 42,
       state: 'closed',
       merged: true,
-      merged_at: '2026-04-20T15:55:00.000Z',
-      updated_at: '2026-04-20T15:55:00.000Z',
+      merged_at: '2099-01-01T00:00:00.000Z',
+      updated_at: '2099-01-01T00:00:00.000Z',
       html_url: 'https://github.com/aizenshtat/example/pull/42',
       body: `## Crowdship Contribution\n\n- Contribution ID: \`${contributionId}\`\n`,
       head: {
@@ -1021,6 +1037,7 @@ test('project route reads and updates the stored runtime config record', async (
   assert.equal(initialResponse.body.project.slug, 'example');
   assert.equal(initialResponse.body.project.runtimeConfig.repositoryFullName, 'aizenshtat/example');
   assert.equal(initialResponse.body.project.runtimeConfig.executionMode, 'hosted_remote_clone');
+  assert.equal(initialResponse.body.project.runtimeConfig.ciStatusToken, undefined);
 
   const updateResponse = await putProject({
     params: { project: 'example' },
@@ -1039,6 +1056,7 @@ test('project route reads and updates the stored runtime config record', async (
           repositoryFullName: 'customer/orbital-ops',
           defaultBranch: 'trunk',
           previewBaseUrl: 'https://preview.orbital.test',
+          ciStatusToken: 'server-side-only-token',
           autoQueueImplementation: true,
           autoOpenVoting: true,
           implementationTimeoutMinutes: 45,
@@ -1056,10 +1074,14 @@ test('project route reads and updates the stored runtime config record', async (
   assert.equal(updateResponse.body.project.runtimeConfig.defaultBranch, 'trunk');
   assert.equal(updateResponse.body.project.runtimeConfig.executionMode, 'hosted_remote_clone');
   assert.equal(updateResponse.body.project.runtimeConfig.previewBaseUrl, 'https://preview.orbital.test');
+  assert.equal(updateResponse.body.project.runtimeConfig.ciStatusToken, undefined);
   assert.equal(updateResponse.body.project.runtimeConfig.autoQueueImplementation, true);
   assert.equal(updateResponse.body.project.runtimeConfig.autoOpenVoting, true);
   assert.equal(updateResponse.body.project.runtimeConfig.implementationTimeoutMinutes, 45);
   assert.equal(updateResponse.body.project.runtimeConfig.coreReviewVoteThreshold, 3);
+
+  const storedProject = await database.getProject('example');
+  assert.equal(storedProject.runtimeConfig.ciStatusToken, 'server-side-only-token');
 });
 
 test('project route rejects a mismatched slug in the update payload', async () => {
@@ -2333,6 +2355,292 @@ test('preview evidence route returns the latest live preview record for a record
       previewEvidence.body.evidence.commentUrl,
       'https://github.com/aizenshtat/example/pull/42#issuecomment-1234567890',
     );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('ci status route rejects requests without the configured project token', async () => {
+  const persistence = createInMemoryContributionPersistenceAdapter();
+  const token = await setProjectCiStatusToken(persistence);
+  const server = createApiServer({
+    database: persistence,
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const created = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const contributionId = created.body.contribution.id;
+
+    const forbidden = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/ci-status`,
+      headers: {
+        'x-crowdship-ci-token': `${token}-invalid`,
+      },
+      body: {
+        environment: 'preview',
+        buildStatus: 'success',
+        previewStatus: 'ready',
+        previewUrl: `https://example.aizenshtat.eu/previews/${contributionId}/`,
+      },
+    });
+
+    assert.equal(forbidden.status, 403);
+    assert.equal(forbidden.body.error, 'ci_status_forbidden');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('ci status route stores preview evidence and preview evidence reads the stored record first', async () => {
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    clock: () => new Date('2026-04-18T12:00:00Z'),
+  });
+  const token = await setProjectCiStatusToken(persistence);
+  const server = createApiServer({
+    database: persistence,
+    previewEvidenceService: {
+      async getPreviewEvidence() {
+        assert.fail('preview evidence service should not be called when stored callback evidence exists');
+      },
+    },
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const created = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const contributionId = created.body.contribution.id;
+
+    const clarified = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: {
+        body: 'Keep the anomaly replay on the mission surface and preserve current filters.',
+      },
+    });
+
+    assert.equal(clarified.status, 200);
+    assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+
+    const approved = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/spec-approval`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.contribution.state, SPEC_APPROVED_CONTRIBUTION_STATE);
+
+    const pullRequest = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/pull-requests`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        number: 42,
+        url: 'https://github.com/aizenshtat/example/pull/42',
+        branchName: `crowdship/${contributionId}-ci-status`,
+        status: 'open',
+      },
+    });
+
+    assert.equal(pullRequest.status, 200);
+
+    const previewStatus = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/ci-status`,
+      headers: {
+        'x-crowdship-ci-token': token,
+      },
+      body: {
+        environment: 'preview',
+        buildStatus: 'success',
+        previewStatus: 'ready',
+        previewUrl: `https://example.aizenshtat.eu/previews/${contributionId}/`,
+        repositoryFullName: 'aizenshtat/example',
+        pullRequestNumber: 42,
+        pullRequestUrl: 'https://github.com/aizenshtat/example/pull/42',
+        branch: `crowdship/${contributionId}-ci-status`,
+        runId: '123456789',
+        runUrl: 'https://github.com/aizenshtat/example/actions/runs/123456789',
+        sentryRelease: 'example@abc123',
+        sentryIssuesUrl: `https://sentry.example.invalid/issues/?query=${contributionId}`,
+        newUnhandledPreviewErrors: 0,
+        failedPreviewSessions: 0,
+        updatedAt: '2026-04-18T12:10:00Z',
+      },
+    });
+
+    assert.equal(previewStatus.status, 202);
+    assert.equal(previewStatus.body.contribution.state, 'preview_ready');
+    assert.equal(previewStatus.body.review.previewDeployments.length, 1);
+    assert.equal(previewStatus.body.review.previewDeployments.at(-1).status, 'ready');
+
+    const previewEvidence = await requestJson({
+      port: address.port,
+      method: 'GET',
+      path: `/api/v1/contributions/${contributionId}/preview-evidence`,
+    });
+
+    assert.equal(previewEvidence.status, 200);
+    assert.equal(previewEvidence.body.pullRequest.number, 42);
+    assert.equal(previewEvidence.body.evidence.status, 'ready');
+    assert.equal(previewEvidence.body.evidence.previewUrl, `https://example.aizenshtat.eu/previews/${contributionId}/`);
+    assert.equal(previewEvidence.body.evidence.runUrl, 'https://github.com/aizenshtat/example/actions/runs/123456789');
+    assert.equal(previewEvidence.body.evidence.sentryRelease, 'example@abc123');
+    assert.equal(previewEvidence.body.evidence.newUnhandledPreviewErrors, 0);
+    assert.equal(previewEvidence.body.evidence.failedPreviewSessions, 0);
+    assert.equal(previewEvidence.body.evidence.sourceUpdatedAt, '2026-04-18T12:10:00.000Z');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('production ci status callback can complete a merged contribution', async () => {
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    clock: () => new Date('2026-04-18T12:00:00Z'),
+  });
+  const token = await setProjectCiStatusToken(persistence);
+  const server = createApiServer({
+    database: persistence,
+    completionService: {
+      async summarizeCompletion() {
+        return {
+          summary: 'Relay shadow markers are now live in production.',
+          metadata: {
+            provider: 'stub',
+            model: 'gpt-5.4',
+          },
+        };
+      },
+    },
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const created = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const contributionId = created.body.contribution.id;
+
+    const clarified = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: {
+        body: 'Launch the replay from the selected anomaly and keep the current mission context intact.',
+      },
+    });
+
+    assert.equal(clarified.status, 200);
+    assert.equal(clarified.body.contribution.state, SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE);
+
+    const approved = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/spec-approval`,
+      body: {
+        decision: 'approve',
+      },
+    });
+
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.contribution.state, SPEC_APPROVED_CONTRIBUTION_STATE);
+
+    const pullRequest = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/pull-requests`,
+      body: {
+        repositoryFullName: 'aizenshtat/example',
+        number: 77,
+        url: 'https://github.com/aizenshtat/example/pull/77',
+        branchName: `crowdship/${contributionId}-relay-shadow-markers`,
+        status: 'merged',
+      },
+    });
+
+    assert.equal(pullRequest.status, 200);
+
+    const merged = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/mark-merged`,
+      body: {},
+    });
+
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.contribution.state, 'merged');
+
+    const productionStatus = await requestJson({
+      port: address.port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/ci-status`,
+      headers: {
+        'x-crowdship-ci-token': token,
+      },
+      body: {
+        environment: 'production',
+        buildStatus: 'success',
+        productionStatus: 'published',
+        productionUrl: 'https://example.aizenshtat.eu/mission',
+        repositoryFullName: 'aizenshtat/example',
+        pullRequestNumber: 77,
+        pullRequestUrl: 'https://github.com/aizenshtat/example/pull/77',
+        branch: `crowdship/${contributionId}-relay-shadow-markers`,
+        runId: '987654321',
+        runUrl: 'https://github.com/aizenshtat/example/actions/runs/987654321',
+        gitSha: 'abc123def456',
+        sentryRelease: 'example@abc123def456',
+        updatedAt: '2099-01-01T00:00:00Z',
+      },
+    });
+
+    assert.equal(productionStatus.status, 202);
+    assert.equal(productionStatus.body.contribution.state, 'completed');
+    assert.equal(productionStatus.body.lifecycle.events.at(-1).kind, 'completed_recorded');
+    assert.equal(productionStatus.body.conversation.at(-1).messageType, 'completion_summary');
+    assert.equal(productionStatus.body.conversation.at(-1).body, 'Relay shadow markers are now live in production.');
+    assert.equal(productionStatus.body.conversation.at(-1).metadata.completionSummary.provider, 'stub');
+    assert.equal(productionStatus.body.review.pullRequests.at(-1).status, 'merged');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

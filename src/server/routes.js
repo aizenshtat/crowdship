@@ -260,6 +260,7 @@ function serializeProjectRecord(project) {
 
   if (isPlainObject(nextProject.runtimeConfig)) {
     deleteOrAssignExecutionMode(nextProject.runtimeConfig, 'executionMode', nextProject.runtimeConfig.executionMode);
+    delete nextProject.runtimeConfig.ciStatusToken;
   }
 
   return nextProject;
@@ -302,6 +303,19 @@ const GITHUB_PULL_REQUEST_SYNC_ACTIONS = new Set(['opened', 'reopened', 'synchro
 const GITHUB_CONTRIBUTION_ID_IN_BODY_PATTERN = /Contribution ID:\s*`([^`]+)`/i;
 const GITHUB_CONTRIBUTION_ID_IN_BRANCH_PATTERN =
   /^crowdship\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-|$)/i;
+const CONTRIBUTION_CI_ENVIRONMENTS = new Set(['preview', 'production']);
+const CONTRIBUTION_CI_PREVIEW_STATUS_MAP = Object.freeze({
+  configuration_required: 'failed',
+  deploying: 'deploying',
+  failed: 'failed',
+  ready: 'ready',
+});
+const CONTRIBUTION_CI_PRODUCTION_STATUS_MAP = Object.freeze({
+  configuration_required: 'failed',
+  deploying: 'deploying',
+  failed: 'failed',
+  published: 'published',
+});
 
 function parseContributionIdFromPullRequestBody(body) {
   const normalized = normalizeOptionalString(body);
@@ -357,6 +371,355 @@ function mergeGitHubPullRequestMetadata(existingMetadata, patch) {
     githubWebhook: {
       ...(isPlainObject(current.githubWebhook) ? current.githubWebhook : {}),
       ...next,
+    },
+  };
+}
+
+function normalizeStatusKey(value) {
+  const normalized = normalizeOptionalString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return normalized || null;
+}
+
+function normalizeOptionalTimestamp(value) {
+  const normalized = normalizeOptionalString(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function normalizeOptionalNonNegativeInteger(value) {
+  const parsed =
+    typeof value === 'number' && Number.isFinite(value)
+      ? value
+      : Number.parseInt(normalizeOptionalString(value), 10);
+
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function normalizePreviewCallbackStatus(value) {
+  const normalized = normalizeStatusKey(value);
+  return normalized ? CONTRIBUTION_CI_PREVIEW_STATUS_MAP[normalized] ?? null : null;
+}
+
+function normalizeProductionCallbackStatus(value) {
+  const normalized = normalizeStatusKey(value);
+  return normalized ? CONTRIBUTION_CI_PRODUCTION_STATUS_MAP[normalized] ?? null : null;
+}
+
+function normalizePullRequestStatus(value) {
+  const normalized = normalizeStatusKey(value);
+  return normalized && ['open', 'merged', 'closed'].includes(normalized) ? normalized : null;
+}
+
+function normalizeOptionalHttpUrl(value) {
+  const normalized = normalizeOptionalString(value);
+  return /^https?:\/\//i.test(normalized) ? normalized : null;
+}
+
+function readRequestHeaderValue(request, headerName) {
+  const raw = request?.headers?.[headerName];
+  return Array.isArray(raw) ? normalizeOptionalString(raw[0]) : normalizeOptionalString(raw);
+}
+
+function readContributionCiToken(request) {
+  const directHeader = readRequestHeaderValue(request, 'x-crowdship-ci-token');
+
+  if (directHeader) {
+    return directHeader;
+  }
+
+  const authorization = readRequestHeaderValue(request, 'authorization');
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return normalizeOptionalString(match?.[1]);
+}
+
+function readProjectCiStatusToken(project) {
+  if (!isPlainObject(project?.runtimeConfig)) {
+    return '';
+  }
+
+  return normalizeOptionalString(project.runtimeConfig.ciStatusToken);
+}
+
+function mergeContributionCiMetadata(existingMetadata, environment, patch) {
+  const current = isPlainObject(existingMetadata) ? existingMetadata : {};
+  const currentCi = isPlainObject(current.ciStatus) ? current.ciStatus : {};
+  const currentEnvironment = isPlainObject(currentCi[environment]) ? currentCi[environment] : {};
+
+  return {
+    ...current,
+    ciStatus: {
+      ...currentCi,
+      [environment]: {
+        ...currentEnvironment,
+        ...patch,
+      },
+    },
+  };
+}
+
+function buildReportedCountLabel(value) {
+  return value === null ? 'not reported by CI' : String(value);
+}
+
+function buildConfiguredPreviewUrl(project, contributionId) {
+  const runtimeConfig = isPlainObject(project?.runtimeConfig) ? project.runtimeConfig : {};
+  const previewUrlPattern = normalizeOptionalString(runtimeConfig.previewUrlPattern);
+
+  if (previewUrlPattern) {
+    return previewUrlPattern.replaceAll('{contributionId}', encodeURIComponent(contributionId));
+  }
+
+  const previewBaseUrl = normalizeOptionalString(runtimeConfig.previewBaseUrl);
+
+  if (!previewBaseUrl) {
+    return null;
+  }
+
+  return `${previewBaseUrl.replace(/\/+$/, '')}/previews/${encodeURIComponent(contributionId)}/`;
+}
+
+function buildPreviewEvidenceRecord({
+  buildStatus = null,
+  branch = null,
+  commentUrl = null,
+  contributionId,
+  failedPreviewSessions = null,
+  newUnhandledPreviewErrors = null,
+  previewStatus,
+  previewStatusLabel = null,
+  previewUrl = null,
+  pullRequestUrl = null,
+  runUrl = null,
+  sentryIssuesUrl = null,
+  sentryRelease = null,
+  sourceUpdatedAt = null,
+} = {}) {
+  const buildStatusLabel = normalizeOptionalString(buildStatus) || null;
+  const normalizedPreviewStatus =
+    normalizeStatusKey(previewStatus) || normalizeStatusKey(previewStatusLabel || '');
+  const normalizedPreviewStatusLabel = normalizeOptionalString(previewStatusLabel) || previewStatus || null;
+  const normalizedPreviewUrl = normalizeOptionalHttpUrl(previewUrl);
+  const normalizedSentryRelease = normalizeOptionalString(sentryRelease) || null;
+
+  return {
+    status: normalizedPreviewStatus,
+    statusLabel: normalizedPreviewStatusLabel,
+    contributionId,
+    branch: normalizeOptionalString(branch) || null,
+    pullRequestUrl: normalizeOptionalHttpUrl(pullRequestUrl),
+    runUrl: normalizeOptionalHttpUrl(runUrl),
+    buildStatus: normalizeStatusKey(buildStatusLabel),
+    buildStatusLabel,
+    previewUrl: normalizedPreviewUrl,
+    previewUrlLabel: normalizedPreviewUrl,
+    sentryRelease: normalizedSentryRelease,
+    sentryReleaseLabel: normalizedSentryRelease ? `\`${normalizedSentryRelease}\`` : null,
+    sentryIssuesUrl: normalizeOptionalHttpUrl(sentryIssuesUrl),
+    newUnhandledPreviewErrors,
+    newUnhandledPreviewErrorsLabel: buildReportedCountLabel(newUnhandledPreviewErrors),
+    failedPreviewSessions,
+    failedPreviewSessionsLabel: buildReportedCountLabel(failedPreviewSessions),
+    commentUrl: normalizeOptionalHttpUrl(commentUrl),
+    sourceUpdatedAt: normalizeOptionalTimestamp(sourceUpdatedAt) || null,
+  };
+}
+
+function buildStoredPreviewEvidence(detail) {
+  const latestPreviewDeployment = getLatestByCreatedAt(asArray(detail?.previewDeployments));
+  const latestPullRequest = getLatestByCreatedAt(asArray(detail?.pullRequests));
+
+  const pullRequestMetadata = isPlainObject(latestPullRequest?.metadata) ? latestPullRequest.metadata : {};
+  const pullRequestCiStatus = isPlainObject(pullRequestMetadata.ciStatus) ? pullRequestMetadata.ciStatus : {};
+  const previewMetadata = isPlainObject(pullRequestCiStatus.preview) ? pullRequestCiStatus.preview : {};
+
+  if (!latestPreviewDeployment && Object.keys(previewMetadata).length === 0) {
+    return null;
+  }
+
+  const metadata = isPlainObject(latestPreviewDeployment.metadata) ? latestPreviewDeployment.metadata : {};
+  const evidence = isPlainObject(metadata.evidence) ? metadata.evidence : {};
+  const contributionId = normalizeOptionalString(detail?.contribution?.id);
+
+  return buildPreviewEvidenceRecord({
+    buildStatus:
+      normalizeOptionalString(evidence.buildStatus) ||
+      normalizeOptionalString(metadata.buildStatus) ||
+      normalizeOptionalString(previewMetadata.buildStatus) ||
+      null,
+    branch:
+      normalizeOptionalString(evidence.branch) ||
+      normalizeOptionalString(metadata.branchName) ||
+      normalizeOptionalString(previewMetadata.branchName) ||
+      normalizeOptionalString(latestPullRequest?.branchName) ||
+      null,
+    commentUrl: normalizeOptionalString(evidence.commentUrl) || null,
+    contributionId,
+    failedPreviewSessions:
+      normalizeOptionalNonNegativeInteger(evidence.failedPreviewSessions) ??
+      normalizeOptionalNonNegativeInteger(metadata.failedPreviewSessions) ??
+      normalizeOptionalNonNegativeInteger(previewMetadata.failedPreviewSessions),
+    newUnhandledPreviewErrors:
+      normalizeOptionalNonNegativeInteger(evidence.newUnhandledPreviewErrors) ??
+      normalizeOptionalNonNegativeInteger(metadata.newUnhandledPreviewErrors) ??
+      normalizeOptionalNonNegativeInteger(previewMetadata.newUnhandledPreviewErrors),
+    previewStatus:
+      latestPreviewDeployment?.status ||
+      normalizePreviewCallbackStatus(previewMetadata.previewStatus) ||
+      normalizePreviewCallbackStatus(previewMetadata.status) ||
+      null,
+    previewStatusLabel:
+      normalizeOptionalString(evidence.statusLabel) ||
+      normalizeOptionalString(metadata.previewStatusLabel) ||
+      normalizeOptionalString(previewMetadata.previewStatusLabel) ||
+      normalizeOptionalString(previewMetadata.previewStatus) ||
+      latestPreviewDeployment?.status,
+    previewUrl:
+      normalizeOptionalString(evidence.previewUrl) ||
+      normalizeOptionalString(latestPreviewDeployment?.url) ||
+      normalizeOptionalString(previewMetadata.previewUrl) ||
+      null,
+    pullRequestUrl:
+      normalizeOptionalString(evidence.pullRequestUrl) ||
+      normalizeOptionalString(previewMetadata.pullRequestUrl) ||
+      normalizeOptionalString(latestPullRequest?.url) ||
+      null,
+    runUrl:
+      normalizeOptionalString(evidence.runUrl) ||
+      normalizeOptionalString(metadata.runUrl) ||
+      normalizeOptionalString(previewMetadata.runUrl) ||
+      null,
+    sentryIssuesUrl:
+      normalizeOptionalString(evidence.sentryIssuesUrl) ||
+      normalizeOptionalString(metadata.sentryIssuesUrl) ||
+      normalizeOptionalString(previewMetadata.sentryIssuesUrl) ||
+      null,
+    sentryRelease:
+      normalizeOptionalString(evidence.sentryRelease) ||
+      normalizeOptionalString(metadata.sentryRelease) ||
+      normalizeOptionalString(previewMetadata.sentryRelease) ||
+      null,
+    sourceUpdatedAt:
+      normalizeOptionalString(evidence.sourceUpdatedAt) ||
+      normalizeOptionalString(metadata.sourceUpdatedAt) ||
+      normalizeOptionalString(previewMetadata.reportedAt) ||
+      latestPreviewDeployment?.checkedAt ||
+      latestPreviewDeployment?.createdAt ||
+      latestPullRequest?.updatedAt,
+  });
+}
+
+function validateContributionCiStatusPayload(payload) {
+  if (!isPlainObject(payload)) {
+    return {
+      ok: false,
+      errors: ['payload must be an object'],
+    };
+  }
+
+  const errors = [];
+  const environment = normalizeStatusKey(payload.environment);
+
+  if (!environment || !CONTRIBUTION_CI_ENVIRONMENTS.has(environment)) {
+    errors.push('environment must be one of preview or production');
+  }
+
+  const buildStatus = normalizeOptionalString(payload.buildStatus);
+  const previewStatus = normalizeOptionalString(payload.previewStatus);
+  const normalizedPreviewStatus = normalizePreviewCallbackStatus(previewStatus);
+  const productionStatus = normalizeOptionalString(payload.productionStatus);
+  const normalizedProductionStatus = normalizeProductionCallbackStatus(productionStatus);
+  const pullRequestNumber = normalizeOptionalPositiveInteger(payload.pullRequestNumber);
+  const newUnhandledPreviewErrors = hasOwnProperty(payload, 'newUnhandledPreviewErrors')
+    ? normalizeOptionalNonNegativeInteger(payload.newUnhandledPreviewErrors)
+    : null;
+  const failedPreviewSessions = hasOwnProperty(payload, 'failedPreviewSessions')
+    ? normalizeOptionalNonNegativeInteger(payload.failedPreviewSessions)
+    : null;
+
+  if (!buildStatus) {
+    errors.push('buildStatus is required');
+  }
+
+  if (hasOwnProperty(payload, 'runUrl') && payload.runUrl != null && !normalizeOptionalHttpUrl(payload.runUrl)) {
+    errors.push('runUrl must be an http or https URL when provided');
+  }
+
+  if (hasOwnProperty(payload, 'pullRequestUrl') && payload.pullRequestUrl != null && !normalizeOptionalHttpUrl(payload.pullRequestUrl)) {
+    errors.push('pullRequestUrl must be an http or https URL when provided');
+  }
+
+  if (hasOwnProperty(payload, 'previewUrl') && payload.previewUrl != null && !normalizeOptionalHttpUrl(payload.previewUrl)) {
+    errors.push('previewUrl must be an http or https URL when provided');
+  }
+
+  if (hasOwnProperty(payload, 'productionUrl') && payload.productionUrl != null && !normalizeOptionalHttpUrl(payload.productionUrl)) {
+    errors.push('productionUrl must be an http or https URL when provided');
+  }
+
+  if (hasOwnProperty(payload, 'sentryIssuesUrl') && payload.sentryIssuesUrl != null && !normalizeOptionalHttpUrl(payload.sentryIssuesUrl)) {
+    errors.push('sentryIssuesUrl must be an http or https URL when provided');
+  }
+
+  if (hasOwnProperty(payload, 'newUnhandledPreviewErrors') && payload.newUnhandledPreviewErrors != null && newUnhandledPreviewErrors === null) {
+    errors.push('newUnhandledPreviewErrors must be a non-negative integer when provided');
+  }
+
+  if (hasOwnProperty(payload, 'failedPreviewSessions') && payload.failedPreviewSessions != null && failedPreviewSessions === null) {
+    errors.push('failedPreviewSessions must be a non-negative integer when provided');
+  }
+
+  if (hasOwnProperty(payload, 'pullRequestStatus') && payload.pullRequestStatus != null && !normalizePullRequestStatus(payload.pullRequestStatus)) {
+    errors.push('pullRequestStatus must be one of open, merged, or closed when provided');
+  }
+
+  if (environment === 'preview' && !normalizedPreviewStatus) {
+    errors.push('previewStatus must be one of deploying, ready, failed, or configuration_required');
+  }
+
+  if (environment === 'production' && !normalizedProductionStatus) {
+    errors.push('productionStatus must be one of deploying, published, failed, or configuration_required');
+  }
+
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      errors,
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      environment,
+      branch: normalizeOptionalString(payload.branch) || null,
+      buildStatus,
+      failedPreviewSessions,
+      gitSha: normalizeOptionalString(payload.gitSha) || null,
+      newUnhandledPreviewErrors,
+      previewStatus: normalizedPreviewStatus,
+      previewStatusLabel: previewStatus || null,
+      previewUrl: normalizeOptionalHttpUrl(payload.previewUrl),
+      productionStatus: normalizedProductionStatus,
+      productionStatusLabel: productionStatus || null,
+      productionUrl: normalizeOptionalHttpUrl(payload.productionUrl),
+      pullRequestNumber,
+      pullRequestStatus: normalizePullRequestStatus(payload.pullRequestStatus),
+      pullRequestUrl: normalizeOptionalHttpUrl(payload.pullRequestUrl),
+      repositoryFullName: normalizeOptionalString(payload.repositoryFullName) || null,
+      runId: normalizeOptionalString(payload.runId) || null,
+      runUrl: normalizeOptionalHttpUrl(payload.runUrl),
+      sentryIssuesUrl: normalizeOptionalHttpUrl(payload.sentryIssuesUrl),
+      sentryRelease: normalizeOptionalString(payload.sentryRelease) || null,
+      updatedAt: normalizeOptionalTimestamp(payload.updatedAt),
     },
   };
 }
@@ -1787,6 +2150,15 @@ export function createContributionPreviewEvidenceHandler({
     }
 
     const latestPullRequest = getLatestByCreatedAt(asArray(detail.pullRequests));
+    const storedEvidence = buildStoredPreviewEvidence(detail);
+
+    if (storedEvidence) {
+      return buildResponse(200, {
+        contributionId,
+        pullRequest: latestPullRequest ? serializePullRequest(latestPullRequest) : null,
+        evidence: storedEvidence,
+      });
+    }
 
     if (!latestPullRequest) {
       return buildResponse(409, {
@@ -1810,6 +2182,432 @@ export function createContributionPreviewEvidenceHandler({
     } catch (error) {
       return previewEvidenceServiceErrorResponse(error);
     }
+  };
+}
+
+export function createContributionCiStatusHandler({
+  database,
+  completionService = createConfiguredCompletionService(),
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body, request } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    const validation = validateContributionCiStatusPayload(body);
+
+    if (!validation.ok) {
+      return buildResponse(400, {
+        error: 'invalid_ci_status_payload',
+        issues: validation.errors,
+      });
+    }
+
+    if (
+      !hasReadyPersistence(database, 'getContributionDetail') ||
+      !hasReadyPersistence(database, 'applyContributionUpdate') ||
+      !hasReadyPersistence(database, 'getProject')
+    ) {
+      return notWiredResponse('CI status persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    const project = await database.getProject(detail.contribution.projectSlug);
+
+    if (!project) {
+      return buildResponse(404, {
+        error: 'project_not_found',
+        project: detail.contribution.projectSlug ?? null,
+      });
+    }
+
+    const expectedToken = readProjectCiStatusToken(project);
+
+    if (!expectedToken) {
+      return buildResponse(503, {
+        error: 'ci_status_not_configured',
+        message: 'Project CI status token is not configured.',
+      });
+    }
+
+    const suppliedToken = readContributionCiToken(request);
+
+    if (!suppliedToken || suppliedToken !== expectedToken) {
+      return buildResponse(403, {
+        error: 'ci_status_forbidden',
+        message: 'CI status token is missing or invalid.',
+      });
+    }
+
+    const value = validation.value;
+    const createdAt = value.updatedAt || clock().toISOString();
+    const projectRuntimeConfig = resolveProjectRuntimeConfig(project);
+    const pullRequests = asArray(detail.pullRequests);
+    const latestPullRequest = getLatestByCreatedAt(pullRequests);
+    const latestPreviewDeployment = getLatestByCreatedAt(asArray(detail.previewDeployments));
+    const repositoryFullName =
+      value.repositoryFullName ||
+      normalizeOptionalString(latestPullRequest?.repositoryFullName) ||
+      normalizeOptionalString(projectRuntimeConfig.repositoryFullName) ||
+      null;
+    const branchName =
+      value.branch ||
+      normalizeOptionalString(latestPullRequest?.branchName) ||
+      null;
+    const matchingPullRequest =
+      (repositoryFullName && value.pullRequestNumber
+        ? pullRequests.find(
+            (pullRequest) =>
+              pullRequest.repositoryFullName === repositoryFullName && pullRequest.number === value.pullRequestNumber,
+          )
+        : null) ??
+      (branchName
+        ? pullRequests.find((pullRequest) => normalizeOptionalString(pullRequest.branchName) === branchName)
+        : null) ??
+      latestPullRequest ??
+      null;
+    const pullRequestNumber = value.pullRequestNumber ?? matchingPullRequest?.number ?? null;
+    const pullRequestUrl = value.pullRequestUrl || normalizeOptionalString(matchingPullRequest?.url) || null;
+    const effectivePullRequestStatus =
+      value.pullRequestStatus ||
+      (value.environment === 'production' && ['deploying', 'published'].includes(value.productionStatus || '')
+        ? 'merged'
+        : null) ||
+      normalizePullRequestStatus(matchingPullRequest?.status) ||
+      (pullRequestNumber ? 'open' : null);
+    const ciMetadataPatch = {
+      source: 'ci_status_callback',
+      reportedAt: createdAt,
+      buildStatus: value.buildStatus,
+      branchName: branchName || null,
+      gitSha: value.gitSha,
+      pullRequestNumber,
+      pullRequestUrl,
+      repositoryFullName,
+      runId: value.runId,
+      runUrl: value.runUrl,
+      sentryIssuesUrl: value.sentryIssuesUrl,
+      sentryRelease: value.sentryRelease,
+    };
+    const nextPullRequests = [];
+    const updatedPullRequests = [];
+    let effectivePullRequest = matchingPullRequest;
+
+    if (effectivePullRequest) {
+      const metadata = mergeContributionCiMetadata(effectivePullRequest.metadata, value.environment, {
+        ...ciMetadataPatch,
+        previewStatus: value.previewStatus,
+        previewStatusLabel: value.previewStatusLabel,
+        previewUrl: value.previewUrl,
+        productionStatus: value.productionStatus,
+        productionStatusLabel: value.productionStatusLabel,
+        productionUrl: value.productionUrl,
+        newUnhandledPreviewErrors: value.newUnhandledPreviewErrors,
+        failedPreviewSessions: value.failedPreviewSessions,
+      });
+
+      effectivePullRequest = {
+        ...effectivePullRequest,
+        repositoryFullName: repositoryFullName || effectivePullRequest.repositoryFullName,
+        number: pullRequestNumber ?? effectivePullRequest.number,
+        url: pullRequestUrl || effectivePullRequest.url,
+        branchName: branchName || effectivePullRequest.branchName,
+        headSha: value.gitSha || effectivePullRequest.headSha || null,
+        status: effectivePullRequestStatus || effectivePullRequest.status,
+        metadata,
+        updatedAt: createdAt,
+      };
+      updatedPullRequests.push(effectivePullRequest);
+    } else if (repositoryFullName && pullRequestNumber && pullRequestUrl && branchName) {
+      effectivePullRequest = {
+        id: idFactory(),
+        contributionId,
+        repositoryFullName,
+        number: pullRequestNumber,
+        url: pullRequestUrl,
+        branchName,
+        headSha: value.gitSha,
+        status: effectivePullRequestStatus || 'open',
+        metadata: mergeContributionCiMetadata(null, value.environment, {
+          ...ciMetadataPatch,
+          previewStatus: value.previewStatus,
+          previewStatusLabel: value.previewStatusLabel,
+          previewUrl: value.previewUrl,
+          productionStatus: value.productionStatus,
+          productionStatusLabel: value.productionStatusLabel,
+          productionUrl: value.productionUrl,
+          newUnhandledPreviewErrors: value.newUnhandledPreviewErrors,
+          failedPreviewSessions: value.failedPreviewSessions,
+        }),
+        createdAt,
+        updatedAt: createdAt,
+      };
+      nextPullRequests.push(effectivePullRequest);
+    }
+
+    let nextState = detail.contribution.state;
+    const progressEvents = [];
+    const messages = [];
+    const mergedStateIndex = getContributionStateIndex(MERGED_CONTRIBUTION_STATE);
+    const productionDeployingStateIndex = getContributionStateIndex('production_deploying');
+    const completedStateIndex = getContributionStateIndex('completed');
+    const currentStateIndex = getContributionStateIndex(detail.contribution.state);
+    const effectiveExternalUrl =
+      value.environment === 'production'
+        ? value.productionUrl || value.runUrl || pullRequestUrl
+        : value.previewUrl || value.runUrl || pullRequestUrl;
+
+    if (
+      effectivePullRequest?.status === 'merged' &&
+      (currentStateIndex === -1 || mergedStateIndex === -1 || currentStateIndex < mergedStateIndex)
+    ) {
+      nextState = advanceContributionState(nextState, MERGED_CONTRIBUTION_STATE);
+      progressEvents.push({
+        id: idFactory(),
+        contributionId,
+        kind: MARKED_MERGED_PROGRESS_EVENT_KIND,
+        status: nextState,
+        message: `Merged from PR #${effectivePullRequest.number}.`,
+        externalUrl: effectivePullRequest.url,
+        payload: {
+          contributionId,
+          pullRequestId: effectivePullRequest.id,
+          repositoryFullName: effectivePullRequest.repositoryFullName,
+          number: effectivePullRequest.number,
+        },
+        createdAt,
+      });
+    }
+
+    const nextPreviewDeployments = [];
+
+    if (value.environment === 'preview') {
+      const previewUrl = value.previewUrl || normalizeOptionalString(latestPreviewDeployment?.url) || buildConfiguredPreviewUrl(project, contributionId);
+      const previewEvidence = buildPreviewEvidenceRecord({
+        buildStatus: value.buildStatus,
+        branch: branchName,
+        contributionId,
+        failedPreviewSessions: value.failedPreviewSessions,
+        newUnhandledPreviewErrors: value.newUnhandledPreviewErrors,
+        previewStatus: value.previewStatus,
+        previewStatusLabel: value.previewStatusLabel,
+        previewUrl,
+        pullRequestUrl,
+        runUrl: value.runUrl,
+        sentryIssuesUrl: value.sentryIssuesUrl,
+        sentryRelease: value.sentryRelease,
+        sourceUpdatedAt: createdAt,
+      });
+
+      if (previewUrl) {
+        nextPreviewDeployments.push({
+          id: idFactory(),
+          contributionId,
+          pullRequestId: effectivePullRequest?.id ?? null,
+          url: previewUrl,
+          status: value.previewStatus,
+          gitSha: value.gitSha,
+          deployKind: 'branch_preview',
+          deployedAt: value.previewStatus === 'ready' ? createdAt : null,
+          checkedAt: createdAt,
+          errorSummary:
+            value.previewStatus === 'failed'
+              ? `CI reported ${value.buildStatus}${value.previewStatusLabel ? ` (${value.previewStatusLabel})` : ''}.`
+              : null,
+          metadata: {
+            source: 'ci_status_callback',
+            buildStatus: value.buildStatus,
+            branchName,
+            repositoryFullName,
+            pullRequestNumber,
+            runId: value.runId,
+            runUrl: value.runUrl,
+            sentryIssuesUrl: value.sentryIssuesUrl,
+            sentryRelease: value.sentryRelease,
+            sourceUpdatedAt: createdAt,
+            newUnhandledPreviewErrors: value.newUnhandledPreviewErrors,
+            failedPreviewSessions: value.failedPreviewSessions,
+            previewStatusLabel: value.previewStatusLabel,
+            evidence: previewEvidence,
+          },
+          createdAt,
+        });
+      }
+
+      const candidateState =
+        value.previewStatus === 'ready'
+          ? PREVIEW_READY_CONTRIBUTION_STATE
+          : value.previewStatus === 'deploying'
+            ? PREVIEW_DEPLOYING_CONTRIBUTION_STATE
+            : PREVIEW_FAILED_CONTRIBUTION_STATE;
+
+      nextState = resolveContributionState(nextState, candidateState);
+      progressEvents.push({
+        id: idFactory(),
+        contributionId,
+        kind: RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND,
+        status: nextState,
+        message:
+          value.previewStatus === 'ready'
+            ? 'Preview deployment reported ready from CI.'
+            : value.previewStatus === 'deploying'
+              ? 'Preview deployment reported in progress from CI.'
+              : 'Preview deployment reported failed from CI.',
+        externalUrl: effectiveExternalUrl,
+        payload: {
+          contributionId,
+          pullRequestId: effectivePullRequest?.id ?? null,
+          repositoryFullName,
+          number: pullRequestNumber,
+          previewStatus: value.previewStatus,
+          previewUrl: previewUrl || null,
+          runUrl: value.runUrl,
+        },
+        createdAt,
+      });
+    } else {
+      const runtimeConfig = isPlainObject(project.runtimeConfig) ? project.runtimeConfig : {};
+      const productionUrl =
+        value.productionUrl ||
+        normalizeOptionalHttpUrl(runtimeConfig.productionBaseUrl) ||
+        null;
+
+      if (
+        ['deploying', 'published'].includes(value.productionStatus || '') &&
+        (currentStateIndex === -1 ||
+          productionDeployingStateIndex === -1 ||
+          currentStateIndex < productionDeployingStateIndex)
+      ) {
+        nextState = advanceContributionState(nextState, 'production_deploying');
+        progressEvents.push({
+          id: idFactory(),
+          contributionId,
+          kind: STARTED_PRODUCTION_DEPLOY_PROGRESS_EVENT_KIND,
+          status: nextState,
+          message:
+            value.productionStatus === 'published'
+              ? 'Production deploy completed in CI.'
+              : 'Production deploy reported in progress from CI.',
+          externalUrl: productionUrl || value.runUrl || pullRequestUrl,
+          payload: {
+            contributionId,
+            pullRequestId: effectivePullRequest?.id ?? null,
+            repositoryFullName,
+            number: pullRequestNumber,
+            productionStatus: value.productionStatus,
+            productionUrl,
+            runUrl: value.runUrl,
+          },
+          createdAt,
+        });
+      } else if (value.productionStatus === 'failed') {
+        progressEvents.push({
+          id: idFactory(),
+          contributionId,
+          kind: 'production_deploy_failed',
+          status: nextState,
+          message: 'Production deploy reported failed from CI.',
+          externalUrl: productionUrl || value.runUrl || pullRequestUrl,
+          payload: {
+            contributionId,
+            pullRequestId: effectivePullRequest?.id ?? null,
+            repositoryFullName,
+            number: pullRequestNumber,
+            productionStatus: value.productionStatus,
+            productionUrl,
+            runUrl: value.runUrl,
+          },
+          createdAt,
+        });
+      }
+
+      if (value.productionStatus === 'published') {
+        const completionDetail = {
+          ...detail,
+          pullRequests: effectivePullRequest
+            ? pullRequests
+                .filter((pullRequest) => pullRequest.id !== effectivePullRequest.id)
+                .concat(effectivePullRequest)
+            : pullRequests,
+        };
+        const mergedPullRequest =
+          getLatestByCreatedAt(
+            completionDetail.pullRequests.filter((pullRequest) => pullRequest.status === 'merged'),
+          ) || effectivePullRequest;
+
+        if (mergedPullRequest && (currentStateIndex === -1 || completedStateIndex === -1 || currentStateIndex < completedStateIndex)) {
+          const fallbackSummary = buildCompletionSummary(completionDetail, mergedPullRequest);
+          const completion = await completionService.summarizeCompletion({
+            detail: completionDetail,
+            mergedPullRequest,
+            note: '',
+            fallbackSummary,
+          });
+          const summary = completion?.summary || fallbackSummary;
+
+          nextState = advanceContributionState(nextState, 'completed');
+          progressEvents.push({
+            id: idFactory(),
+            contributionId,
+            kind: COMPLETED_CONTRIBUTION_PROGRESS_EVENT_KIND,
+            status: nextState,
+            message: 'Contribution completed.',
+            externalUrl: productionUrl || mergedPullRequest.url,
+            payload: {
+              contributionId,
+              pullRequestId: mergedPullRequest.id,
+              repositoryFullName: mergedPullRequest.repositoryFullName,
+              number: mergedPullRequest.number,
+              summary,
+            },
+            createdAt,
+          });
+          messages.push(
+            createAgentMessage({
+              id: idFactory(),
+              contributionId,
+              body: summary,
+              createdAt,
+              metadata: {
+                pullRequestNumber: mergedPullRequest.number,
+                repositoryFullName: mergedPullRequest.repositoryFullName,
+                completionSummary: completion?.metadata ?? null,
+                productionUrl,
+              },
+              messageType: 'completion_summary',
+            }),
+          );
+        }
+      }
+    }
+
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState,
+      updatedAt: createdAt,
+      messages,
+      progressEvents,
+      pullRequests: nextPullRequests,
+      updatedPullRequests,
+      previewDeployments: nextPreviewDeployments,
+    });
+
+    return buildResponse(202, buildContributionSnapshot(updated));
   };
 }
 
@@ -3980,6 +4778,7 @@ export function createRouteHandlers(options = {}) {
     postContribution: createContributionHandler(options),
     getContribution: createContributionDetailHandler(options),
     getPreviewEvidence: createContributionPreviewEvidenceHandler(options),
+    postContributionCiStatus: createContributionCiStatusHandler(options),
     postContributionAttachment: createContributionAttachmentHandler(options),
     postContributionMessage: createContributionMessageHandler(options),
     postSpecApproval: createSpecApprovalHandler(options),

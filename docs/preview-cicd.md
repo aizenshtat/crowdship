@@ -37,6 +37,7 @@ For `main`:
 4. Create or update a Sentry release for the production commit.
 5. Upload source maps when the build produces them.
 6. Deploy production root.
+7. Report production deploy status back to Crowdship when the change came from a Crowdship contribution.
 
 ## Crowdship Tracking
 
@@ -53,6 +54,52 @@ Crowdship stores:
 - New unhandled preview error count.
 - Failed preview session count when available.
 - Production deploy timestamp after merge.
+
+## CI Callback Contract
+
+Crowdship now accepts first-class CI status updates at:
+
+```text
+POST /api/v1/contributions/<contribution-id>/ci-status
+```
+
+Authentication is a project-scoped shared secret sent in `x-crowdship-ci-token` or `Authorization: Bearer <token>`.
+
+Required common fields:
+
+- `environment`: `preview` or `production`
+- `buildStatus`
+
+Preview callback fields:
+
+- `previewStatus`: `deploying`, `ready`, `failed`, or `configuration_required`
+- `previewUrl` when available
+- `runUrl`
+- `repositoryFullName`
+- `pullRequestNumber`
+- `pullRequestUrl`
+- `branch`
+- `gitSha`
+- `sentryRelease`
+- `sentryIssuesUrl`
+- `newUnhandledPreviewErrors`
+- `failedPreviewSessions`
+
+Production callback fields:
+
+- `productionStatus`: `deploying`, `published`, `failed`, or `configuration_required`
+- `productionUrl` when available
+- `runUrl`
+- `repositoryFullName`
+- `pullRequestNumber`
+- `pullRequestUrl`
+- `branch`
+- `gitSha`
+- `sentryRelease`
+
+When Crowdship receives a preview callback, it persists preview evidence directly and serves that record back to the admin UI. GitHub comment scraping remains a fallback for older flows, not the primary source of truth.
+
+When Crowdship receives a production callback with `productionStatus=published`, it can advance a merged contribution through production deploy and completion automatically.
 
 ## Widget Display
 

@@ -42,8 +42,8 @@ rejected
 | `core_team_flagged` | Vote threshold or admin action flagged it for maintainers. |
 | `core_review` | Core team is validating the PR and product fit. |
 | `merged` | PR was merged. |
-| `production_deploying` | Main branch CI/CD is deploying production. |
-| `completed` | Feature is live and notifications were sent. |
+| `production_deploying` | Main branch CI/CD is deploying production or reported a production rollout in progress. |
+| `completed` | Feature is live and Crowdship has a recorded production-success signal plus a completion summary. |
 | `rejected` | Owner or core team rejected the request. |
 
 ## Requester Approval Rules
@@ -77,6 +77,17 @@ When a contribution is completed, Crowdship generates a short user-facing explan
 - What was intentionally left out.
 
 This explanation is sent to the requester, voters, and commenters.
+
+## Production Completion Rule
+
+`completed` should not be set from wishful thinking or a manual checkbox alone. The durable path is:
+
+1. PR is merged.
+2. Production CI/CD reports `deploying` or `published`.
+3. Crowdship records the deploy evidence.
+4. Crowdship generates the completion summary.
+
+For the reference stack, the production workflow can report that state through the contribution CI callback described in `docs/preview-cicd.md`.
 
 ## Core Review Evidence
 

@@ -29,7 +29,7 @@ Implementation Worker
   v
 Example GitHub Repo
   |
-  | GitHub Actions deploys preview and production
+  | GitHub Actions deploys preview and production, then reports CI status back to Crowdship
   v
 example.aizenshtat.eu
 ```
@@ -107,6 +107,7 @@ Crowdship owns contribution data and the server-side project contract used to va
 | Contribution API | Durable intake and chat. |
 | GitHub API | Branches, commits, PRs, CI status. |
 | Preview deploy | Requester and voters test working changes. |
+| CI status callback | Preview evidence and production completion signals flow back into Crowdship state. |
 | Sentry | Runtime error visibility, release tracking, source maps, and merge-readiness evidence. |
 | OpenAI API | Clarification, spec generation, implementation support. |
 
