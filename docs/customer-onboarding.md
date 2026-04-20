@@ -122,8 +122,17 @@ Recommended split:
 
 Preferred path:
 
-- Install the Crowdship GitHub App, or an equivalent scoped integration, on the allowed repository.
+- Use the project-scoped install entrypoint from Crowdship Settings to install the Crowdship GitHub App, or an equivalent scoped integration, on the allowed repository.
 - Provision credentials and registration fields as documented in `docs/github-app-setup.md`.
+
+What Crowdship stores:
+
+- repository identity
+- non-secret GitHub App install metadata
+- last saved install status
+- last live verification timestamp
+
+Crowdship should not store a customer PAT for the hosted remote-clone path.
 
 Fallback path:
 
@@ -140,6 +149,14 @@ Customer CI should own:
 - Production deploy
 - Sentry release/source maps when enabled
 - Status callback or pollable evidence for Crowdship
+
+The reference callback contract is:
+
+```text
+POST /api/v1/contributions/<id>/ci-status
+```
+
+with a project-scoped shared token stored in customer CI secrets and the matching Crowdship project runtime config.
 
 ### 5. Choose hosted or self-hosted execution
 

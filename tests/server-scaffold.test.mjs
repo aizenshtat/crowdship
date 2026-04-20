@@ -20,6 +20,7 @@ import {
   createGitHubAppCallbackHandler,
   createGitHubAppSetupHandler,
   createGitHubWebhookHandler,
+  createProjectGitHubInstallHandler,
   createProjectGitHubConnectionHandler,
   createContributionProgressHandler,
   createRouteHandlers,
@@ -493,6 +494,7 @@ test('api route structure includes the required public endpoints', () => {
       'GET /api/v1/projects/:project',
       'PUT /api/v1/projects/:project',
       'GET /api/v1/projects/:project/github-connection',
+      'GET /api/v1/projects/:project/github-install',
       'GET /api/v1/projects/:project/public-config',
       'GET /api/v1/contributions',
       'POST /api/v1/contributions',
@@ -554,6 +556,74 @@ test('github app callback route redirects GitHub errors back into settings', asy
   assert.equal(
     response.location,
     '/?section=settings&github_source=callback&github_status=error&github_error=access_denied&github_error_description=The+owner+declined+the+authorization+request.',
+  );
+});
+
+test('project github install route redirects through a project-scoped install entrypoint', async () => {
+  const getProjectGitHubInstall = createProjectGitHubInstallHandler({
+    database: createInMemoryContributionPersistenceAdapter(),
+    fetchImpl: async (url) => {
+      assert.equal(url, 'https://api.github.com/app');
+      return new Response(
+        JSON.stringify({
+          slug: 'aizenshtat-crowdship',
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        },
+      );
+    },
+  });
+  const previousAppId = process.env.GITHUB_APP_ID;
+  const previousPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+
+  process.env.GITHUB_APP_ID = '12345';
+  process.env.GITHUB_APP_PRIVATE_KEY = generatePrivateKeyPem();
+
+  try {
+    const response = await getProjectGitHubInstall({
+      params: { project: 'example' },
+    });
+
+    assert.equal(response.status, 303);
+    assert.equal(response.responseMode, 'redirect');
+    assert.equal(
+      response.location,
+      'https://github.com/apps/aizenshtat-crowdship/installations/new?state=crowdship-project%3Aexample',
+    );
+  } finally {
+    if (previousAppId == null) {
+      delete process.env.GITHUB_APP_ID;
+    } else {
+      process.env.GITHUB_APP_ID = previousAppId;
+    }
+
+    if (previousPrivateKey == null) {
+      delete process.env.GITHUB_APP_PRIVATE_KEY;
+    } else {
+      process.env.GITHUB_APP_PRIVATE_KEY = previousPrivateKey;
+    }
+  }
+});
+
+test('github app setup route preserves project context from the install state', async () => {
+  const getGitHubSetup = createGitHubAppSetupHandler();
+  const response = await getGitHubSetup({
+    query: {
+      state: 'crowdship-project:example',
+      installation_id: '91',
+      setup_action: 'install',
+    },
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.responseMode, 'redirect');
+  assert.equal(
+    response.location,
+    '/?section=settings&project=example&github_source=setup&github_status=complete&github_installation_id=91&github_setup_action=install',
   );
 });
 
@@ -1104,8 +1174,12 @@ test('project route rejects a mismatched slug in the update payload', async () =
 });
 
 test('project github connection route reports a connected hosted install', async () => {
+  const persistence = createInMemoryContributionPersistenceAdapter({
+    clock: () => new Date('2026-04-20T09:15:00Z'),
+  });
   const getProjectGitHubConnection = createProjectGitHubConnectionHandler({
-    database: createInMemoryContributionPersistenceAdapter(),
+    database: persistence,
+    clock: () => new Date('2026-04-20T09:15:00Z'),
     fetchImpl: async (url) => {
       if (url === 'https://api.github.com/app') {
         return new Response(
@@ -1164,6 +1238,29 @@ test('project github connection route reports a connected hosted install', async
     assert.equal(response.body.githubConnection.repositoryFullName, 'aizenshtat/example');
     assert.equal(response.body.githubConnection.appSlug, 'aizenshtat-crowdship');
     assert.equal(response.body.githubConnection.installationId, 91);
+    assert.equal(response.body.githubConnection.persistedStatus, 'connected');
+    assert.equal(response.body.githubConnection.persistedAt, '2026-04-20T09:15:00.000Z');
+    assert.equal(response.body.githubConnection.installEntryUrl, '/api/v1/projects/example/github-install');
+
+    const storedProject = await persistence.getProject('example');
+    assert.equal(storedProject.runtimeConfig.githubConnection.repositoryFullName, 'aizenshtat/example');
+    assert.equal(storedProject.runtimeConfig.githubConnection.status, 'connected');
+    assert.equal(storedProject.runtimeConfig.githubConnection.installationId, 91);
+    assert.equal(storedProject.runtimeConfig.githubConnection.accountLogin, 'aizenshtat');
+    assert.equal(storedProject.runtimeConfig.githubConnection.updatedAt, '2026-04-20T09:15:00.000Z');
+
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+
+    const persistedOnly = await getProjectGitHubConnection({
+      params: { project: 'example' },
+    });
+
+    assert.equal(persistedOnly.status, 200);
+    assert.equal(persistedOnly.body.githubConnection.status, 'unconfigured');
+    assert.equal(persistedOnly.body.githubConnection.installationId, 91);
+    assert.equal(persistedOnly.body.githubConnection.accountLogin, 'aizenshtat');
+    assert.equal(persistedOnly.body.githubConnection.persistedStatus, 'connected');
   } finally {
     if (previousAppId == null) {
       delete process.env.GITHUB_APP_ID;

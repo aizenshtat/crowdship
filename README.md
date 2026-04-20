@@ -20,6 +20,8 @@ This repository currently contains the Crowdship bootstrap and the first live in
 - Contribution lifecycle at `docs/contribution-lifecycle.md`
 - Implementation agent contract at `docs/implementation-agent.md`
 - Preview CI/CD contract at `docs/preview-cicd.md`
+- GitHub App setup at `docs/github-app-setup.md`
+- Customer onboarding at `docs/customer-onboarding.md`
 - Product walkthrough at `docs/demo-script.md`
 - Implementation plan at `docs/implementation-plan.md`
 - Security model at `docs/security-model.md`
@@ -30,6 +32,12 @@ This repository currently contains the Crowdship bootstrap and the first live in
 - Framework-neutral quality CI, tests, linting, and pre-commit guardrails
 
 The API now expects durable Postgres persistence when `DATABASE_URL` is configured.
+
+The current hosted slice also includes:
+
+- a project-scoped GitHub App install entrypoint at `GET /api/v1/projects/:project/github-install`
+- saved plus live GitHub connection status at `GET /api/v1/projects/:project/github-connection`
+- contribution-scoped CI callbacks at `POST /api/v1/contributions/:id/ci-status`
 
 ## Quality Checks
 

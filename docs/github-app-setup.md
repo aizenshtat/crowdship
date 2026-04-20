@@ -66,15 +66,16 @@ This document covers registration, credentials, and the minimal redirect/ingest 
 
 What is wired now:
 
+- `GET /api/v1/projects/:project/github-install` is the project-scoped install entrypoint used by the admin settings view. It redirects to the shared GitHub App install URL and carries the Crowdship project slug in GitHub's `state` parameter.
 - `GET /api/github/setup` redirects the browser back into Crowdship Settings after the GitHub install flow.
 - `GET /api/github/callback` redirects the browser back into Crowdship Settings after an owner authorization callback or callback error.
+- `GET /api/v1/projects/:project/github-connection` now returns the saved non-secret `runtimeConfig.githubConnection` metadata together with the current live lookup result. Successful live checks refresh the saved metadata.
 - `POST /api/github/webhooks` validates `X-Hub-Signature-256` when `GITHUB_APP_WEBHOOK_SECRET` is configured.
 - `pull_request` webhook deliveries now reconcile the recorded PR status back into Crowdship and automatically advance a contribution to `merged` when GitHub reports the PR as merged and the contribution can be identified from the PR body or Crowdship branch name.
 
 The full owner-authorized in-product connect flow still needs:
 
-- install/connect UI beyond the current settings view and external install link
+- install/connect UI beyond the current settings view and project-scoped install redirect
 - owner-authorized callback token exchange and storage
-- installation state persistence
 - webhook-driven installation sync for installs, permission changes, and repo-selection changes
 - first-class check-run, actions, and preview/deploy callbacks instead of comment scraping

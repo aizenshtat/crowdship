@@ -260,6 +260,14 @@ function serializeProjectRecord(project) {
 
   if (isPlainObject(nextProject.runtimeConfig)) {
     deleteOrAssignExecutionMode(nextProject.runtimeConfig, 'executionMode', nextProject.runtimeConfig.executionMode);
+    const normalizedGitHubConnection = normalizeStoredGitHubConnectionMetadata(nextProject.runtimeConfig.githubConnection);
+
+    if (normalizedGitHubConnection) {
+      nextProject.runtimeConfig.githubConnection = normalizedGitHubConnection;
+    } else {
+      delete nextProject.runtimeConfig.githubConnection;
+    }
+
     delete nextProject.runtimeConfig.ciStatusToken;
   }
 
@@ -269,6 +277,7 @@ function serializeProjectRecord(project) {
 function buildGitHubSettingsRedirectLocation({
   source,
   status,
+  project = null,
   installationId = null,
   setupAction = null,
   error = null,
@@ -277,6 +286,9 @@ function buildGitHubSettingsRedirectLocation({
   const searchParams = new URLSearchParams();
   searchParams.set('section', 'settings');
 
+  if (project) {
+    searchParams.set('project', project);
+  }
   if (source) {
     searchParams.set('github_source', source);
   }
@@ -297,6 +309,129 @@ function buildGitHubSettingsRedirectLocation({
   }
 
   return `/?${searchParams.toString()}`;
+}
+
+function buildProjectGitHubInstallEntryUrl(projectSlug) {
+  const normalizedProjectSlug = normalizeOptionalString(projectSlug);
+  return normalizedProjectSlug
+    ? `/api/v1/projects/${encodeURIComponent(normalizedProjectSlug)}/github-install`
+    : null;
+}
+
+function buildGitHubAppInstallUrl(appSlug, { state = null } = {}) {
+  const normalizedAppSlug = normalizeOptionalString(appSlug);
+
+  if (!normalizedAppSlug) {
+    return null;
+  }
+
+  const url = new URL(`https://github.com/apps/${encodeURIComponent(normalizedAppSlug)}/installations/new`);
+  const normalizedState = normalizeOptionalString(state);
+
+  if (normalizedState) {
+    url.searchParams.set('state', normalizedState);
+  }
+
+  return url.toString();
+}
+
+function encodeGitHubInstallState({ project }) {
+  const normalizedProjectSlug = normalizeOptionalString(project);
+  return normalizedProjectSlug ? `crowdship-project:${normalizedProjectSlug}` : null;
+}
+
+function decodeGitHubInstallState(state) {
+  const normalizedState = normalizeOptionalString(state);
+
+  if (!normalizedState.startsWith('crowdship-project:')) {
+    return null;
+  }
+
+  const projectSlug = normalizedState.slice('crowdship-project:'.length).trim();
+  return projectSlug || null;
+}
+
+function normalizeStoredGitHubConnectionStatus(value) {
+  const normalized = normalizeStatusKey(value);
+  return ['connected', 'not_installed', 'missing_repository', 'not_required', 'unconfigured'].includes(normalized)
+    ? normalized
+    : null;
+}
+
+function normalizeStoredGitHubConnectionMetadata(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const repositoryFullName = normalizeOptionalString(value.repositoryFullName) || null;
+  const installationId = normalizeOptionalIntegerString(value.installationId);
+  const normalized = {
+    repositoryFullName,
+    status: normalizeStoredGitHubConnectionStatus(value.status),
+    appSlug: normalizeOptionalString(value.appSlug) || null,
+    appName: normalizeOptionalString(value.appName) || null,
+    appUrl: normalizeOptionalString(value.appUrl) || null,
+    ownerLogin: normalizeOptionalString(value.ownerLogin) || null,
+    installationId: installationId ? Number.parseInt(installationId, 10) : null,
+    accountLogin: normalizeOptionalString(value.accountLogin) || null,
+    repositorySelection: normalizeOptionalString(value.repositorySelection) || null,
+    updatedAt: normalizeOptionalTimestamp(value.updatedAt) || null,
+  };
+
+  return Object.values(normalized).some((entry) => entry !== null) ? normalized : null;
+}
+
+function readStoredGitHubConnectionMetadata(project, { repositoryFullName = null } = {}) {
+  const runtimeConfig = isPlainObject(project?.runtimeConfig) ? project.runtimeConfig : {};
+  const stored = normalizeStoredGitHubConnectionMetadata(runtimeConfig.githubConnection);
+
+  if (!stored) {
+    return null;
+  }
+
+  const normalizedRepositoryFullName = normalizeOptionalString(repositoryFullName) || null;
+  if (!normalizedRepositoryFullName || !stored.repositoryFullName || stored.repositoryFullName === normalizedRepositoryFullName) {
+    return stored;
+  }
+
+  return {
+    ...stored,
+    repositoryFullName: normalizedRepositoryFullName,
+    status: null,
+    installationId: null,
+    accountLogin: null,
+    repositorySelection: null,
+  };
+}
+
+async function persistProjectGitHubConnectionMetadata({ database, project, metadata }) {
+  if (!hasReadyPersistence(database, 'upsertProject') || !isPlainObject(project)) {
+    return null;
+  }
+
+  const normalizedMetadata = normalizeStoredGitHubConnectionMetadata(metadata);
+  const currentMetadata = readStoredGitHubConnectionMetadata(project);
+  const nextSerialized = JSON.stringify(normalizedMetadata);
+  const currentSerialized = JSON.stringify(currentMetadata);
+
+  if (nextSerialized === currentSerialized) {
+    return currentMetadata;
+  }
+
+  const runtimeConfig = resolveProjectRuntimeConfig(project);
+
+  if (normalizedMetadata) {
+    runtimeConfig.githubConnection = normalizedMetadata;
+  } else {
+    delete runtimeConfig.githubConnection;
+  }
+
+  await database.upsertProject({
+    ...project,
+    runtimeConfig,
+  });
+
+  return normalizedMetadata;
 }
 
 const GITHUB_PULL_REQUEST_SYNC_ACTIONS = new Set(['opened', 'reopened', 'synchronize', 'edited', 'ready_for_review', 'closed']);
@@ -1018,6 +1153,13 @@ function buildProjectRecordFromPayload(source, projectSlug, existingProject = nu
     ...structuredClone(inputRuntimeConfig),
   };
   deleteOrAssignExecutionMode(runtimeConfig, 'executionMode', runtimeConfig.executionMode);
+  const normalizedGitHubConnection = normalizeStoredGitHubConnectionMetadata(runtimeConfig.githubConnection);
+
+  if (normalizedGitHubConnection) {
+    runtimeConfig.githubConnection = normalizedGitHubConnection;
+  } else {
+    delete runtimeConfig.githubConnection;
+  }
 
   if (hasOwnProperty(source, 'executionMode')) {
     deleteOrAssignExecutionMode(runtimeConfig, 'executionMode', source.executionMode);
@@ -1048,6 +1190,17 @@ function buildProjectRecordFromPayload(source, projectSlug, existingProject = nu
   }
   if (hasOwnProperty(source, 'implementationProfile')) {
     deleteOrAssignString(runtimeConfig, 'implementationProfile', source.implementationProfile);
+  }
+
+  const currentRepositoryFullName = normalizeOptionalString(runtimeConfig.repositoryFullName) || null;
+  const currentGitHubConnection = normalizeStoredGitHubConnectionMetadata(runtimeConfig.githubConnection);
+
+  if (
+    currentGitHubConnection &&
+    currentGitHubConnection.repositoryFullName &&
+    currentGitHubConnection.repositoryFullName !== currentRepositoryFullName
+  ) {
+    delete runtimeConfig.githubConnection;
   }
 
   return {
@@ -1806,7 +1959,7 @@ export function createProjectHandler({ database } = {}) {
   };
 }
 
-export function createProjectGitHubConnectionHandler({ database, fetchImpl = fetch } = {}) {
+export function createProjectGitHubConnectionHandler({ database, fetchImpl = fetch, clock = () => new Date() } = {}) {
   return async ({ params = {} } = {}) => {
     const projectSlug = normalizeOptionalString(params.project);
 
@@ -1833,7 +1986,11 @@ export function createProjectGitHubConnectionHandler({ database, fetchImpl = fet
     const runtimeConfig = resolveProjectRuntimeConfig(project);
     const repositoryFullName = normalizeOptionalString(runtimeConfig.repositoryFullName) || null;
     const executionMode = normalizeExecutionModeValue(runtimeConfig.executionMode);
+    const persistedConnection = readStoredGitHubConnectionMetadata(project, {
+      repositoryFullName,
+    });
     const appConfig = getGitHubAppConfig();
+    const checkedAt = clock().toISOString();
     const responsePayload = {
       project: projectSlug,
       githubConnection: {
@@ -1842,14 +1999,18 @@ export function createProjectGitHubConnectionHandler({ database, fetchImpl = fet
         executionMode: executionMode || null,
         repositoryFullName,
         appConfigured: Boolean(appConfig),
-        appSlug: null,
-        appName: null,
-        appUrl: null,
-        installUrl: null,
-        ownerLogin: null,
-        installationId: null,
-        accountLogin: null,
-        repositorySelection: null,
+        appSlug: persistedConnection?.appSlug ?? null,
+        appName: persistedConnection?.appName ?? null,
+        appUrl: persistedConnection?.appUrl ?? null,
+        installUrl: buildGitHubAppInstallUrl(persistedConnection?.appSlug),
+        installEntryUrl: buildProjectGitHubInstallEntryUrl(projectSlug),
+        ownerLogin: persistedConnection?.ownerLogin ?? null,
+        installationId: persistedConnection?.installationId ?? null,
+        accountLogin: persistedConnection?.accountLogin ?? null,
+        repositorySelection: persistedConnection?.repositorySelection ?? null,
+        persistedStatus: persistedConnection?.status ?? null,
+        persistedAt: persistedConnection?.updatedAt ?? null,
+        lastCheckedAt: checkedAt,
       },
     };
 
@@ -1871,23 +2032,47 @@ export function createProjectGitHubConnectionHandler({ database, fetchImpl = fet
       return buildResponse(200, responsePayload);
     }
 
+    let nextStoredConnection = persistedConnection
+      ? {
+          ...persistedConnection,
+          repositoryFullName,
+          updatedAt: checkedAt,
+        }
+      : {
+          repositoryFullName,
+          status: null,
+          appSlug: null,
+          appName: null,
+          appUrl: null,
+          ownerLogin: null,
+          installationId: null,
+          accountLogin: null,
+          repositorySelection: null,
+          updatedAt: checkedAt,
+        };
+
     try {
       const metadata = await getGitHubAppMetadata({
         config: appConfig,
         fetchImpl,
       });
+      nextStoredConnection = {
+        ...nextStoredConnection,
+        appSlug: metadata.slug,
+        appName: metadata.name,
+        appUrl: metadata.htmlUrl,
+        ownerLogin: metadata.ownerLogin,
+      };
       responsePayload.githubConnection.appSlug = metadata.slug;
       responsePayload.githubConnection.appName = metadata.name;
       responsePayload.githubConnection.appUrl = metadata.htmlUrl;
       responsePayload.githubConnection.ownerLogin = metadata.ownerLogin;
-      responsePayload.githubConnection.installUrl = metadata.slug
-        ? `https://github.com/apps/${encodeURIComponent(metadata.slug)}/installations/new`
-        : null;
+      responsePayload.githubConnection.installUrl = buildGitHubAppInstallUrl(metadata.slug);
     } catch (error) {
-      return buildResponse(502, {
-        error: 'github_app_lookup_failed',
-        message: error instanceof Error ? error.message : 'Could not load GitHub App metadata.',
-      });
+      responsePayload.githubConnection.status = 'lookup_failed';
+      responsePayload.githubConnection.message =
+        error instanceof Error ? error.message : 'Could not load GitHub App metadata.';
+      return buildResponse(200, responsePayload);
     }
 
     try {
@@ -1902,25 +2087,130 @@ export function createProjectGitHubConnectionHandler({ database, fetchImpl = fet
       responsePayload.githubConnection.installationId = installation.id;
       responsePayload.githubConnection.accountLogin = installation.accountLogin;
       responsePayload.githubConnection.repositorySelection = installation.repositorySelection;
+      nextStoredConnection = {
+        ...nextStoredConnection,
+        status: 'connected',
+        installationId: installation.id,
+        accountLogin: installation.accountLogin,
+        repositorySelection: installation.repositorySelection,
+        updatedAt: checkedAt,
+      };
+      const persisted = await persistProjectGitHubConnectionMetadata({
+        database,
+        project,
+        metadata: nextStoredConnection,
+      });
+      responsePayload.githubConnection.persistedStatus = persisted?.status ?? responsePayload.githubConnection.persistedStatus;
+      responsePayload.githubConnection.persistedAt = persisted?.updatedAt ?? responsePayload.githubConnection.persistedAt;
       return buildResponse(200, responsePayload);
     } catch (error) {
       if (isGitHubApiError(error) && error.status === 404) {
         responsePayload.githubConnection.status = 'not_installed';
         responsePayload.githubConnection.message =
           `The GitHub App exists, but it is not installed on ${repositoryFullName}.`;
+        responsePayload.githubConnection.installationId = null;
+        responsePayload.githubConnection.accountLogin = null;
+        responsePayload.githubConnection.repositorySelection = null;
+        nextStoredConnection = {
+          ...nextStoredConnection,
+          status: 'not_installed',
+          installationId: null,
+          accountLogin: null,
+          repositorySelection: null,
+          updatedAt: checkedAt,
+        };
+        const persisted = await persistProjectGitHubConnectionMetadata({
+          database,
+          project,
+          metadata: nextStoredConnection,
+        });
+        responsePayload.githubConnection.persistedStatus = persisted?.status ?? responsePayload.githubConnection.persistedStatus;
+        responsePayload.githubConnection.persistedAt = persisted?.updatedAt ?? responsePayload.githubConnection.persistedAt;
         return buildResponse(200, responsePayload);
       }
 
-      return buildResponse(502, {
-        error: 'github_installation_lookup_failed',
-        message: error instanceof Error ? error.message : 'Could not check the GitHub App installation.',
+      responsePayload.githubConnection.status = 'lookup_failed';
+      responsePayload.githubConnection.message =
+        error instanceof Error ? error.message : 'Could not check the GitHub App installation.';
+      return buildResponse(200, responsePayload);
+    }
+  };
+}
+
+export function createProjectGitHubInstallHandler({ database, fetchImpl = fetch } = {}) {
+  return async ({ params = {} } = {}) => {
+    const projectSlug = normalizeOptionalString(params.project);
+
+    if (!projectSlug) {
+      return buildResponse(400, {
+        error: 'invalid_project_slug',
+        message: 'Project slug is required.',
       });
     }
+
+    if (!hasReadyPersistence(database, 'getProject')) {
+      return notWiredResponse('Project persistence is not wired yet.');
+    }
+
+    const project = await database.getProject(projectSlug);
+
+    if (!project) {
+      return buildResponse(404, {
+        error: 'project_not_found',
+        project: projectSlug,
+      });
+    }
+
+    const repositoryFullName = normalizeOptionalString(resolveProjectRuntimeConfig(project).repositoryFullName) || null;
+    const storedConnection = readStoredGitHubConnectionMetadata(project, {
+      repositoryFullName,
+    });
+    let appSlug = storedConnection?.appSlug ?? null;
+
+    if (!appSlug) {
+      const appConfig = getGitHubAppConfig();
+
+      if (!appConfig) {
+        return buildResponse(503, {
+          error: 'github_app_not_configured',
+          message: 'GitHub App credentials are not configured on the Crowdship host.',
+        });
+      }
+
+      try {
+        const metadata = await getGitHubAppMetadata({
+          config: appConfig,
+          fetchImpl,
+        });
+        appSlug = metadata.slug;
+      } catch (error) {
+        return buildResponse(502, {
+          error: 'github_app_lookup_failed',
+          message: error instanceof Error ? error.message : 'Could not load GitHub App metadata.',
+        });
+      }
+    }
+
+    const location = buildGitHubAppInstallUrl(appSlug, {
+      state: encodeGitHubInstallState({
+        project: projectSlug,
+      }),
+    });
+
+    if (!location) {
+      return buildResponse(503, {
+        error: 'github_app_not_configured',
+        message: 'GitHub App install link is not available yet.',
+      });
+    }
+
+    return buildRedirectResponse(303, location);
   };
 }
 
 export function createGitHubAppSetupHandler() {
   return async ({ query = {} } = {}) => {
+    const project = decodeGitHubInstallState(query.state);
     const installationId = normalizeOptionalIntegerString(query.installation_id);
     const setupAction = normalizeOptionalString(query.setup_action) || 'install';
 
@@ -1929,6 +2219,7 @@ export function createGitHubAppSetupHandler() {
       buildGitHubSettingsRedirectLocation({
         source: 'setup',
         status: 'complete',
+        project,
         installationId,
         setupAction,
       }),
@@ -1938,6 +2229,7 @@ export function createGitHubAppSetupHandler() {
 
 export function createGitHubAppCallbackHandler() {
   return async ({ query = {} } = {}) => {
+    const project = decodeGitHubInstallState(query.state);
     const installationId = normalizeOptionalIntegerString(query.installation_id);
     const setupAction = normalizeOptionalString(query.setup_action) || null;
     const error = normalizeOptionalString(query.error);
@@ -1949,6 +2241,7 @@ export function createGitHubAppCallbackHandler() {
         buildGitHubSettingsRedirectLocation({
           source: 'callback',
           status: 'error',
+          project,
           installationId,
           setupAction,
           error,
@@ -1962,6 +2255,7 @@ export function createGitHubAppCallbackHandler() {
       buildGitHubSettingsRedirectLocation({
         source: 'callback',
         status: 'received',
+        project,
         installationId,
         setupAction,
       }),
@@ -4772,6 +5066,7 @@ export function createRouteHandlers(options = {}) {
     postDemoVideoUpload: createDemoVideoUploadHandler(options),
     getProject: createProjectHandler(options),
     getProjectGitHubConnection: createProjectGitHubConnectionHandler(options),
+    getProjectGitHubInstall: createProjectGitHubInstallHandler(options),
     putProject: createProjectUpdateHandler(options),
     getProjectPublicConfig: createProjectPublicConfigHandler(options),
     getContributions: createContributionListHandler(options),

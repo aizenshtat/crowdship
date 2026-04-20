@@ -238,10 +238,14 @@ type GitHubConnectionRecord = {
   appName: string | null;
   appUrl: string | null;
   installUrl: string | null;
+  installEntryUrl: string | null;
   ownerLogin: string | null;
   installationId: number | null;
   accountLogin: string | null;
   repositorySelection: string | null;
+  persistedStatus: string | null;
+  persistedAt: string | null;
+  lastCheckedAt: string | null;
 };
 
 type ProjectSettingsActionState = 'idle' | 'saving' | 'success' | 'error';
@@ -621,10 +625,14 @@ function parseGitHubConnectionResponse(value: unknown): GitHubConnectionRecord {
     appName: readStringValue(connection.appName) || null,
     appUrl: readStringValue(connection.appUrl) || null,
     installUrl: readStringValue(connection.installUrl) || null,
+    installEntryUrl: readStringValue(connection.installEntryUrl) || null,
     ownerLogin: readStringValue(connection.ownerLogin) || null,
     installationId: readNumberValue(connection.installationId),
     accountLogin: readStringValue(connection.accountLogin) || null,
     repositorySelection: readStringValue(connection.repositorySelection) || null,
+    persistedStatus: readStringValue(connection.persistedStatus) || null,
+    persistedAt: readStringValue(connection.persistedAt) || null,
+    lastCheckedAt: readStringValue(connection.lastCheckedAt) || null,
   };
 }
 
@@ -699,8 +707,8 @@ function githubConnectionPillState(connection: GitHubConnectionRecord | null): R
   }
 }
 
-function githubConnectionLabel(connection: GitHubConnectionRecord | null) {
-  switch (connection?.status) {
+function githubConnectionStatusLabel(status: string | null) {
+  switch (status) {
     case 'connected':
       return 'Connected';
     case 'not_required':
@@ -709,11 +717,17 @@ function githubConnectionLabel(connection: GitHubConnectionRecord | null) {
       return 'Install needed';
     case 'missing_repository':
       return 'Repository missing';
+    case 'lookup_failed':
+      return 'Live check failed';
     case 'unconfigured':
       return 'Host not configured';
     default:
       return 'Unavailable';
   }
+}
+
+function githubConnectionLabel(connection: GitHubConnectionRecord | null) {
+  return githubConnectionStatusLabel(connection?.status ?? null);
 }
 
 function buildInstallSnippet(project: ProjectSettingsRecord) {
@@ -1527,13 +1541,30 @@ function SettingsView({
                     : 'Not available'}
             </dd>
           </div>
+          <div className="definition-row">
+            <dt>Saved snapshot</dt>
+            <dd>
+              {githubConnection?.persistedAt
+                ? `${githubConnectionStatusLabel(githubConnection.persistedStatus)} · ${formatTimestamp(githubConnection.persistedAt)}`
+                : 'No saved GitHub install metadata yet'}
+            </dd>
+          </div>
+          <div className="definition-row">
+            <dt>Live check</dt>
+            <dd>{githubConnection?.lastCheckedAt ? formatTimestamp(githubConnection.lastCheckedAt) : 'Not checked yet'}</dd>
+          </div>
         </dl>
         <div className="review-form-actions" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
           <button className="secondary-button" type="button" onClick={onRefreshGitHubConnection}>
             {githubConnectionStatus === 'loading' ? 'Checking…' : 'Refresh GitHub connection'}
           </button>
           {githubConnection?.installUrl ? (
-            <a className="secondary-button" href={githubConnection.installUrl} rel="noreferrer" target="_blank">
+            <a
+              className="secondary-button"
+              href={githubConnection.installEntryUrl ?? githubConnection.installUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
               Install app
             </a>
           ) : null}
@@ -3275,6 +3306,7 @@ export function App() {
 
     [
       'section',
+      'project',
       'github_source',
       'github_status',
       'github_installation_id',
