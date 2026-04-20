@@ -834,6 +834,10 @@ test('project route reads and updates the stored runtime config record', async (
           repositoryFullName: 'customer/orbital-ops',
           defaultBranch: 'trunk',
           previewBaseUrl: 'https://preview.orbital.test',
+          autoQueueImplementation: true,
+          autoOpenVoting: true,
+          implementationTimeoutMinutes: 45,
+          coreReviewVoteThreshold: 3,
         },
       },
     },
@@ -847,6 +851,10 @@ test('project route reads and updates the stored runtime config record', async (
   assert.equal(updateResponse.body.project.runtimeConfig.defaultBranch, 'trunk');
   assert.equal(updateResponse.body.project.runtimeConfig.executionMode, 'hosted_remote_clone');
   assert.equal(updateResponse.body.project.runtimeConfig.previewBaseUrl, 'https://preview.orbital.test');
+  assert.equal(updateResponse.body.project.runtimeConfig.autoQueueImplementation, true);
+  assert.equal(updateResponse.body.project.runtimeConfig.autoOpenVoting, true);
+  assert.equal(updateResponse.body.project.runtimeConfig.implementationTimeoutMinutes, 45);
+  assert.equal(updateResponse.body.project.runtimeConfig.coreReviewVoteThreshold, 3);
 });
 
 test('project route rejects a mismatched slug in the update payload', async () => {
@@ -1343,6 +1351,53 @@ test('api server persists contributions and spec approval through the real http 
   }
 });
 
+test('approved specs auto-queue implementation when project settings enable it', async () => {
+  const seed = getProjectSeedRecord('example');
+  const database = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [
+      {
+        ...seed,
+        runtimeConfig: {
+          ...seed.runtimeConfig,
+          autoQueueImplementation: true,
+          implementationTimeoutMinutes: 45,
+        },
+      },
+    ],
+  });
+  const { postContribution, postContributionMessage, postSpecApproval } = createRouteHandlers({
+    database,
+    specService: createStubSpecService(),
+  });
+
+  const created = await postContribution({
+    body: buildCreatePayload(),
+  });
+  const contributionId = created.body.contribution.id;
+
+  await postContributionMessage({
+    params: { id: contributionId },
+    body: {
+      body: 'Replay should open from the anomaly row and keep the mission layout unchanged.',
+    },
+  });
+
+  const approved = await postSpecApproval({
+    params: { id: contributionId },
+    body: {
+      decision: 'approve',
+    },
+  });
+
+  assert.equal(approved.status, 200);
+  assert.equal(approved.body.contribution.state, 'agent_queued');
+  assert.equal(approved.body.review.implementation.current.status, 'queued');
+  assert.equal(approved.body.review.implementation.current.metadata.projectRuntimeConfig.autoQueueImplementation, true);
+  assert.equal(approved.body.review.implementation.current.metadata.projectRuntimeConfig.implementationTimeoutMinutes, 45);
+  assert.equal(approved.body.lifecycle.events.at(-2).kind, 'spec_approved');
+  assert.equal(approved.body.lifecycle.events.at(-1).kind, 'implementation_queued');
+});
+
 test('api server streams contribution snapshots through the real http runtime', async () => {
   const server = createApiServer({
     specService: createStubSpecService(),
@@ -1410,6 +1465,94 @@ test('api server streams contribution snapshots through the real http runtime', 
     }
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('preview approval can auto-open voting and vote threshold can auto-flag core review', async () => {
+  const seed = getProjectSeedRecord('example');
+  const database = createInMemoryContributionPersistenceAdapter({
+    initialProjects: [
+      {
+        ...seed,
+        runtimeConfig: {
+          ...seed.runtimeConfig,
+          autoOpenVoting: true,
+          coreReviewVoteThreshold: 1,
+        },
+      },
+    ],
+  });
+  const handlers = createRouteHandlers({
+    database,
+    specService: createStubSpecService(),
+  });
+
+  const created = await handlers.postContribution({
+    body: buildCreatePayload(),
+  });
+  const contributionId = created.body.contribution.id;
+
+  await handlers.postContributionMessage({
+    params: { id: contributionId },
+    body: {
+      body: 'Replay should open from the anomaly row and keep the mission layout unchanged.',
+    },
+  });
+  await handlers.postSpecApproval({
+    params: { id: contributionId },
+    body: {
+      decision: 'approve',
+    },
+  });
+  await handlers.postQueueImplementation({
+    params: { id: contributionId },
+    body: {
+      queueName: 'default',
+      repositoryFullName: 'aizenshtat/example',
+      branchName: 'crowdship/contribution-123',
+    },
+  });
+  await handlers.postPullRequest({
+    params: { id: contributionId },
+    body: {
+      repositoryFullName: 'aizenshtat/example',
+      number: 42,
+      url: 'https://github.com/aizenshtat/example/pull/42',
+      branchName: 'crowdship/contribution-123',
+      status: 'open',
+    },
+  });
+  await handlers.postPreviewDeployment({
+    params: { id: contributionId },
+    body: {
+      url: 'https://example.aizenshtat.eu/previews/contribution-123/',
+      status: 'ready',
+      deployKind: 'manual_preview',
+    },
+  });
+
+  const previewApproval = await handlers.postPreviewReview({
+    params: { id: contributionId },
+    body: {
+      decision: 'approve',
+    },
+  });
+
+  assert.equal(previewApproval.status, 200);
+  assert.equal(previewApproval.body.contribution.state, 'voting_open');
+  assert.equal(previewApproval.body.lifecycle.events.at(-2).kind, 'preview_approved');
+  assert.equal(previewApproval.body.lifecycle.events.at(-1).kind, 'voting_opened');
+
+  const vote = await handlers.postVote({
+    params: { id: contributionId },
+    body: {
+      voteType: 'approve',
+      voterUserId: 'jury-1',
+    },
+  });
+
+  assert.equal(vote.status, 201);
+  assert.equal(vote.body.contribution.state, 'core_team_flagged');
+  assert.equal(vote.body.lifecycle.events.at(-1).kind, 'core_review_flagged');
 });
 
 test('api server does not expose wildcard cors headers on private routes', async () => {

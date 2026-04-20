@@ -215,6 +215,10 @@ type ProjectSettingsRecord = {
   repoPath: string;
   previewDeployScript: string;
   implementationProfile: string;
+  autoQueueImplementation: string;
+  autoOpenVoting: string;
+  implementationTimeoutMinutes: string;
+  coreReviewVoteThreshold: string;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -292,6 +296,62 @@ function readNumberValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function readBooleanValue(value: unknown) {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function firstBooleanValue(...values: unknown[]) {
+  for (const value of values) {
+    const next = readBooleanValue(value);
+    if (next !== null) {
+      return next;
+    }
+  }
+
+  return null;
+}
+
+function firstNumberValue(...values: unknown[]) {
+  for (const value of values) {
+    const next = readNumberValue(value);
+    if (next !== null) {
+      return next;
+    }
+  }
+
+  return null;
+}
+
+function stringifyBooleanSetting(value: unknown) {
+  const normalized = readBooleanValue(value);
+  return normalized === null ? '' : normalized ? 'true' : 'false';
+}
+
+function parseBooleanSetting(value: string) {
+  if (value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+
+  return null;
+}
+
+function parsePositiveIntegerSetting(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
 function normalizeAllowedOrigins(origins: string[]) {
   return origins
     .map((origin) => origin.trim())
@@ -317,6 +377,10 @@ function createEmptyProjectSettings(projectSlug: string): ProjectSettingsRecord 
     repoPath: '',
     previewDeployScript: '',
     implementationProfile: '',
+    autoQueueImplementation: '',
+    autoOpenVoting: '',
+    implementationTimeoutMinutes: '',
+    coreReviewVoteThreshold: '',
     createdAt: null,
     updatedAt: null,
   };
@@ -393,6 +457,30 @@ function parseProjectSettingsResponse(
         readStringValue(source.implementationProfile) ||
         readStringValue(runtimeConfig.implementationProfile) ||
         readStringValue(automation.implementationProfile),
+      autoQueueImplementation: stringifyBooleanSetting(
+        firstBooleanValue(
+          source.autoQueueImplementation,
+          runtimeConfig.autoQueueImplementation,
+          automation.autoQueueImplementation,
+        ),
+      ),
+      autoOpenVoting: stringifyBooleanSetting(
+        firstBooleanValue(source.autoOpenVoting, runtimeConfig.autoOpenVoting, automation.autoOpenVoting),
+      ),
+      implementationTimeoutMinutes: String(
+        firstNumberValue(
+          source.implementationTimeoutMinutes,
+          runtimeConfig.implementationTimeoutMinutes,
+          automation.implementationTimeoutMinutes,
+        ) ?? '',
+      ),
+      coreReviewVoteThreshold: String(
+        firstNumberValue(
+          source.coreReviewVoteThreshold,
+          runtimeConfig.coreReviewVoteThreshold,
+          automation.coreReviewVoteThreshold,
+        ) ?? '',
+      ),
       createdAt: readStringValue(source.createdAt) || null,
       updatedAt: readStringValue(source.updatedAt) || null,
     },
@@ -416,6 +504,10 @@ function buildProjectSettingsPayload(envelope: ProjectSettingsEnvelope | null, p
   const repoPath = project.repoPath.trim();
   const previewDeployScript = project.previewDeployScript.trim();
   const implementationProfile = project.implementationProfile.trim();
+  const autoQueueImplementation = parseBooleanSetting(project.autoQueueImplementation);
+  const autoOpenVoting = parseBooleanSetting(project.autoOpenVoting);
+  const implementationTimeoutMinutes = parsePositiveIntegerSetting(project.implementationTimeoutMinutes);
+  const coreReviewVoteThreshold = parsePositiveIntegerSetting(project.coreReviewVoteThreshold);
 
   target.slug = project.slug;
   target.name = name;
@@ -426,7 +518,7 @@ function buildProjectSettingsPayload(envelope: ProjectSettingsEnvelope | null, p
     widgetScriptUrl,
     allowedOrigins,
   };
-  target.runtimeConfig = {
+  const nextRuntimeConfig: Record<string, unknown> = {
     ...runtimeConfig,
     executionMode,
     repositoryFullName,
@@ -438,6 +530,31 @@ function buildProjectSettingsPayload(envelope: ProjectSettingsEnvelope | null, p
     productionBaseUrl: productionUrl,
     implementationProfile,
   };
+  target.runtimeConfig = nextRuntimeConfig;
+
+  if (autoQueueImplementation === null) {
+    delete nextRuntimeConfig.autoQueueImplementation;
+  } else {
+    nextRuntimeConfig.autoQueueImplementation = autoQueueImplementation;
+  }
+
+  if (autoOpenVoting === null) {
+    delete nextRuntimeConfig.autoOpenVoting;
+  } else {
+    nextRuntimeConfig.autoOpenVoting = autoOpenVoting;
+  }
+
+  if (implementationTimeoutMinutes === null) {
+    delete nextRuntimeConfig.implementationTimeoutMinutes;
+  } else {
+    nextRuntimeConfig.implementationTimeoutMinutes = implementationTimeoutMinutes;
+  }
+
+  if (coreReviewVoteThreshold === null) {
+    delete nextRuntimeConfig.coreReviewVoteThreshold;
+  } else {
+    nextRuntimeConfig.coreReviewVoteThreshold = coreReviewVoteThreshold;
+  }
 
   if (envelope?.wrapped) {
     root.project = target;
@@ -1313,6 +1430,54 @@ function SettingsView({
                 ? 'Optional host-local helper for preview deployment after repository changes are prepared.'
                 : 'Leave blank when preview deploys are triggered by repository CI or another hosted integration.'}
             </span>
+          </label>
+        </div>
+      </section>
+
+      <section className="surface-section">
+        <div className="section-heading">
+          <div>
+            <h2>Automation controls</h2>
+            <p>Owner-set defaults for what can move forward automatically after review checkpoints.</p>
+          </div>
+        </div>
+        <div className="review-form-grid review-form-grid-three">
+          <label className="review-field">
+            <span>Auto-queue implementation</span>
+            <select
+              value={projectDraft.autoQueueImplementation}
+              onChange={(event) => onFieldChange('autoQueueImplementation', event.target.value)}
+            >
+              <option value="">Choose</option>
+              <option value="false">Manual</option>
+              <option value="true">Auto after spec approval</option>
+            </select>
+          </label>
+          <label className="review-field">
+            <span>Auto-open voting</span>
+            <select value={projectDraft.autoOpenVoting} onChange={(event) => onFieldChange('autoOpenVoting', event.target.value)}>
+              <option value="">Choose</option>
+              <option value="false">Manual</option>
+              <option value="true">Auto after preview approval</option>
+            </select>
+          </label>
+          <label className="review-field">
+            <span>Implementation timeout (minutes)</span>
+            <input
+              value={projectDraft.implementationTimeoutMinutes}
+              onChange={(event) => onFieldChange('implementationTimeoutMinutes', event.target.value)}
+              placeholder="30"
+              inputMode="numeric"
+            />
+          </label>
+          <label className="review-field">
+            <span>Core review vote threshold</span>
+            <input
+              value={projectDraft.coreReviewVoteThreshold}
+              onChange={(event) => onFieldChange('coreReviewVoteThreshold', event.target.value)}
+              placeholder="3"
+              inputMode="numeric"
+            />
           </label>
         </div>
       </section>

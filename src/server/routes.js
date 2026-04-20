@@ -163,6 +163,14 @@ function normalizeStringList(value) {
     : [];
 }
 
+function normalizeOptionalBoolean(value) {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function normalizeOptionalPositiveInteger(value) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function normalizeOriginValue(value) {
   const normalized = normalizeOptionalString(value);
 
@@ -927,6 +935,63 @@ function buildContributionProgressStreamPayload(detail) {
     contribution: snapshot.contribution,
     lifecycle: snapshot.lifecycle,
     contributionDetail: snapshot,
+  };
+}
+
+function buildQueuedImplementationArtifacts({
+  detail,
+  projectRuntimeConfig,
+  createdAt,
+  idFactory,
+  queueName = 'default',
+  branchName = null,
+  note = null,
+  message = 'Implementation queued.',
+}) {
+  const repositoryFullName = normalizeOptionalString(projectRuntimeConfig?.repositoryFullName) || null;
+  const metadata = {
+    projectRuntimeConfig,
+  };
+
+  if (note) {
+    metadata.note = note;
+  }
+
+  const implementationJob = {
+    id: idFactory(),
+    contributionId: detail.contribution.id,
+    status: 'queued',
+    queueName,
+    branchName,
+    repositoryFullName,
+    githubRunId: null,
+    startedAt: null,
+    finishedAt: null,
+    errorSummary: null,
+    metadata,
+    createdAt,
+  };
+  const nextState = resolveContributionState(detail.contribution.state, AGENT_QUEUED_CONTRIBUTION_STATE);
+  const progressEvent = {
+    id: idFactory(),
+    contributionId: detail.contribution.id,
+    kind: QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND,
+    status: nextState,
+    message,
+    externalUrl: null,
+    payload: {
+      contributionId: detail.contribution.id,
+      implementationJobId: implementationJob.id,
+      queueName: implementationJob.queueName,
+      repositoryFullName,
+    },
+    createdAt,
+  };
+
+  return {
+    nextState,
+    implementationJob,
+    progressEvent,
   };
 }
 
@@ -1777,13 +1842,29 @@ export function createSpecApprovalHandler({
         },
         createdAt,
       };
+      const project = hasReadyPersistence(database, 'getProject')
+        ? await database.getProject(detail.contribution.projectSlug)
+        : null;
+      const projectRuntimeConfig = resolveProjectRuntimeConfig(project);
+      const shouldAutoQueueImplementation = normalizeOptionalBoolean(projectRuntimeConfig.autoQueueImplementation) === true;
+      const queuedImplementation = shouldAutoQueueImplementation
+        ? buildQueuedImplementationArtifacts({
+            detail,
+            projectRuntimeConfig,
+            createdAt,
+            idFactory,
+            note: 'Auto queued after spec approval.',
+            message: 'Implementation auto-queued after spec approval.',
+          })
+        : null;
       const updated = await database.applyContributionUpdate({
         contributionId,
-        nextState: SPEC_APPROVED_CONTRIBUTION_STATE,
+        nextState: queuedImplementation ? queuedImplementation.nextState : SPEC_APPROVED_CONTRIBUTION_STATE,
         updatedAt: createdAt,
         messages: [requesterMessage],
         specVersions: [],
-        progressEvents: [progressEvent],
+        progressEvents: queuedImplementation ? [progressEvent, queuedImplementation.progressEvent] : [progressEvent],
+        implementationJobs: queuedImplementation ? [queuedImplementation.implementationJob] : [],
         approvedSpecVersionId: latestSpec.id,
         approvedAt: createdAt,
       });
@@ -2096,51 +2177,21 @@ export function createQueueImplementationHandler({
     const projectRuntimeConfig = resolveProjectRuntimeConfig(project, {
       repositoryFullName: validation.value.repositoryFullName,
     });
-    const repositoryFullName = normalizeOptionalString(projectRuntimeConfig.repositoryFullName) || null;
-    const metadata = {
+    const queuedImplementation = buildQueuedImplementationArtifacts({
+      detail,
       projectRuntimeConfig,
-    };
-
-    if (validation.value.note) {
-      metadata.note = validation.value.note;
-    }
-
-    const implementationJob = {
-      id: idFactory(),
-      contributionId,
-      status: 'queued',
+      createdAt,
+      idFactory,
       queueName: validation.value.queueName,
       branchName: validation.value.branchName,
-      repositoryFullName,
-      githubRunId: null,
-      startedAt: null,
-      finishedAt: null,
-      errorSummary: null,
-      metadata,
-      createdAt,
-    };
-    const nextState = resolveContributionState(detail.contribution.state, AGENT_QUEUED_CONTRIBUTION_STATE);
-    const progressEvent = {
-      id: idFactory(),
-      contributionId,
-      kind: QUEUED_IMPLEMENTATION_PROGRESS_EVENT_KIND,
-      status: nextState,
-      message: 'Implementation queued.',
-      externalUrl: null,
-      payload: {
-        contributionId,
-        implementationJobId: implementationJob.id,
-        queueName: implementationJob.queueName,
-        repositoryFullName,
-      },
-      createdAt,
-    };
+      note: validation.value.note,
+    });
     const updated = await database.applyContributionUpdate({
       contributionId,
-      nextState,
+      nextState: queuedImplementation.nextState,
       updatedAt: createdAt,
-      implementationJobs: [implementationJob],
-      progressEvents: [progressEvent],
+      implementationJobs: [queuedImplementation.implementationJob],
+      progressEvents: [queuedImplementation.progressEvent],
     });
 
     return buildResponse(200, buildContributionSnapshot(updated));
@@ -2747,6 +2798,25 @@ export function createPreviewReviewHandler({
         },
         createdAt,
       };
+      const project = hasReadyPersistence(database, 'getProject')
+        ? await database.getProject(detail.contribution.projectSlug)
+        : null;
+      const projectRuntimeConfig = resolveProjectRuntimeConfig(project);
+      const shouldAutoOpenVoting = normalizeOptionalBoolean(projectRuntimeConfig.autoOpenVoting) === true;
+      const autoVotingEvent = shouldAutoOpenVoting
+        ? {
+            id: idFactory(),
+            contributionId,
+            kind: OPENED_VOTING_PROGRESS_EVENT_KIND,
+            status: VOTING_OPEN_CONTRIBUTION_STATE,
+            message: 'Voting auto-opened after preview approval.',
+            externalUrl: null,
+            payload: {
+              contributionId,
+            },
+            createdAt,
+          }
+        : null;
       const previewNote = validation.value.note
         ? [
             {
@@ -2763,11 +2833,11 @@ export function createPreviewReviewHandler({
         : [];
       const updated = await database.applyContributionUpdate({
         contributionId,
-        nextState: READY_FOR_VOTING_CONTRIBUTION_STATE,
+        nextState: shouldAutoOpenVoting ? VOTING_OPEN_CONTRIBUTION_STATE : READY_FOR_VOTING_CONTRIBUTION_STATE,
         updatedAt: createdAt,
         messages: [requesterMessage],
         comments: previewNote,
-        progressEvents: [progressEvent],
+        progressEvents: autoVotingEvent ? [progressEvent, autoVotingEvent] : [progressEvent],
       });
 
       return buildResponse(200, buildContributionSnapshot(updated));
@@ -2871,11 +2941,33 @@ export function createVoteHandler({
       metadata: null,
       createdAt,
     };
+    const project = hasReadyPersistence(database, 'getProject')
+      ? await database.getProject(detail.contribution.projectSlug)
+      : null;
+    const projectRuntimeConfig = resolveProjectRuntimeConfig(project);
+    const coreReviewVoteThreshold = normalizeOptionalPositiveInteger(projectRuntimeConfig.coreReviewVoteThreshold);
+    const shouldFlagCoreReview = coreReviewVoteThreshold !== null && asArray(detail.votes).length + 1 >= coreReviewVoteThreshold;
+    const coreReviewEvent = shouldFlagCoreReview
+      ? {
+          id: idFactory(),
+          contributionId,
+          kind: FLAGGED_CORE_REVIEW_PROGRESS_EVENT_KIND,
+          status: 'core_team_flagged',
+          message: 'Vote threshold reached. Core review flagged.',
+          externalUrl: null,
+          payload: {
+            contributionId,
+            threshold: coreReviewVoteThreshold,
+          },
+          createdAt,
+        }
+      : null;
     const updated = await database.applyContributionUpdate({
       contributionId,
-      nextState: detail.contribution.state,
+      nextState: shouldFlagCoreReview ? 'core_team_flagged' : detail.contribution.state,
       updatedAt: createdAt,
       votes: [vote],
+      progressEvents: coreReviewEvent ? [coreReviewEvent] : [],
     });
 
     return buildResponse(201, buildContributionSnapshot(updated));
