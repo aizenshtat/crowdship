@@ -611,6 +611,10 @@ a {
   background: var(--surface-2);
 }
 
+.owner-action-card {
+  gap: 10px;
+}
+
 .review-summary-label,
 .record-card-title,
 .detail-label {

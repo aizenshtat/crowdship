@@ -36,7 +36,16 @@ const PULL_REQUEST_STATUS_LIST = ['open', 'merged', 'closed'];
 const PREVIEW_DEPLOYMENT_STATUS_LIST = ['deploying', 'ready', 'failed'];
 const PREVIEW_DEPLOYMENT_KIND_LIST = ['branch_preview', 'manual_preview'];
 const VOTE_TYPE_LIST = ['approve', 'block'];
-const COMMENT_DISPOSITION_LIST = ['note', 'action_required', 'resolved'];
+const COMMENT_DISPOSITION_LIST = [
+  'note',
+  'action_required',
+  'resolved',
+  'needs_requester_review',
+  'incorporated',
+  'rejected',
+  'split_to_new_request',
+  'superseded',
+];
 
 const LOCALHOST_ORIGINS = [
   'http://127.0.0.1:3000',
@@ -87,6 +96,7 @@ export const FLAGGED_CORE_REVIEW_PROGRESS_EVENT_KIND = 'core_review_flagged';
 export const STARTED_CORE_REVIEW_PROGRESS_EVENT_KIND = 'core_review_started';
 export const STARTED_PRODUCTION_DEPLOY_PROGRESS_EVENT_KIND = 'production_deploying';
 export const COMPLETED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'completed_recorded';
+export const REJECTED_CONTRIBUTION_PROGRESS_EVENT_KIND = 'rejected_recorded';
 
 const PROJECT_SEED_RECORD_LIST = Object.freeze([
   Object.freeze({
@@ -198,6 +208,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     method: 'POST',
+    path: '/api/v1/contributions/:id/request-clarification',
+    handler: 'postRequestClarification',
+  }),
+  Object.freeze({
+    method: 'POST',
     path: '/api/v1/contributions/:id/flag-core-review',
     handler: 'postFlagCoreReview',
   }),
@@ -230,6 +245,11 @@ export const API_ROUTE_DEFINITIONS = Object.freeze([
     method: 'POST',
     path: '/api/v1/contributions/:id/complete',
     handler: 'postCompleteContribution',
+  }),
+  Object.freeze({
+    method: 'POST',
+    path: '/api/v1/contributions/:id/archive',
+    handler: 'postArchiveContribution',
   }),
 ]);
 

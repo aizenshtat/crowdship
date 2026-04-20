@@ -24,6 +24,7 @@ import {
   READY_FOR_VOTING_CONTRIBUTION_STATE,
   RECORDED_PREVIEW_DEPLOYMENT_PROGRESS_EVENT_KIND,
   RECORDED_PULL_REQUEST_PROGRESS_EVENT_KIND,
+  REJECTED_CONTRIBUTION_PROGRESS_EVENT_KIND,
   REFINED_SPEC_PROGRESS_EVENT_KIND,
   REQUESTED_PREVIEW_CHANGES_PROGRESS_EVENT_KIND,
   REVISION_REQUESTED_CONTRIBUTION_STATE,
@@ -633,6 +634,24 @@ function resolveContributionState(currentState, candidateState) {
 
   return advanceContributionState(currentState, candidateState);
 }
+
+const OWNER_CLARIFICATION_REQUESTABLE_STATES = new Set([
+  SPEC_PENDING_APPROVAL_CONTRIBUTION_STATE,
+  SPEC_APPROVED_CONTRIBUTION_STATE,
+  IMPLEMENTATION_FAILED_CONTRIBUTION_STATE,
+  PREVIEW_FAILED_CONTRIBUTION_STATE,
+  PREVIEW_READY_CONTRIBUTION_STATE,
+  'requester_review',
+  REVISION_REQUESTED_CONTRIBUTION_STATE,
+  READY_FOR_VOTING_CONTRIBUTION_STATE,
+  VOTING_OPEN_CONTRIBUTION_STATE,
+  'core_team_flagged',
+  'core_review',
+]);
+
+const OWNER_ARCHIVEABLE_STATES = new Set(
+  CONTRIBUTION_STATES.filter((state) => !['completed', 'rejected'].includes(state)),
+);
 
 function serializeImplementationJob(job) {
   return {
@@ -2014,6 +2033,108 @@ export function createOpenVotingHandler({
   };
 }
 
+export function createRequestClarificationHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Clarification persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (!OWNER_CLARIFICATION_REQUESTABLE_STATES.has(detail.contribution.state)) {
+      return buildResponse(409, {
+        error: 'clarification_request_not_allowed',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const note = readOptionalLifecycleNote(body);
+
+    if (!note) {
+      return buildResponse(400, {
+        error: 'clarification_note_required',
+        contributionId,
+        message: 'A clarification note is required.',
+      });
+    }
+
+    const createdAt = clock().toISOString();
+    const agentMessage = createAgentMessage({
+      id: idFactory(),
+      contributionId,
+      body: 'The review needs one more clarification before delivery continues.',
+      createdAt,
+      messageType: 'ask_user_questions',
+      choices: [
+        {
+          id: 'owner-clarification',
+          question: note,
+          why: 'Answering this will unblock the next review step.',
+          suggestedAnswerFormat: 'Short reply or bullets',
+        },
+      ],
+      metadata: {
+        requestedBy: 'admin',
+        requestedAt: createdAt,
+      },
+    });
+    const comment = {
+      id: idFactory(),
+      contributionId,
+      authorUserId: null,
+      authorRole: 'admin',
+      body: note,
+      disposition: 'needs_requester_review',
+      metadata: null,
+      createdAt,
+    };
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: CLARIFICATION_REQUESTED_PROGRESS_EVENT_KIND,
+      status: INITIAL_CONTRIBUTION_STATE,
+      message: 'Owner requested clarification.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+        requestedBy: 'admin',
+      },
+      createdAt,
+    };
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: INITIAL_CONTRIBUTION_STATE,
+      updatedAt: createdAt,
+      messages: [agentMessage],
+      comments: [comment],
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
 export function createFlagCoreReviewHandler({
   database,
   idFactory = randomUUID,
@@ -2693,6 +2814,83 @@ export function createCompleteContributionHandler({
   };
 }
 
+export function createArchiveContributionHandler({
+  database,
+  idFactory = randomUUID,
+  clock = () => new Date(),
+} = {}) {
+  return async ({ params = {}, body = {} } = {}) => {
+    const contributionId = typeof params.id === 'string' ? params.id.trim() : '';
+
+    if (!contributionId) {
+      return buildResponse(400, {
+        error: 'invalid_contribution_id',
+        message: 'Contribution id is required.',
+      });
+    }
+
+    if (!hasReadyPersistence(database, 'getContributionDetail') || !hasReadyPersistence(database, 'applyContributionUpdate')) {
+      return notWiredResponse('Archive persistence is not wired yet.');
+    }
+
+    const detail = await database.getContributionDetail(contributionId);
+
+    if (!detail) {
+      return buildResponse(404, {
+        error: 'contribution_not_found',
+        contributionId,
+      });
+    }
+
+    if (!OWNER_ARCHIVEABLE_STATES.has(detail.contribution.state)) {
+      return buildResponse(409, {
+        error: 'archive_not_allowed',
+        contributionId,
+        state: detail.contribution.state,
+      });
+    }
+
+    const note = readOptionalLifecycleNote(body);
+    const createdAt = clock().toISOString();
+    const progressEvent = {
+      id: idFactory(),
+      contributionId,
+      kind: REJECTED_CONTRIBUTION_PROGRESS_EVENT_KIND,
+      status: 'rejected',
+      message: note ? `Contribution archived. Note: ${note}` : 'Contribution archived.',
+      externalUrl: null,
+      payload: {
+        contributionId,
+        archivedBy: 'admin',
+      },
+      createdAt,
+    };
+    const comments = note
+      ? [
+          {
+            id: idFactory(),
+            contributionId,
+            authorUserId: null,
+            authorRole: 'admin',
+            body: note,
+            disposition: 'rejected',
+            metadata: null,
+            createdAt,
+          },
+        ]
+      : [];
+    const updated = await database.applyContributionUpdate({
+      contributionId,
+      nextState: 'rejected',
+      updatedAt: createdAt,
+      comments,
+      progressEvents: [progressEvent],
+    });
+
+    return buildResponse(200, buildContributionSnapshot(updated));
+  };
+}
+
 export function createRouteHandlers(options = {}) {
   return {
     getHealth: createHealthHandler(options),
@@ -2714,6 +2912,7 @@ export function createRouteHandlers(options = {}) {
     postPreviewDeployment: createPreviewDeploymentHandler(options),
     postPreviewReview: createPreviewReviewHandler(options),
     postOpenVoting: createOpenVotingHandler(options),
+    postRequestClarification: createRequestClarificationHandler(options),
     postFlagCoreReview: createFlagCoreReviewHandler(options),
     postStartCoreReview: createStartCoreReviewHandler(options),
     postVote: createVoteHandler(options),
@@ -2721,5 +2920,6 @@ export function createRouteHandlers(options = {}) {
     postMarkMerged: createMarkMergedHandler(options),
     postStartProductionDeploy: createStartProductionDeployHandler(options),
     postCompleteContribution: createCompleteContributionHandler(options),
+    postArchiveContribution: createArchiveContributionHandler(options),
   };
 }

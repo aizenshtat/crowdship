@@ -197,6 +197,7 @@ type ReviewFormsState = {
   pullRequest: { repositoryFullName: string; branchName: string; headSha: string };
   previewDeployment: { url: string; gitSha: string; deployKind: string };
   vote: { voteType: string; voterUserId: string; voterEmail: string };
+  owner: { note: string };
   comment: { authorRole: string; body: string; disposition: string };
 };
 
@@ -243,6 +244,17 @@ const navSections: Array<{
     items: [{ id: 'operations', label: 'Runtime watch', blurb: 'Queue, worker, and preview evidence' }],
   },
 ];
+
+const COMMENT_DISPOSITION_OPTIONS = [
+  'note',
+  'action_required',
+  'resolved',
+  'needs_requester_review',
+  'incorporated',
+  'rejected',
+  'split_to_new_request',
+  'superseded',
+] as const;
 
 const DEFAULT_PROJECT_SLUG = 'example';
 
@@ -825,6 +837,22 @@ function canOpenVoting(detail: ContributionDetail) {
   return detail.contribution.state === 'ready_for_voting';
 }
 
+function canRequestClarification(detail: ContributionDetail) {
+  return [
+    'spec_pending_approval',
+    'spec_approved',
+    'implementation_failed',
+    'preview_failed',
+    'preview_ready',
+    'requester_review',
+    'revision_requested',
+    'ready_for_voting',
+    'voting_open',
+    'core_team_flagged',
+    'core_review',
+  ].includes(detail.contribution.state);
+}
+
 function canFlagCoreReview(detail: ContributionDetail) {
   return ['ready_for_voting', 'voting_open'].includes(detail.contribution.state);
 }
@@ -847,6 +875,10 @@ function canStartProductionDeploy(detail: ContributionDetail) {
 
 function canMarkCompleted(detail: ContributionDetail) {
   return ['merged', 'production_deploying'].includes(detail.contribution.state);
+}
+
+function canArchiveContribution(detail: ContributionDetail) {
+  return !['completed', 'rejected'].includes(detail.contribution.state);
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -1325,11 +1357,13 @@ function ContributionDetailDrawer({
   onClose,
   onQueueImplementation,
   onOpenVoting,
+  onRequestClarification,
   onFlagCoreReview,
   onStartCoreReview,
   onMarkMerged,
   onStartProductionDeploy,
   onMarkCompleted,
+  onArchiveContribution,
   onRefreshPreviewEvidence,
   reviewActionState,
   reviewActionMessage,
@@ -1347,11 +1381,13 @@ function ContributionDetailDrawer({
   onClose: () => void;
   onQueueImplementation: () => void;
   onOpenVoting: () => void;
+  onRequestClarification: () => void;
   onFlagCoreReview: () => void;
   onStartCoreReview: () => void;
   onMarkMerged: () => void;
   onStartProductionDeploy: () => void;
   onMarkCompleted: () => void;
+  onArchiveContribution: () => void;
   onRefreshPreviewEvidence: () => void;
   reviewActionState: 'idle' | 'loading' | 'error' | 'success';
   reviewActionMessage: string;
@@ -1453,6 +1489,16 @@ function ContributionDetailDrawer({
                     {reviewActionState === 'loading' ? 'Opening…' : 'Open voting'}
                   </button>
                 ) : null}
+                {canRequestClarification(detail) ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onRequestClarification}
+                  >
+                    {reviewActionState === 'loading' ? 'Sending…' : 'Request clarification'}
+                  </button>
+                ) : null}
                 {canFlagCoreReview(detail) ? (
                   <button
                     className="primary-button"
@@ -1503,9 +1549,36 @@ function ContributionDetailDrawer({
                     {reviewActionState === 'loading' ? 'Closing…' : 'Mark completed'}
                   </button>
                 ) : null}
+                {canArchiveContribution(detail) ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={reviewActionState === 'loading'}
+                    onClick={onArchiveContribution}
+                  >
+                    {reviewActionState === 'loading' ? 'Archiving…' : 'Archive'}
+                  </button>
+                ) : null}
               </div>
               <div className={`review-action-banner review-action-banner-${reviewActionState}`} aria-live="polite">
                 {reviewActionState === 'idle' ? 'Keep the delivery actions here. Everything else stays below.' : reviewActionMessage}
+              </div>
+              <div className="record-card owner-action-card">
+                <div className="record-card-title">Owner note</div>
+                <label className="review-field">
+                  <span>Clarification or archive note</span>
+                  <textarea
+                    rows={3}
+                    value={reviewForms.owner.note}
+                    onChange={(event) =>
+                      setReviewForms((current) => ({
+                        ...current,
+                        owner: { note: event.target.value },
+                      }))
+                    }
+                    placeholder="Tell the requester what is blocking review or why this should close."
+                  />
+                </label>
               </div>
             </div>
 
@@ -2072,7 +2145,7 @@ function ContributionDetailDrawer({
                       </label>
                       <label className="review-field">
                         <span>Disposition</span>
-                        <input
+                        <select
                           value={reviewForms.comment.disposition}
                           onChange={(event) =>
                             setReviewForms((current) => ({
@@ -2080,8 +2153,13 @@ function ContributionDetailDrawer({
                               comment: { ...current.comment, disposition: event.target.value },
                             }))
                           }
-                          placeholder="note"
-                        />
+                        >
+                          {COMMENT_DISPOSITION_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="review-field review-field-wide">
                         <span>Body</span>
@@ -2242,6 +2320,9 @@ export function App() {
       voteType: 'approve',
       voterUserId: '',
       voterEmail: '',
+    },
+    owner: {
+      note: '',
     },
     comment: {
       authorRole: 'admin',
@@ -2525,6 +2606,9 @@ export function App() {
         voteType: 'approve',
         voterUserId: '',
         voterEmail: '',
+      },
+      owner: {
+        note: '',
       },
       comment: {
         authorRole: 'admin',
@@ -2885,6 +2969,13 @@ export function App() {
               'Voting opened.',
             )
           }
+          onRequestClarification={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/request-clarification`,
+              reviewForms.owner,
+              'Clarification requested.',
+            )
+          }
           onFlagCoreReview={() =>
             void submitReviewAction(
               `/api/v1/contributions/${selectedContributionId}/flag-core-review`,
@@ -2918,6 +3009,13 @@ export function App() {
               `/api/v1/contributions/${selectedContributionId}/complete`,
               {},
               'Contribution marked completed.',
+            )
+          }
+          onArchiveContribution={() =>
+            void submitReviewAction(
+              `/api/v1/contributions/${selectedContributionId}/archive`,
+              reviewForms.owner,
+              'Contribution archived.',
             )
           }
           onRefreshPreviewEvidence={() => {

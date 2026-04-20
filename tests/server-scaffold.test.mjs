@@ -299,6 +299,7 @@ test('api route structure includes the required public endpoints', () => {
       'GET /api/v1/contributions/:id/preview-evidence',
       'POST /api/v1/contributions/:id/preview-review',
       'POST /api/v1/contributions/:id/open-voting',
+      'POST /api/v1/contributions/:id/request-clarification',
       'POST /api/v1/contributions/:id/flag-core-review',
       'POST /api/v1/contributions/:id/start-core-review',
       'POST /api/v1/contributions/:id/votes',
@@ -306,6 +307,7 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/mark-merged',
       'POST /api/v1/contributions/:id/start-production-deploy',
       'POST /api/v1/contributions/:id/complete',
+      'POST /api/v1/contributions/:id/archive',
     ],
   );
 });
@@ -1340,6 +1342,104 @@ test('preview evidence route returns the latest live preview record for a record
       previewEvidence.body.evidence.commentUrl,
       'https://github.com/aizenshtat/example/pull/42#issuecomment-1234567890',
     );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('owner clarification request reopens the requester clarification loop', async () => {
+  const server = createApiServer({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const port = address.port;
+
+    const created = await requestJson({
+      port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const contributionId = created.body.contribution.id;
+
+    const firstReply = await requestJson({
+      port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: { body: 'Launch replay from the selected anomaly and keep current warning thresholds unchanged.' },
+    });
+
+    assert.equal(firstReply.status, 200);
+    assert.equal(firstReply.body.contribution.state, 'spec_pending_approval');
+
+    const clarification = await requestJson({
+      port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/request-clarification`,
+      body: { note: 'Which anomaly thresholds should stay unchanged while replay is added?' },
+    });
+
+    assert.equal(clarification.status, 200);
+    assert.equal(clarification.body.contribution.state, 'draft_chat');
+    assert.equal(clarification.body.lifecycle.events.at(-1).kind, 'clarification_requested');
+    assert.equal(clarification.body.conversation.at(-1).messageType, 'ask_user_questions');
+    assert.equal(clarification.body.review.comments.at(-1).disposition, 'needs_requester_review');
+
+    const reply = await requestJson({
+      port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/messages`,
+      body: { body: 'Keep the existing warning and critical thresholds unchanged.' },
+    });
+
+    assert.equal(reply.status, 200);
+    assert.equal(reply.body.contribution.state, 'spec_pending_approval');
+    assert.equal(reply.body.spec.current.versionNumber, 2);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('archive action closes a contribution through the rejected state', async () => {
+  const server = createApiServer({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const port = address.port;
+
+    const created = await requestJson({
+      port,
+      method: 'POST',
+      path: '/api/v1/contributions',
+      body: buildCreatePayload(),
+    });
+
+    assert.equal(created.status, 201);
+    const contributionId = created.body.contribution.id;
+
+    const archived = await requestJson({
+      port,
+      method: 'POST',
+      path: `/api/v1/contributions/${contributionId}/archive`,
+      body: { note: 'Closing this until the mission replay direction is narrowed.' },
+    });
+
+    assert.equal(archived.status, 200);
+    assert.equal(archived.body.contribution.state, 'rejected');
+    assert.equal(archived.body.lifecycle.events.at(-1).kind, 'rejected_recorded');
+    assert.equal(archived.body.review.comments.at(-1).disposition, 'rejected');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

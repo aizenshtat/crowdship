@@ -111,10 +111,12 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /Needs action/);
   assert.match(admin, /Queue implementation/);
   assert.match(admin, /Open voting/);
+  assert.match(admin, /Request clarification/);
   assert.match(admin, /Flag core review/);
   assert.match(admin, /Start core review/);
   assert.match(admin, /Start production deploy/);
   assert.match(admin, /Mark completed/);
+  assert.match(admin, /Archive/);
   assert.match(admin, /Publish settings/);
   assert.match(admin, /Automation evidence/);
   assert.match(admin, /Live preview evidence/);
