@@ -91,6 +91,7 @@ window.Crowdship.open({
   "type": "feature_request",
   "title": "Add anomaly replay for signal drops",
   "body": "I need to replay the selected signal drop anomaly from the mission screen.",
+  "hostOrigin": "https://example.aizenshtat.eu",
   "route": "/mission",
   "url": "https://example.aizenshtat.eu/mission",
   "appVersion": "2026.04.18",
@@ -117,6 +118,8 @@ window.Crowdship.open({
   ]
 }
 ```
+
+`hostOrigin` is the browser-derived host origin captured by the Crowdship iframe. The server validates it against the project's allowlist before it accepts the contribution.
 
 For the current production slice, selected files are captured as attachment metadata during contribution creation. Binary upload can follow later without changing the requester-facing review flow.
 

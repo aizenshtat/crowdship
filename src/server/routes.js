@@ -129,6 +129,34 @@ function normalizeStringList(value) {
     : [];
 }
 
+function normalizeOriginValue(value) {
+  const normalized = normalizeOptionalString(value);
+
+  if (!normalized || normalized === 'null') {
+    return '';
+  }
+
+  try {
+    return new URL(normalized).origin;
+  } catch {
+    return '';
+  }
+}
+
+function projectAllowsOrigin(project, origin) {
+  const requestedOrigin = normalizeOriginValue(origin);
+
+  if (!requestedOrigin) {
+    return false;
+  }
+
+  const allowedOrigins = normalizeStringList(
+    project?.allowedOrigins ?? project?.publicConfig?.allowedOrigins ?? [],
+  );
+
+  return allowedOrigins.some((entry) => normalizeOriginValue(entry) === requestedOrigin);
+}
+
 function deleteOrAssignString(target, key, value) {
   const normalized = normalizeOptionalString(value);
 
@@ -1119,6 +1147,23 @@ export function createContributionHandler({
       });
     }
 
+    const hostOrigin = normalizeOriginValue(validation.value.hostOrigin);
+
+    if (!hostOrigin) {
+      return buildResponse(400, {
+        error: 'invalid_host_origin',
+        message: 'Contribution create requests must include a valid host origin.',
+      });
+    }
+
+    if (!projectAllowsOrigin(project, hostOrigin)) {
+      return buildResponse(403, {
+        error: 'origin_not_allowed',
+        project: validation.value.project,
+        hostOrigin,
+      });
+    }
+
     const createdAt = clock().toISOString();
     const contributionId = idFactory();
     const attachments = validation.value.attachments.map((attachment) =>
@@ -1132,7 +1177,10 @@ export function createContributionHandler({
       title: validation.value.title,
       body: validation.value.body ?? null,
       state: INITIAL_CONTRIBUTION_STATE,
-      payload: validation.value,
+      payload: {
+        ...validation.value,
+        hostOrigin,
+      },
       createdAt,
       updatedAt: createdAt,
     };

@@ -129,12 +129,16 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
   assert.match(frame, /Suggest a change/);
   assert.match(frame, /What should this product do better\?/);
+  assert.match(frame, /hostOrigin: state\.hostOrigin \|\| ''/);
+  assert.match(frame, /deriveHostOrigin\(event\.origin\)/);
   assert.match(frame, /\/api\/v1\/contributions/);
   assert.match(frame, /Clarification chat/);
   assert.match(frame, /Answer the questions below in one reply/);
   assert.match(frame, /\/api\/v1\/contributions\/' \+ encodeURIComponent\(state\.contributionDetail\.contribution\.id\) \+ '\/messages/);
   assert.match(frame, /Approve Spec/);
   assert.match(frame, /Refine Spec/);
+  assert.match(read('docs/widget-contract.md'), /"hostOrigin": "https:\/\/example\.aizenshtat\.eu"/);
+  assert.match(read('docs/widget-contract.md'), /browser-derived host origin/i);
   assert.match(read('docs/widget-contract.md'), /POST \/api\/v1\/contributions\/:id\/messages/);
   assert.match(read('docs/widget-contract.md'), /"state": "draft_chat"/);
   assert.equal(manifest.display, 'standalone');

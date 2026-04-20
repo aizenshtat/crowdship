@@ -362,6 +362,7 @@ export function validateContributionCreatePayload(payload) {
   validateStringField(payload.type, 'type', errors, { required: true });
   validateStringField(payload.title, 'title', errors, { required: true });
   validateStringField(payload.body, 'body', errors);
+  validateStringField(payload.hostOrigin, 'hostOrigin', errors, { required: true });
   validateStringField(payload.route, 'route', errors);
   validateStringField(payload.url, 'url', errors);
   validateStringField(payload.appVersion, 'appVersion', errors);
@@ -391,6 +392,7 @@ export function validateContributionCreatePayload(payload) {
           type: payload.type.trim(),
           title: payload.title.trim(),
           body: normalizeOptionalString(payload.body) || null,
+          hostOrigin: payload.hostOrigin.trim(),
           route: normalizeOptionalString(payload.route) || null,
           url: normalizeOptionalString(payload.url) || null,
           appVersion: normalizeOptionalString(payload.appVersion) || null,

@@ -27,7 +27,7 @@ import {
 import { createApiServer } from '../src/server/http.js';
 import { SCHEMA_TABLE_NAMES } from '../src/server/schema.js';
 
-function requestJson({ port, method, path, body }) {
+function requestJson({ port, method, path, body, headers = {} }) {
   return new Promise((resolve, reject) => {
     const payload = body == null ? '' : JSON.stringify(body);
     const req = request(
@@ -36,12 +36,15 @@ function requestJson({ port, method, path, body }) {
         port,
         method,
         path,
-        headers: payload
-          ? {
-              'content-type': 'application/json',
-              'content-length': Buffer.byteLength(payload),
-            }
-          : undefined,
+        headers: {
+          ...(payload
+            ? {
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(payload),
+              }
+            : {}),
+          ...headers,
+        },
       },
       (res) => {
         const chunks = [];
@@ -52,6 +55,7 @@ function requestJson({ port, method, path, body }) {
           resolve({
             status: res.statusCode,
             body: raw ? JSON.parse(raw) : null,
+            headers: res.headers,
           });
         });
       },
@@ -89,6 +93,7 @@ function requestBinary({ port, method, path, body, headers = {} }) {
           resolve({
             status: res.statusCode,
             body: raw ? JSON.parse(raw) : null,
+            headers: res.headers,
           });
         });
       },
@@ -107,6 +112,7 @@ function buildCreatePayload() {
     type: 'feature_request',
     title: 'Add anomaly replay for signal drops',
     body: 'I need to replay the selected signal drop anomaly from the mission screen.',
+    hostOrigin: 'https://example.aizenshtat.eu',
     route: '/mission',
     url: 'https://example.aizenshtat.eu/mission',
     appVersion: '2026.04.18',
@@ -556,6 +562,43 @@ test('contribution creation validates project existence through persistence', as
   assert.equal(response.body.project, 'example');
 });
 
+test('contribution creation rejects a host origin outside the project allowlist', async () => {
+  const createContribution = createContributionHandler({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  const response = await createContribution({
+    body: {
+      ...buildCreatePayload(),
+      hostOrigin: 'https://evil.test',
+    },
+  });
+
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error, 'origin_not_allowed');
+  assert.equal(response.body.project, 'example');
+  assert.equal(response.body.hostOrigin, 'https://evil.test');
+});
+
+test('contribution creation requires a browser-derived host origin', async () => {
+  const createContribution = createContributionHandler({
+    database: createInMemoryContributionPersistenceAdapter(),
+    specService: createStubSpecService(),
+  });
+
+  const payload = buildCreatePayload();
+  delete payload.hostOrigin;
+
+  const response = await createContribution({
+    body: payload,
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'invalid_contribution_payload');
+  assert.match(response.body.issues[0], /hostOrigin is required/i);
+});
+
 test('connected contribution persistence opens clarification first and stores the first spec after a reply', async () => {
   const ids = [
     'contribution-123',
@@ -973,6 +1016,36 @@ test('api server persists contributions and spec approval through the real http 
     assert.equal(progress.body.contribution.id, contribution.body.contribution.id);
     assert.equal(progress.body.lifecycle.currentState, SPEC_APPROVED_CONTRIBUTION_STATE);
     assert.equal(progress.body.lifecycle.events.at(-1).kind, 'spec_approved');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('api server does not expose wildcard cors headers on private routes', async () => {
+  const server = createApiServer({
+    specService: createStubSpecService(),
+  });
+
+  await new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    assert.equal(typeof address, 'object');
+    assert.ok(address);
+
+    const project = await requestJson({
+      port: address.port,
+      method: 'GET',
+      path: '/api/v1/projects/example',
+      headers: {
+        origin: 'https://evil.test',
+      },
+    });
+
+    assert.equal(project.status, 200);
+    assert.equal(project.headers['access-control-allow-origin'], undefined);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -1479,6 +1552,7 @@ test('requesting preview changes creates a revision state and allows implementat
         type: 'feature_request',
         title: 'Add inline anomaly replay',
         body: 'Replay the selected signal drop without leaving the mission view.',
+        hostOrigin: 'https://example.aizenshtat.eu',
         route: '/mission',
       },
     });
