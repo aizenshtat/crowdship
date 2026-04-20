@@ -130,6 +130,9 @@ const PROJECT_SEED_RECORD_LIST = Object.freeze([
 ]);
 
 export const API_ROUTE_DEFINITIONS = Object.freeze([
+  Object.freeze({ method: 'GET', path: '/api/github/setup', handler: 'getGitHubSetup' }),
+  Object.freeze({ method: 'GET', path: '/api/github/callback', handler: 'getGitHubCallback' }),
+  Object.freeze({ method: 'POST', path: '/api/github/webhooks', handler: 'postGitHubWebhook' }),
   Object.freeze({ method: 'GET', path: '/api/v1/health', handler: 'getHealth' }),
   Object.freeze({ method: 'GET', path: '/api/v1/demo-video', handler: 'getDemoVideo' }),
   Object.freeze({

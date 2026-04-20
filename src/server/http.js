@@ -45,6 +45,17 @@ function eventStreamResponse(res, status, start, extraHeaders = {}, request = nu
   });
 }
 
+function redirectResponse(res, status, location, extraHeaders = {}) {
+  const headers = {
+    'cache-control': 'no-store',
+    location,
+    ...extraHeaders,
+  };
+
+  res.writeHead(status, headers);
+  res.end();
+}
+
 function readRequestBody(request) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -53,15 +64,22 @@ function readRequestBody(request) {
       chunks.push(chunk);
     });
     request.on('end', () => {
-      const rawBody = Buffer.concat(chunks).toString('utf8');
+      const rawBody = Buffer.concat(chunks);
+      const rawText = rawBody.toString('utf8');
 
-      if (!rawBody) {
-        resolve(null);
+      if (!rawText) {
+        resolve({
+          body: null,
+          rawBody,
+        });
         return;
       }
 
       try {
-        resolve(JSON.parse(rawBody));
+        resolve({
+          body: JSON.parse(rawText),
+          rawBody,
+        });
       } catch (error) {
         reject(error);
       }
@@ -142,11 +160,14 @@ function createRequestHandler(options = {}) {
     }
 
     let body = null;
+    let rawBody = null;
     const expectsJsonBody = matchedRoute.definition.bodyMode !== 'stream';
 
     if (expectsJsonBody && (request.method === 'POST' || request.method === 'PUT' || request.method === 'PATCH')) {
       try {
-        body = await readRequestBody(request);
+        const requestBody = await readRequestBody(request);
+        body = requestBody.body;
+        rawBody = requestBody.rawBody;
       } catch {
         jsonResponse(response, 400, {
           error: 'invalid_json',
@@ -160,12 +181,18 @@ function createRequestHandler(options = {}) {
     const result = await handler({
       params: matchedRoute.params,
       body,
+      rawBody,
       query: Object.fromEntries(requestUrl.searchParams.entries()),
       request,
     });
 
     if (result && result.responseMode === 'stream') {
       eventStreamResponse(response, result.status, result.start, result.headers, request);
+      return;
+    }
+
+    if (result && result.responseMode === 'redirect') {
+      redirectResponse(response, result.status, result.location, result.headers);
       return;
     }
 

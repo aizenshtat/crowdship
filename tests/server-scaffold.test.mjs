@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
@@ -17,6 +17,9 @@ import {
   createContributionDetailHandler,
   createContributionHandler,
   createContributionMessageHandler,
+  createGitHubAppCallbackHandler,
+  createGitHubAppSetupHandler,
+  createGitHubWebhookHandler,
   createProjectGitHubConnectionHandler,
   createContributionProgressHandler,
   createRouteHandlers,
@@ -466,6 +469,9 @@ test('api route structure includes the required public endpoints', () => {
   assert.deepEqual(
     API_ROUTE_DEFINITIONS.map(({ method, path }) => `${method} ${path}`),
     [
+      'GET /api/github/setup',
+      'GET /api/github/callback',
+      'POST /api/github/webhooks',
       'GET /api/v1/health',
       'GET /api/v1/demo-video',
       'POST /api/v1/demo-video/upload',
@@ -499,6 +505,90 @@ test('api route structure includes the required public endpoints', () => {
       'POST /api/v1/contributions/:id/archive',
     ],
   );
+});
+
+test('github app setup route redirects to settings with install context', async () => {
+  const getGitHubSetup = createGitHubAppSetupHandler();
+  const response = await getGitHubSetup({
+    query: {
+      installation_id: '91',
+      setup_action: 'install',
+    },
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.responseMode, 'redirect');
+  assert.equal(
+    response.location,
+    '/?section=settings&github_source=setup&github_status=complete&github_installation_id=91&github_setup_action=install',
+  );
+});
+
+test('github app callback route redirects GitHub errors back into settings', async () => {
+  const getGitHubCallback = createGitHubAppCallbackHandler();
+  const response = await getGitHubCallback({
+    query: {
+      error: 'access_denied',
+      error_description: 'The owner declined the authorization request.',
+    },
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.responseMode, 'redirect');
+  assert.equal(
+    response.location,
+    '/?section=settings&github_source=callback&github_status=error&github_error=access_denied&github_error_description=The+owner+declined+the+authorization+request.',
+  );
+});
+
+test('github webhook route accepts signed GitHub deliveries without polluting project state', async () => {
+  const payload = JSON.stringify({
+    installation: {
+      id: 91,
+    },
+  });
+  const postGitHubWebhook = createGitHubWebhookHandler({
+    env: {
+      GITHUB_APP_WEBHOOK_SECRET: 'hook-secret',
+    },
+  });
+  const response = await postGitHubWebhook({
+    request: {
+      headers: {
+        'x-github-event': 'ping',
+        'x-github-delivery': 'delivery-1',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', 'hook-secret').update(payload).digest('hex')}`,
+      },
+    },
+    rawBody: Buffer.from(payload, 'utf8'),
+    body: JSON.parse(payload),
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(response.body.webhook.status, 'accepted');
+  assert.equal(response.body.webhook.event, 'ping');
+  assert.equal(response.body.webhook.deliveryId, 'delivery-1');
+  assert.equal(response.body.webhook.installationId, '91');
+});
+
+test('github webhook route rejects unsigned deliveries when webhook validation is configured', async () => {
+  const postGitHubWebhook = createGitHubWebhookHandler({
+    env: {
+      GITHUB_APP_WEBHOOK_SECRET: 'hook-secret',
+    },
+  });
+  const response = await postGitHubWebhook({
+    request: {
+      headers: {
+        'x-github-event': 'ping',
+      },
+    },
+    rawBody: Buffer.from('{}', 'utf8'),
+    body: {},
+  });
+
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, 'github_webhook_signature_invalid');
 });
 
 test('api server exposes demo video status and accepts authenticated binary uploads', async () => {

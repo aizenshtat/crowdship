@@ -5,6 +5,7 @@ import {
   getGitHubAppInstallationForRepository,
   getGitHubAppMetadata,
   isGitHubApiError,
+  verifyGitHubWebhookSignature,
 } from '../github/app-auth.js';
 import {
   AGENT_QUEUED_CONTRIBUTION_STATE,
@@ -75,6 +76,15 @@ function buildResponse(status, body) {
   return {
     status,
     body,
+  };
+}
+
+function buildRedirectResponse(status, location, headers = {}) {
+  return {
+    status,
+    headers,
+    location,
+    responseMode: 'redirect',
   };
 }
 
@@ -177,6 +187,20 @@ function normalizeOptionalPositiveInteger(value) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
+function normalizeOptionalIntegerString(value) {
+  const normalized =
+    typeof value === 'number' && Number.isInteger(value) && value > 0
+      ? String(value)
+      : normalizeOptionalString(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : null;
+}
+
 function normalizeOriginValue(value) {
   const normalized = normalizeOptionalString(value);
 
@@ -239,6 +263,39 @@ function serializeProjectRecord(project) {
   }
 
   return nextProject;
+}
+
+function buildGitHubSettingsRedirectLocation({
+  source,
+  status,
+  installationId = null,
+  setupAction = null,
+  error = null,
+  errorDescription = null,
+} = {}) {
+  const searchParams = new URLSearchParams();
+  searchParams.set('section', 'settings');
+
+  if (source) {
+    searchParams.set('github_source', source);
+  }
+  if (status) {
+    searchParams.set('github_status', status);
+  }
+  if (installationId) {
+    searchParams.set('github_installation_id', installationId);
+  }
+  if (setupAction) {
+    searchParams.set('github_setup_action', setupAction);
+  }
+  if (error) {
+    searchParams.set('github_error', error);
+  }
+  if (errorDescription) {
+    searchParams.set('github_error_description', errorDescription);
+  }
+
+  return `/?${searchParams.toString()}`;
 }
 
 function resolveProjectRuntimeConfig(project, { repositoryFullName = null } = {}) {
@@ -1250,6 +1307,100 @@ export function createProjectGitHubConnectionHandler({ database, fetchImpl = fet
         message: error instanceof Error ? error.message : 'Could not check the GitHub App installation.',
       });
     }
+  };
+}
+
+export function createGitHubAppSetupHandler() {
+  return async ({ query = {} } = {}) => {
+    const installationId = normalizeOptionalIntegerString(query.installation_id);
+    const setupAction = normalizeOptionalString(query.setup_action) || 'install';
+
+    return buildRedirectResponse(
+      303,
+      buildGitHubSettingsRedirectLocation({
+        source: 'setup',
+        status: 'complete',
+        installationId,
+        setupAction,
+      }),
+    );
+  };
+}
+
+export function createGitHubAppCallbackHandler() {
+  return async ({ query = {} } = {}) => {
+    const installationId = normalizeOptionalIntegerString(query.installation_id);
+    const setupAction = normalizeOptionalString(query.setup_action) || null;
+    const error = normalizeOptionalString(query.error);
+    const errorDescription = normalizeOptionalString(query.error_description);
+
+    if (error) {
+      return buildRedirectResponse(
+        303,
+        buildGitHubSettingsRedirectLocation({
+          source: 'callback',
+          status: 'error',
+          installationId,
+          setupAction,
+          error,
+          errorDescription,
+        }),
+      );
+    }
+
+    return buildRedirectResponse(
+      303,
+      buildGitHubSettingsRedirectLocation({
+        source: 'callback',
+        status: 'received',
+        installationId,
+        setupAction,
+      }),
+    );
+  };
+}
+
+export function createGitHubWebhookHandler({ env = process.env } = {}) {
+  return async ({ request, body, rawBody } = {}) => {
+    const webhookSecret = normalizeOptionalString(env.GITHUB_APP_WEBHOOK_SECRET);
+
+    if (!webhookSecret) {
+      return buildResponse(503, {
+        error: 'github_webhook_not_configured',
+        message: 'GITHUB_APP_WEBHOOK_SECRET is required before accepting GitHub App webhooks.',
+      });
+    }
+
+    const signatureHeader = normalizeOptionalString(request?.headers?.['x-hub-signature-256']);
+    const payload = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : '';
+
+    if (
+      !verifyGitHubWebhookSignature({
+        payload,
+        secret: webhookSecret,
+        signatureHeader,
+      })
+    ) {
+      return buildResponse(401, {
+        error: 'github_webhook_signature_invalid',
+        message: 'GitHub webhook signature validation failed.',
+      });
+    }
+
+    const event = normalizeOptionalString(request?.headers?.['x-github-event']) || 'unknown';
+    const deliveryId = normalizeOptionalString(request?.headers?.['x-github-delivery']) || null;
+    const installationId =
+      normalizeOptionalIntegerString(body?.installation?.id) ??
+      normalizeOptionalIntegerString(body?.installation?.account?.id);
+
+    return buildResponse(202, {
+      webhook: {
+        status: 'accepted',
+        event,
+        deliveryId,
+        installationId,
+      },
+    });
   };
 }
 
@@ -3552,6 +3703,9 @@ export function createArchiveContributionHandler({
 
 export function createRouteHandlers(options = {}) {
   return {
+    getGitHubSetup: createGitHubAppSetupHandler(options),
+    getGitHubCallback: createGitHubAppCallbackHandler(options),
+    postGitHubWebhook: createGitHubWebhookHandler(options),
     getHealth: createHealthHandler(options),
     getDemoVideo: createDemoVideoStatusHandler(options),
     postDemoVideoUpload: createDemoVideoUploadHandler(options),

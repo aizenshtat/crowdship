@@ -1,4 +1,4 @@
-import { createSign } from 'node:crypto';
+import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 
 const GITHUB_API_ORIGIN = 'https://api.github.com';
 
@@ -101,6 +101,23 @@ export function createGitHubAppJwt(
   signer.end();
 
   return `${signingInput}.${encodeBase64Url(signer.sign(privateKey))}`;
+}
+
+export function verifyGitHubWebhookSignature({ payload, secret, signatureHeader }) {
+  const normalizedSecret = normalizeOptionalString(secret);
+  const normalizedSignatureHeader = normalizeOptionalString(signatureHeader);
+
+  if (!normalizedSecret || !normalizedSignatureHeader) {
+    return false;
+  }
+
+  const computedSignature = `sha256=${createHmac('sha256', normalizedSecret)
+    .update(payload ?? '', 'utf8')
+    .digest('hex')}`;
+  const providedBuffer = Buffer.from(normalizedSignatureHeader, 'utf8');
+  const computedBuffer = Buffer.from(computedSignature, 'utf8');
+
+  return providedBuffer.length === computedBuffer.length && timingSafeEqual(providedBuffer, computedBuffer);
 }
 
 export async function getGitHubAppMetadata(

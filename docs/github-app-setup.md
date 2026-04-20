@@ -20,7 +20,7 @@ Current use:
 
 - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` let the worker look up a repository installation and mint an installation access token.
 - `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET` are reserved for the owner-authorized connect callback.
-- `GITHUB_APP_WEBHOOK_SECRET` is reserved for webhook signature validation.
+- `GITHUB_APP_WEBHOOK_SECRET` validates signatures on `POST /api/github/webhooks`.
 
 ## Recommended Registration
 
@@ -62,9 +62,17 @@ For the durable product model:
 
 ## Current Gap
 
-This document covers registration and credentials. The full owner-authorized in-product connect flow still needs:
+This document covers registration, credentials, and the minimal redirect/ingest routes.
 
-- install/connect UI in Crowdship admin
-- callback handling
-- webhook ingestion
+What is wired now:
+
+- `GET /api/github/setup` redirects the browser back into Crowdship Settings after the GitHub install flow.
+- `GET /api/github/callback` redirects the browser back into Crowdship Settings after an owner authorization callback or callback error.
+- `POST /api/github/webhooks` validates `X-Hub-Signature-256` when `GITHUB_APP_WEBHOOK_SECRET` is configured and accepts signed deliveries without mutating project state.
+
+The full owner-authorized in-product connect flow still needs:
+
+- install/connect UI beyond the current settings view and external install link
+- owner-authorized callback token exchange and storage
 - installation state persistence
+- webhook-driven installation sync or event handling

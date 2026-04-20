@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 
 import {
@@ -9,6 +9,7 @@ import {
   getGitHubAppConfig,
   getGitHubAppInstallationForRepository,
   getGitHubRepositoryAccessToken,
+  verifyGitHubWebhookSignature,
 } from '../src/github/app-auth.js';
 
 function decodeJwtPayload(token) {
@@ -217,6 +218,30 @@ test('github app installation token exchange returns the repo token', async () =
     contents: 'write',
     pull_requests: 'write',
   });
+});
+
+test('github webhook signature verification matches GitHub sha256 signatures', () => {
+  const payload = JSON.stringify({
+    zen: 'Ship it.',
+  });
+  const signatureHeader = `sha256=${createHmac('sha256', 'hook-secret').update(payload).digest('hex')}`;
+
+  assert.equal(
+    verifyGitHubWebhookSignature({
+      payload,
+      secret: 'hook-secret',
+      signatureHeader,
+    }),
+    true,
+  );
+  assert.equal(
+    verifyGitHubWebhookSignature({
+      payload,
+      secret: 'wrong-secret',
+      signatureHeader,
+    }),
+    false,
+  );
 });
 
 test('github app repository access token resolves installation and token from repository name', async () => {

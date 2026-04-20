@@ -841,6 +841,69 @@ function contributionStateLabel(state: string) {
   }
 }
 
+function parseAdminSection(value: string | null): AdminSection {
+  return value === 'settings' || value === 'operations' ? value : 'inbox';
+}
+
+function readGitHubRedirectNotice(searchParams: URLSearchParams | null): {
+  state: ProjectSettingsActionState;
+  message: string;
+} | null {
+  if (!searchParams) {
+    return null;
+  }
+
+  const status = searchParams.get('github_status');
+
+  if (!status) {
+    return null;
+  }
+
+  const source = searchParams.get('github_source');
+  const installationId = searchParams.get('github_installation_id');
+  const setupAction = searchParams.get('github_setup_action');
+  const error = searchParams.get('github_error');
+  const errorDescription = searchParams.get('github_error_description');
+
+  if (status === 'complete') {
+    return {
+      state: 'success',
+      message: [
+        'GitHub sent the installation flow back to Crowdship.',
+        setupAction ? `Setup action: ${setupAction}.` : null,
+        installationId ? `Installation ${installationId} returned.` : null,
+        'Check the live GitHub connection status below.',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    };
+  }
+
+  if (status === 'received') {
+    return {
+      state: 'success',
+      message: [
+        `GitHub callback${source ? ` from ${source}` : ''} reached Crowdship.`,
+        installationId ? `Installation ${installationId} returned.` : null,
+        'Check the live GitHub connection status below.',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    };
+  }
+
+  if (status === 'error') {
+    return {
+      state: 'error',
+      message:
+        errorDescription ||
+        (error ? `GitHub returned an installation error: ${error}.` : 'GitHub returned an installation error.'),
+    };
+  }
+
+  return null;
+}
+
 function contributionStateClassName(state: string) {
   switch (state) {
     case 'implementation_failed':
@@ -2858,12 +2921,17 @@ function ContributionDetailDrawer({
 
 export function App() {
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim() ?? '';
-  const initialContributionId =
-    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('contribution') : null;
+  const initialSearchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const initialContributionId = initialSearchParams?.get('contribution') ?? null;
+  const initialGitHubRedirectNotice = readGitHubRedirectNotice(initialSearchParams);
+  const initialSection =
+    initialGitHubRedirectNotice?.state != null
+      ? 'settings'
+      : parseAdminSection(initialSearchParams?.get('section') ?? null);
   const projectSettingsEndpoint = `/api/v1/projects/${encodeURIComponent(DEFAULT_PROJECT_SLUG)}`;
   const projectGitHubConnectionEndpoint = `${projectSettingsEndpoint}/github-connection`;
 
-  const [activeSection, setActiveSection] = useState<AdminSection>('inbox');
+  const [activeSection, setActiveSection] = useState<AdminSection>(initialSection);
   const [intakeQueue, setIntakeQueue] = useState<ContributionSummary[]>([]);
   const [intakeStatus, setIntakeStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [intakeError, setIntakeError] = useState('');
@@ -2884,8 +2952,10 @@ export function App() {
   const [githubConnectionStatus, setGitHubConnectionStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [githubConnectionError, setGitHubConnectionError] = useState('');
   const [githubConnection, setGitHubConnection] = useState<GitHubConnectionRecord | null>(null);
-  const [projectActionState, setProjectActionState] = useState<ProjectSettingsActionState>('idle');
-  const [projectActionMessage, setProjectActionMessage] = useState('');
+  const [projectActionState, setProjectActionState] = useState<ProjectSettingsActionState>(
+    initialGitHubRedirectNotice?.state ?? 'idle',
+  );
+  const [projectActionMessage, setProjectActionMessage] = useState(initialGitHubRedirectNotice?.message ?? '');
   const [reviewForms, setReviewForms] = useState({
     implementation: {
       repositoryFullName: '',
@@ -3194,6 +3264,34 @@ export function App() {
       window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
     }
   }, [selectedContributionId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    let changed = false;
+
+    [
+      'section',
+      'github_source',
+      'github_status',
+      'github_installation_id',
+      'github_setup_action',
+      'github_error',
+      'github_error_description',
+    ].forEach((key) => {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
