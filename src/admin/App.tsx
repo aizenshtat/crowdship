@@ -763,7 +763,8 @@ function buildInstallSnippet(project: ProjectSettingsRecord) {
   data-crowdship-user-id="customer-123"
   data-crowdship-user-email="customer@example.com"
   data-crowdship-user-role="customer"
-></script>`;
+></script>
+<!-- Optional theming and launcher label can be set with data-crowdship-accent, data-crowdship-background, data-crowdship-surface, data-crowdship-text, data-crowdship-muted, data-crowdship-radius, and data-crowdship-launcher-label. -->`;
 }
 
 function buildIdentifySnippet() {
@@ -777,14 +778,25 @@ function buildIdentifySnippet() {
 function buildContextSnippet() {
   return `window.Crowdship.setContext({
   route: window.location.pathname,
-  url: window.location.href,
-  selectedObjectType: "mission_alert",
-  selectedObjectId: "alert-14",
+  appVersion: "2026.04.18",
   activeFilters: {
     severity: "warning",
     station: "relay-shadow"
   }
-});`;
+});
+
+// Optional, only after the user explicitly selects an object:
+// window.Crowdship.setContext({
+//   route: window.location.pathname,
+//   appVersion: "2026.04.18",
+//   activeFilters: {
+//     severity: "warning",
+//     station: "relay-shadow"
+//   },
+//   selectedObjectType: "mission_alert",
+//   selectedObjectId: "alert-14",
+//   selectionExplicit: true
+// });`;
 }
 
 function buildInstallChecklist(project: ProjectSettingsRecord) {
@@ -798,7 +810,7 @@ function buildInstallChecklist(project: ProjectSettingsRecord) {
     },
     {
       label: 'Confirm safe context',
-      detail: 'Call setContext only with route, selection, and filters you are comfortable sending to Crowdship.',
+      detail: 'Call setContext with route, app version, and filters by default, and only add selection after the user explicitly selects an object.',
     },
     {
       label: 'Check widget launch',
@@ -2031,7 +2043,7 @@ function SettingsView({
               <div className="section-heading settings-subsection-heading">
                 <div>
                   <h3>Host context starter</h3>
-                  <p>Start with route and selection metadata before you add more fields.</p>
+                  <p>Start with route, app version, and filters; only add selection after the user explicitly selects an object.</p>
                 </div>
               </div>
               <div className="snippet-shell">

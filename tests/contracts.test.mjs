@@ -142,9 +142,14 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(admin, /window\.Crowdship\.setContext/);
   assert.match(admin, /window\.Crowdship\.identify/);
   assert.match(widget, /window\.Crowdship = api/);
+  assert.match(widget, /configure: function/);
+  assert.match(widget, /data-crowdship-accent/);
+  assert.match(widget, /data-crowdship-launcher-label/);
   assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
   assert.match(frame, /Suggest a change/);
   assert.match(frame, /What should this product do better\?/);
+  assert.match(frame, /draftDirty/);
+  assert.match(frame, /Delivery tracking/);
   assert.match(frame, /hostOrigin: state\.hostOrigin \|\| ''/);
   assert.match(frame, /deriveHostOrigin\(event\.origin\)/);
   assert.match(frame, /\/api\/v1\/contributions/);

@@ -568,15 +568,12 @@
       }
 
       .actions {
-        position: sticky;
-        bottom: 0;
         display: grid;
         gap: 10px;
-        margin: 12px -20px -22px;
-        padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+        margin: 0;
+        padding: 16px 20px 22px;
         border-top: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.96);
-        backdrop-filter: blur(10px);
+        background: var(--panel);
       }
 
       .actions-row {
@@ -1173,11 +1170,6 @@
           grid-template-columns: 88px minmax(0, 1fr);
         }
 
-        .actions {
-          margin-left: -16px;
-          margin-right: -16px;
-        }
-
         .actions-row,
         .review-actions {
           grid-template-columns: 1fr;
@@ -1558,7 +1550,8 @@
           config: null,
           user: null,
           context: {},
-          request: { type: 'feature_request', title: 'Suggest a change', body: '' },
+          request: { type: 'feature_request', title: '', body: '' },
+          draftDirty: false,
           attachments: [],
           submitting: false,
           phase: 'compose',
@@ -1711,6 +1704,39 @@
           target.innerHTML = '<h3>' + escapeHtml(title) + '</h3><p>' + escapeHtml(copy) + '</p>';
         }
 
+        function applyTheme(config) {
+          var theme = config && config.theme ? config.theme : {};
+          var root = document.documentElement;
+          var map = {
+            accent: '--accent',
+            background: '--bg',
+            surface: '--panel',
+            text: '--text',
+            muted: '--muted',
+            radius: '--radius',
+          };
+
+          Object.keys(map).forEach(function (key) {
+            var value = '';
+            if (key === 'radius' && typeof theme[key] === 'number') {
+              value = theme[key] + 'px';
+            } else if (typeof theme[key] === 'string') {
+              value = theme[key].trim();
+              if (key === 'radius' && /^\d+(\.\d+)?$/.test(value)) {
+                value += 'px';
+              }
+            }
+            if (!value || value.length > 80 || /[;{}<>]/.test(value)) return;
+            root.style.setProperty(map[key], value);
+            if (key === 'accent') {
+              root.style.setProperty('--accent-strong', value);
+            }
+            if (key === 'background') {
+              root.style.setProperty('--panel-2', value);
+            }
+          });
+        }
+
         function setPhase(phase) {
           var active = phase || 'compose';
           state.phase = active;
@@ -1758,8 +1784,8 @@
             return;
           }
           if (active === 'delivery') {
-            bannerCopy.textContent = 'Crowdship is tracking implementation, preview, and review state.';
-            setChip('working', 'Delivery in progress');
+            bannerCopy.textContent = 'No action is needed unless a preview or review request appears.';
+            setChip('working', 'Delivery tracking');
             return;
           }
           if (active === 'error') {
@@ -1807,8 +1833,11 @@
           if (context.route) entries.push(['Route', context.route]);
           if (context.url) entries.push(['URL', context.url]);
           if (context.appVersion) entries.push(['App version', context.appVersion]);
-          if (context.selectedObjectType) {
-            entries.push(['Selected object', [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')]);
+          if (context.selectedObjectType || context.selectedObjectId) {
+            entries.push([
+              context.selectionExplicit === true || context.selectedObjectExplicit === true ? 'Selected object' : 'Page signal',
+              [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / '),
+            ]);
           }
           if (context.locale) entries.push(['Locale', context.locale]);
           if (context.timezone) entries.push(['Timezone', context.timezone]);
@@ -2074,7 +2103,10 @@
           if (payload.url) entries.push(['URL', payload.url]);
           if (payload.appVersion) entries.push(['App version', payload.appVersion]);
           if (context.selectedObjectType || context.selectedObjectId) {
-            entries.push(['Selected object', [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')]);
+            entries.push([
+              context.selectionExplicit === true || context.selectedObjectExplicit === true ? 'Selected object' : 'Page signal',
+              [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / '),
+            ]);
           }
           if (context.activeFilters && Object.keys(context.activeFilters).length) {
             entries.push([
@@ -2100,7 +2132,8 @@
           if (context.url) items.push('URL: ' + context.url);
           if (context.selectedObjectType || context.selectedObjectId) {
             items.push(
-              'Selected object: ' + [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')
+              (context.selectionExplicit === true || context.selectedObjectExplicit === true ? 'Selected object: ' : 'Page signal: ') +
+                [context.selectedObjectType, context.selectedObjectId].filter(Boolean).join(' / ')
             );
           }
           if (context.appVersion) items.push('App version: ' + context.appVersion);
@@ -2387,20 +2420,24 @@
             case 'spec_approved':
               return {
                 tone: 'ready',
-                title: 'Scope approved',
-                copy: 'Waiting for an owner or automation rule to queue implementation.',
+                title: 'Waiting to start implementation',
+                copy: 'The scope is approved. An owner or project automation still needs to queue the worker. You can close this and check back later.',
               };
             case 'agent_queued':
               return {
                 tone: 'working',
-                title: 'Implementation queued',
-                copy: latestMessage,
+                title: 'Worker queued',
+                copy: latestMessage === 'Crowdship is tracking this change.'
+                  ? 'No action needed right now. Crowdship will update this when implementation starts.'
+                  : latestMessage,
               };
             case 'agent_running':
               return {
                 tone: 'working',
-                title: 'Implementation running',
-                copy: latestMessage,
+                title: 'Worker updating branch',
+                copy: latestMessage === 'Crowdship is tracking this change.'
+                  ? 'No action needed right now. The next checkpoint is a pull request or preview.'
+                  : latestMessage,
               };
             case 'implementation_failed':
               return {
@@ -2412,7 +2449,7 @@
               return {
                 tone: 'working',
                 title: 'Pull request open',
-                copy: model.latestPullRequest ? 'Preview deployment is the next step.' : latestMessage,
+                copy: model.latestPullRequest ? 'Checks and preview deployment are next. No requester action yet.' : latestMessage,
               };
             case 'preview_deploying':
               return {
@@ -2442,14 +2479,14 @@
             case 'ready_for_voting':
               return {
                 tone: 'ready',
-                title: 'Preview approved',
-                copy: 'Waiting for voting to open.',
+                title: 'Waiting to open voting',
+                copy: 'The requester approved the preview. An owner can open voting next.',
               };
             case 'voting_open':
               return {
                 tone: 'ready',
                 title: 'Voting open',
-                copy: 'Core signals are being collected on this preview.',
+                copy: 'Add your vote or leave a note on the preview.',
               };
             case 'core_team_flagged':
             case 'core_review':
@@ -2474,7 +2511,7 @@
               return {
                 tone: 'ready',
                 title: 'Completed',
-                copy: latestMessage,
+                copy: latestMessage === 'Crowdship is tracking this change.' ? 'This feature is live in production.' : latestMessage,
               };
             case 'rejected':
               return {
@@ -2485,8 +2522,10 @@
             default:
               return {
                 tone: 'working',
-                title: 'Contribution in progress',
-                copy: latestMessage,
+                title: 'Tracking contribution',
+                copy: latestMessage === 'Crowdship is tracking this change.'
+                  ? 'No action needed right now. Crowdship will show the next review step here.'
+                  : latestMessage,
               };
           }
         }
@@ -2609,6 +2648,10 @@
           ];
 
           setInlineStatus(deliveryStatus, statusMeta.tone, statusMeta.title, statusMeta.copy);
+          setReviewChip(statusMeta.tone, statusMeta.title);
+          reviewState.textContent = statusMeta.title;
+          reviewHeading.textContent = 'Follow the approved change.';
+          reviewCopy.textContent = statusMeta.copy;
           renderDeliveryLinks(model);
           renderMetricGrid(deliverySummary, metrics, 'No delivery metadata recorded yet.');
           toggleHidden(deliverySummary, false);
@@ -2759,7 +2802,7 @@
           setPhase(state.submitting ? 'sending' : 'compose');
         }
 
-        function applyState(payload) {
+        function applyState(payload, messageType) {
           if (!payload) return;
           state.ready = true;
           state.config = payload.config || state.config;
@@ -2767,14 +2810,18 @@
           state.context = payload.context || state.context;
           state.request = payload.request || state.request;
           state.open = !!payload.isOpen;
+          applyTheme(state.config);
 
           clearTimeout(loadTimeout);
           loadingState.classList.add('hidden');
           errorState.classList.add('hidden');
           bannerCopy.textContent = state.open ? 'Describe the change and attach proof if needed.' : 'Start with the outcome you need.';
-          bodyInput.value = state.request.body || '';
-          titleInput.value = state.request.title || '';
-          kindSelect.value = state.request.type || 'feature_request';
+          if (messageType === 'crowdship:init' || !state.draftDirty) {
+            bodyInput.value = state.request.body || '';
+            titleInput.value = state.request.title || '';
+            kindSelect.value = state.request.type || 'feature_request';
+            state.draftDirty = false;
+          }
           updateDerivedTitle();
 
           state.contributionDetail = getContributionDetail(payload) || state.contributionDetail;
@@ -2843,7 +2890,7 @@
         function deriveTitleFromBody(bodyText) {
           var text = (bodyText || '').trim().replace(/\s+/g, ' ');
           if (!text) {
-            return state.request && state.request.title ? state.request.title : 'Product change request';
+            return '';
           }
           if (text.length <= 90) {
             return text;
@@ -2853,11 +2900,8 @@
 
         function updateDerivedTitle() {
           var fallback = state.request && state.request.title ? state.request.title : '';
-          if (fallback && fallback !== 'Suggest a change') {
-            titleInput.value = fallback;
-            return;
-          }
-          var derived = bodyInput.value.trim() ? deriveTitleFromBody(bodyInput.value) : fallback;
+          if (fallback === 'Suggest a change') fallback = '';
+          var derived = deriveTitleFromBody(bodyInput.value);
           titleInput.value = derived || 'Product change request';
         }
 
@@ -2881,6 +2925,7 @@
         function submitContribution(event) {
           event.preventDefault();
           if (state.submitting) return;
+          updateDerivedTitle();
           if (!validate()) return;
 
           clearStatus();
@@ -2958,6 +3003,7 @@
                 attachmentPicker.disabled = false;
                 clearStatus();
                 state.attachments = [];
+                state.draftDirty = false;
                 attachmentPicker.value = '';
                 renderAttachments();
                 showContributionSurface(nextDetail);
@@ -2978,6 +3024,7 @@
                   attachmentPicker.disabled = false;
                   clearStatus();
                   state.attachments = [];
+                  state.draftDirty = false;
                   attachmentPicker.value = '';
                   renderAttachments();
                   showContributionSurface(uploadedDetail || nextDetail);
@@ -3469,10 +3516,11 @@
 
         function clearDraft() {
           bodyInput.value = '';
-          titleInput.value = state.request && state.request.title ? state.request.title : 'Product change request';
+          titleInput.value = 'Product change request';
           kindSelect.value = 'feature_request';
           attachmentPicker.value = '';
           state.attachments = [];
+          state.draftDirty = false;
           renderAttachments();
           clearStatus();
         }
@@ -3562,7 +3610,12 @@
         });
 
         bodyInput.addEventListener('input', function () {
+          state.draftDirty = true;
           updateDerivedTitle();
+        });
+
+        kindSelect.addEventListener('change', function () {
+          state.draftDirty = true;
         });
 
         resetButton.addEventListener('click', function () {
@@ -3672,7 +3725,7 @@
           var data = event.data || {};
           if (data.source !== 'crowdship') return;
           if (data.type === 'crowdship:state' || data.type === 'crowdship:init') {
-            applyState(data.payload);
+            applyState(data.payload, data.type);
             return;
           }
           if (data.type === 'crowdship:close') {

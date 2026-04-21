@@ -32,6 +32,13 @@ All user-facing interactions for a contribution happen through the widget:
   data-crowdship-user-id="customer-123"
   data-crowdship-user-email="customer@example.com"
   data-crowdship-user-role="customer"
+  data-crowdship-launcher-label="Open Crowdship"
+  data-crowdship-accent="#0ea5e9"
+  data-crowdship-background="#0f172a"
+  data-crowdship-surface="#111827"
+  data-crowdship-text="#f8fafc"
+  data-crowdship-muted="#94a3b8"
+  data-crowdship-radius="8px"
 ></script>
 ```
 
@@ -44,6 +51,13 @@ These fields are safe to expose in client-side HTML:
 | `data-crowdship-project` | Yes | Public project slug. |
 | `data-crowdship-environment` | No | `development`, `staging`, or `production`. |
 | `data-crowdship-launcher` | No | `manual` when the host app opens the widget explicitly. |
+| `data-crowdship-launcher-label` | No | Label shown on the launcher button. |
+| `data-crowdship-accent` | No | Host accent color. |
+| `data-crowdship-background` | No | Host page background color. |
+| `data-crowdship-surface` | No | Widget surface color. |
+| `data-crowdship-text` | No | Primary text color. |
+| `data-crowdship-muted` | No | Muted text or secondary UI color. |
+| `data-crowdship-radius` | No | Corner radius used by the widget. |
 | `data-crowdship-user-id` | No | Host app user identifier. |
 | `data-crowdship-user-email` | No | User email, if the host app chooses to share it. |
 | `data-crowdship-user-role` | No | Role such as `customer`, `admin`, `free`, or `paid`. |
@@ -55,6 +69,18 @@ The project slug is not a secret. Abuse controls must be server-side.
 The widget may expose a browser API:
 
 ```js
+window.Crowdship.configure({
+  theme: {
+    accent: "#0ea5e9",
+    background: "#0f172a",
+    surface: "#111827",
+    text: "#f8fafc",
+    muted: "#94a3b8",
+    radius: "8px"
+  },
+  launcherLabel: "Open Crowdship"
+});
+
 window.Crowdship.identify({
   id: "customer-123",
   email: "customer@example.com",
@@ -64,13 +90,27 @@ window.Crowdship.identify({
 window.Crowdship.setContext({
   route: "/mission",
   appVersion: "2026.04.18",
-  selectedObjectType: "anomaly",
-  selectedObjectId: "signal-drop-17"
+  activeFilters: {
+    severity: "warning",
+    station: "relay-shadow"
+  }
 });
 
+// Optional, only after an explicit user selection:
+// window.Crowdship.setContext({
+//   route: "/mission",
+//   appVersion: "2026.04.18",
+//   activeFilters: {
+//     severity: "warning",
+//     station: "relay-shadow"
+//   },
+//   selectedObjectType: "anomaly",
+//   selectedObjectId: "signal-drop-17",
+//   selectionExplicit: true
+// });
+
 window.Crowdship.open({
-  type: "feature_request",
-  title: "Add anomaly replay for signal drops"
+  type: "feature_request"
 });
 ```
 
@@ -91,8 +131,8 @@ window.Crowdship.open({
   "project": "example",
   "environment": "production",
   "type": "feature_request",
-  "title": "Add anomaly replay for signal drops",
-  "body": "I need to replay the selected signal drop anomaly from the mission screen.",
+  "title": "Show relay-shadow markers in the replay",
+  "body": "I need entry and reacquisition markers on the pressure replay before the next command uplink.",
   "hostOrigin": "https://example.aizenshtat.eu",
   "route": "/mission",
   "url": "https://example.aizenshtat.eu/mission",
@@ -103,8 +143,10 @@ window.Crowdship.open({
     "role": "customer"
   },
   "context": {
-    "selectedObjectType": "anomaly",
-    "selectedObjectId": "signal-drop-17"
+    "activeFilters": {
+      "severity": "warning",
+      "station": "relay-shadow"
+    }
   },
   "client": {
     "timezone": "Europe/Vienna",
@@ -122,6 +164,8 @@ window.Crowdship.open({
 ```
 
 `hostOrigin` is the browser-derived host origin captured by the Crowdship iframe. The server validates it against the project's allowlist before it accepts the contribution.
+
+`context` may also include `selectedObjectType`, `selectedObjectId`, and `selectionExplicit: true` after the user explicitly selects an object, but those fields are optional and should not be assumed to exist.
 
 The widget keeps each selected `File` object in memory until contribution creation succeeds. `POST /api/v1/contributions` carries attachment metadata only. After the server returns created attachment rows, the widget uploads each binary file to `POST /api/v1/contributions/:id/attachments`.
 

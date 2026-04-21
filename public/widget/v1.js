@@ -70,7 +70,7 @@
     if (!input || typeof input === 'string') {
       return {
         type: 'feature_request',
-        title: typeof input === 'string' ? input : '',
+        title: typeof input === 'string' && input !== 'Suggest a change' ? input : '',
         body: '',
       };
     }
@@ -81,6 +81,43 @@
       route: typeof input.route === 'string' ? input.route : '',
       url: typeof input.url === 'string' ? input.url : '',
     };
+  }
+
+  function normalizeStyleToken(value) {
+    if (typeof value !== 'string') return '';
+    var text = value.trim();
+    if (!text || text.length > 80 || /[;{}<>]/.test(text)) return '';
+    return text;
+  }
+
+  function normalizeRadiusToken(value) {
+    if (typeof value === 'number' && isFinite(value)) return value + 'px';
+    var text = normalizeStyleToken(value);
+    if (/^\d+(\.\d+)?$/.test(text)) return text + 'px';
+    return text;
+  }
+
+  function normalizeTheme(input) {
+    var theme = input && Object.prototype.toString.call(input) === '[object Object]' ? input : {};
+    var output = {};
+    ['accent', 'background', 'surface', 'text', 'muted', 'radius'].forEach(function (key) {
+      var value = key === 'radius' ? normalizeRadiusToken(theme[key]) : normalizeStyleToken(theme[key]);
+      if (value) {
+        output[key] = value;
+      }
+    });
+    return output;
+  }
+
+  function readTheme(script) {
+    return normalizeTheme({
+      accent: readAttr(script, 'data-crowdship-accent') || readAttr(script, 'data-crowdship-accent-color'),
+      background: readAttr(script, 'data-crowdship-background') || readAttr(script, 'data-crowdship-background-color'),
+      surface: readAttr(script, 'data-crowdship-surface') || readAttr(script, 'data-crowdship-surface-color'),
+      text: readAttr(script, 'data-crowdship-text') || readAttr(script, 'data-crowdship-text-color'),
+      muted: readAttr(script, 'data-crowdship-muted') || readAttr(script, 'data-crowdship-muted-color'),
+      radius: readAttr(script, 'data-crowdship-radius'),
+    });
   }
 
   var script = getScriptElement();
@@ -95,7 +132,9 @@
       project: readAttr(script, 'data-crowdship-project'),
       environment: readAttr(script, 'data-crowdship-environment') || 'production',
       launcher: readAttr(script, 'data-crowdship-launcher') || 'auto',
+      launcherLabel: readAttr(script, 'data-crowdship-launcher-label') || 'Suggest a change',
       scriptUrl: script.src || '',
+      theme: readTheme(script),
     },
     user: {
       id: readAttr(script, 'data-crowdship-user-id'),
@@ -103,7 +142,7 @@
       role: readAttr(script, 'data-crowdship-user-role'),
     },
     context: {},
-    request: normalizeRequest('Suggest a change'),
+    request: normalizeRequest(),
     isOpen: false,
   };
 
@@ -121,13 +160,37 @@
     hostStyle.textContent = [
       '.crowdship-shell{position:fixed;right:16px;bottom:16px;z-index:2147483000;display:none;width:min(440px,calc(100vw - 16px));height:min(740px,calc(100vh - 16px));pointer-events:none;}',
       '.crowdship-shell[data-open="true"]{display:block;}',
-      '.crowdship-frame{width:100%;height:100%;border:0;border-radius:8px;box-shadow:0 18px 42px rgba(24,32,41,.18);background:#eef1ee;pointer-events:auto;}',
-      '.crowdship-launcher{position:fixed;right:16px;bottom:16px;z-index:2147483001;min-height:44px;min-width:44px;padding:12px 16px;border:1px solid #17362e;border-radius:8px;background:#184c3d;color:#fff;font:600 14px/1.2 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;text-decoration:none;cursor:pointer;box-shadow:0 10px 24px rgba(24,32,41,.14);}',
-      '.crowdship-launcher:focus{outline:2px solid #0f766e;outline-offset:2px;}',
+      '.crowdship-frame{width:100%;height:100%;border:0;border-radius:var(--crowdship-radius,8px);box-shadow:0 18px 42px rgba(24,32,41,.18);background:var(--crowdship-background,#eef1ee);pointer-events:auto;}',
+      '.crowdship-launcher{position:fixed;right:16px;bottom:16px;z-index:2147483001;min-height:44px;min-width:44px;padding:12px 16px;border:1px solid var(--crowdship-accent,#17362e);border-radius:var(--crowdship-radius,8px);background:var(--crowdship-accent,#184c3d);color:#fff;font:600 14px/1.2 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;text-decoration:none;cursor:pointer;box-shadow:0 10px 24px rgba(24,32,41,.14);}',
+      '.crowdship-launcher:focus{outline:2px solid var(--crowdship-accent,#0f766e);outline-offset:2px;}',
       '.crowdship-launcher[data-open="true"]{opacity:0.92;}',
       '@media (max-width: 720px){.crowdship-shell{inset:0;width:100vw;height:100dvh;right:auto;bottom:auto;border-radius:0;}.crowdship-frame{border-radius:0;}.crowdship-launcher{right:12px;bottom:12px;max-width:calc(100vw - 24px);white-space:normal;text-align:left;}}'
     ].join('');
     document.head.appendChild(hostStyle);
+  }
+
+  function applyHostTheme() {
+    var theme = normalizeTheme(state.config && state.config.theme);
+    var targets = [shell, launcher];
+    var map = {
+      accent: '--crowdship-accent',
+      background: '--crowdship-background',
+      surface: '--crowdship-surface',
+      text: '--crowdship-text',
+      muted: '--crowdship-muted',
+      radius: '--crowdship-radius',
+    };
+    targets.forEach(function (target) {
+      if (!target || !target.style) return;
+      Object.keys(map).forEach(function (key) {
+        if (theme[key]) {
+          target.style.setProperty(map[key], theme[key]);
+        }
+      });
+    });
+    if (launcher) {
+      launcher.textContent = state.config.launcherLabel || 'Suggest a change';
+    }
   }
 
   function createLauncher() {
@@ -136,14 +199,15 @@
     launcher = document.createElement('button');
     launcher.type = 'button';
     launcher.className = 'crowdship-launcher';
-    launcher.textContent = 'Suggest a change';
+    launcher.textContent = state.config.launcherLabel || 'Suggest a change';
     launcher.setAttribute('aria-haspopup', 'dialog');
     launcher.setAttribute('aria-controls', 'crowdship-widget-shell');
     launcher.setAttribute('aria-expanded', 'false');
     launcher.addEventListener('click', function () {
-      api.open(state.request);
+      api.open();
     });
     (document.body || document.documentElement).appendChild(launcher);
+    applyHostTheme();
     return launcher;
   }
 
@@ -169,6 +233,7 @@
     });
     shell.appendChild(iframe);
     (document.body || document.documentElement).appendChild(shell);
+    applyHostTheme();
     return shell;
   }
 
@@ -235,6 +300,22 @@
   }
 
   var api = {
+    configure: function (options) {
+      var incoming = clonePlain(options, 0) || {};
+      if (incoming.theme) {
+        state.config.theme = mergePlain(state.config.theme, normalizeTheme(incoming.theme));
+      }
+      if (typeof incoming.launcherLabel === 'string') {
+        var launcherLabel = incoming.launcherLabel.trim();
+        if (launcherLabel) {
+          state.config.launcherLabel = launcherLabel.slice(0, 80);
+        }
+      }
+      applyHostTheme();
+      if (state.isOpen) {
+        syncFrame('crowdship:state');
+      }
+    },
     setContext: function (context) {
       state.context = mergePlain(state.context, clonePlain(context, 0));
       if (state.isOpen) {
