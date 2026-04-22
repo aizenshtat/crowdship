@@ -1888,6 +1888,10 @@ test('contribution list can be scoped to the requester identity for widget histo
     'message-3',
     'message-4',
     'progress-created-2',
+    'requester-session',
+    'message-5',
+    'message-6',
+    'progress-created-3',
     'progress-clarification-2',
   ];
   const persistence = createInMemoryContributionPersistenceAdapter();
@@ -1913,6 +1917,17 @@ test('contribution list can be scoped to the requester identity for widget histo
       },
     },
   });
+  await createContribution({
+    body: {
+      ...buildCreatePayload(),
+      title: 'Anonymous browser request',
+      attachments: [],
+      user: {
+        requesterSessionId: 'crqs_browser_session_123',
+        role: 'requester',
+      },
+    },
+  });
 
   const response = await listContributions({
     query: {
@@ -1925,6 +1940,18 @@ test('contribution list can be scoped to the requester identity for widget histo
   assert.equal(response.status, 200);
   assert.equal(response.body.contributions.length, 1);
   assert.equal(response.body.contributions[0].id, 'requester-one');
+
+  const sessionResponse = await listContributions({
+    query: {
+      project: 'example',
+      requesterSessionId: 'crqs_browser_session_123',
+      limit: '5',
+    },
+  });
+
+  assert.equal(sessionResponse.status, 200);
+  assert.equal(sessionResponse.body.contributions.length, 1);
+  assert.equal(sessionResponse.body.contributions[0].id, 'requester-session');
 });
 
 test('contribution progress fails safely without persistence', async () => {

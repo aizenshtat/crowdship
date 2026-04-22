@@ -1800,7 +1800,7 @@
             'crowdship:requests',
             cleanHistoryKeyPart(config.project || 'unknown'),
             cleanHistoryKeyPart(config.environment || 'production'),
-            cleanHistoryKeyPart(user.id || user.email || state.hostOrigin || 'anonymous'),
+            cleanHistoryKeyPart(user.id || user.email || user.requesterSessionId || state.hostOrigin || 'anonymous'),
           ].join(':');
         }
 
@@ -1837,6 +1837,7 @@
           return {
             id: typeof user.id === 'string' ? user.id.trim() : '',
             email: typeof user.email === 'string' ? user.email.trim() : '',
+            sessionId: typeof user.requesterSessionId === 'string' ? user.requesterSessionId.trim() : '',
           };
         }
 
@@ -1844,7 +1845,7 @@
           var config = state.config || {};
           var identity = getRequesterIdentity();
 
-          if (!config.project || (!identity.id && !identity.email)) {
+          if (!config.project || (!identity.id && !identity.email && !identity.sessionId)) {
             return '';
           }
 
@@ -1854,6 +1855,7 @@
           params.set('limit', '8');
           if (identity.id) params.set('requesterUserId', identity.id);
           if (identity.email) params.set('requesterEmail', identity.email);
+          if (identity.sessionId) params.set('requesterSessionId', identity.sessionId);
           if (state.hostOrigin) params.set('hostOrigin', state.hostOrigin);
           return '/api/v1/contributions?' + params.toString();
         }

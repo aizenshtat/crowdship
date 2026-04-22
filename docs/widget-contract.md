@@ -206,6 +206,14 @@ GET /api/v1/contributions?project=example&requesterUserId=customer-123&limit=8
 
 The widget may keep contribution ids in browser storage only as an anonymous fallback. Database state remains authoritative for titles, statuses, previews, and review actions.
 
+For anonymous users, the host-page loader stores only a generated requester session id in first-party browser storage and sends that id with each contribution. The contribution record remains in Crowdship's database, and history is loaded from the database by session id:
+
+```text
+GET /api/v1/contributions?project=example&requesterSessionId=:sessionId&limit=8
+```
+
+The browser key is only a lookup handle. It is not the source of truth for titles, statuses, previews, or review actions.
+
 ## Attachment Payload
 
 Attachments are uploaded before or during the chat. Each attachment is stored separately and referenced from chat/spec records.
@@ -339,6 +347,7 @@ The user can approve the spec or continue chatting. Approval creates an immutabl
 POST /api/v1/contributions
 GET  /api/v1/projects/:project/public-config
 GET  /api/v1/contributions?project=:project&requesterUserId=:userId
+GET  /api/v1/contributions?project=:project&requesterSessionId=:sessionId
 GET  /api/v1/contributions/:id
 POST /api/v1/contributions/:id/messages
 POST /api/v1/contributions/:id/votes

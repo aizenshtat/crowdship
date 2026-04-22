@@ -2090,10 +2090,15 @@ function normalizeQueryEmail(value) {
 function getContributionRequester(contribution) {
   const payload = isPlainObject(contribution?.payload) ? contribution.payload : {};
   const user = isPlainObject(payload.user) ? payload.user : {};
+  const client = isPlainObject(payload.client) ? payload.client : {};
 
   return {
     userId: normalizeOptionalString(user.id) || normalizeOptionalString(user.userId),
     email: normalizeOptionalString(user.email).toLowerCase(),
+    sessionId:
+      normalizeOptionalString(user.requesterSessionId) ||
+      normalizeOptionalString(user.sessionId) ||
+      normalizeOptionalString(client.requesterSessionId),
     hostOrigin: normalizeOptionalString(payload.hostOrigin),
   };
 }
@@ -2106,20 +2111,22 @@ function contributionMatchesListQuery(detail, query = {}) {
   const environment = normalizeQueryString(query.environment);
   const requesterUserId = normalizeQueryString(query.requesterUserId) || normalizeQueryString(query.userId);
   const requesterEmail = normalizeQueryEmail(query.requesterEmail) || normalizeQueryEmail(query.email);
+  const requesterSessionId = normalizeQueryString(query.requesterSessionId) || normalizeQueryString(query.sessionId);
   const hostOrigin = normalizeQueryString(query.hostOrigin);
 
   if (project && contribution.projectSlug !== project) return false;
   if (environment && contribution.environment !== environment) return false;
   if (hostOrigin && normalizeOptionalString(contribution.payload?.hostOrigin) !== hostOrigin) return false;
 
-  if (!requesterUserId && !requesterEmail) {
+  if (!requesterUserId && !requesterEmail && !requesterSessionId) {
     return true;
   }
 
   const requester = getContributionRequester(contribution);
   return Boolean(
     (requesterUserId && requester.userId === requesterUserId) ||
-      (requesterEmail && requester.email === requesterEmail),
+      (requesterEmail && requester.email === requesterEmail) ||
+      (requesterSessionId && requester.sessionId === requesterSessionId),
   );
 }
 

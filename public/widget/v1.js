@@ -120,6 +120,48 @@
     });
   }
 
+  function cleanStorageKeyPart(value) {
+    var text = typeof value === 'string' ? value.trim() : '';
+    return text ? encodeURIComponent(text).slice(0, 120) : 'anonymous';
+  }
+
+  function createRequesterSessionId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return 'crqs_' + window.crypto.randomUUID();
+    }
+    return 'crqs_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+  }
+
+  function readRequesterSessionId(script) {
+    var explicit = readAttr(script, 'data-crowdship-requester-session-id');
+    if (explicit) {
+      return explicit.slice(0, 120);
+    }
+
+    var key = [
+      'crowdship:requester-session',
+      cleanStorageKeyPart(readAttr(script, 'data-crowdship-project')),
+      cleanStorageKeyPart(readAttr(script, 'data-crowdship-environment') || 'production'),
+      cleanStorageKeyPart(window.location.origin),
+    ].join(':');
+
+    try {
+      if (window.localStorage) {
+        var stored = window.localStorage.getItem(key);
+        if (stored && stored.trim()) {
+          return stored.trim().slice(0, 120);
+        }
+        var next = createRequesterSessionId();
+        window.localStorage.setItem(key, next);
+        return next;
+      }
+    } catch (error) {
+      // Storage may be disabled. The current page session still gets a usable key.
+    }
+
+    return createRequesterSessionId();
+  }
+
   var script = getScriptElement();
   if (!script) {
     return;
@@ -140,6 +182,7 @@
       id: readAttr(script, 'data-crowdship-user-id'),
       email: readAttr(script, 'data-crowdship-user-email'),
       role: readAttr(script, 'data-crowdship-user-role'),
+      requesterSessionId: readRequesterSessionId(script),
     },
     context: {},
     request: normalizeRequest(),
