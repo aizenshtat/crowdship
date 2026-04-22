@@ -196,6 +196,16 @@ The widget keeps each selected `File` object in memory until contribution creati
 
 When the agent has enough detail, the same contribution updates to `spec_pending_approval` and the widget switches into the spec review surface without a separate page change.
 
+## Requester History
+
+When the host app supplies a stable `user.id` or `user.email`, reopening the widget should load the requester's recent contributions from Crowdship's database:
+
+```text
+GET /api/v1/contributions?project=example&requesterUserId=customer-123&limit=8
+```
+
+The widget may keep contribution ids in browser storage only as an anonymous fallback. Database state remains authoritative for titles, statuses, previews, and review actions.
+
 ## Attachment Payload
 
 Attachments are uploaded before or during the chat. Each attachment is stored separately and referenced from chat/spec records.
@@ -328,6 +338,7 @@ The user can approve the spec or continue chatting. Approval creates an immutabl
 ```text
 POST /api/v1/contributions
 GET  /api/v1/projects/:project/public-config
+GET  /api/v1/contributions?project=:project&requesterUserId=:userId
 GET  /api/v1/contributions/:id
 POST /api/v1/contributions/:id/messages
 POST /api/v1/contributions/:id/votes

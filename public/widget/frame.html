@@ -355,6 +355,38 @@
         color: var(--muted);
       }
 
+      .history-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .history-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .history-item:first-child {
+        border-top: 0;
+      }
+
+      .history-title {
+        margin: 0;
+        color: var(--text);
+        font-size: 15px;
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+
+      .history-meta {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
       .request-meta,
       .compose-tools {
         display: grid;
@@ -1270,6 +1302,17 @@
             </ol>
           </section>
 
+          <section class="section hidden" id="history-section" aria-labelledby="history-title">
+            <div class="section-head">
+              <h2 id="history-title">Your requests</h2>
+              <p>Open a request to continue from its current state.</p>
+            </div>
+            <div class="history-list" id="history-list" aria-live="polite"></div>
+            <div class="actions-row">
+              <button type="button" class="primary-button" id="new-request-button">New request</button>
+            </div>
+          </section>
+
           <form id="compose-form" class="hidden" novalidate>
             <div class="section compose-shell">
               <div class="compose-lead">
@@ -1568,6 +1611,11 @@
           pollInFlight: false,
           streamSource: null,
           streamContributionId: '',
+          rememberedContributions: [],
+          historyLoading: false,
+          historyOpeningId: '',
+          composeRequested: false,
+          historyKey: '',
         };
 
         var connectionChip = document.getElementById('connection-chip');
@@ -1579,6 +1627,9 @@
         var errorCopy = document.getElementById('error-copy');
         var lifecycleSection = document.getElementById('lifecycle-section');
         var lifecycleList = document.getElementById('lifecycle-list');
+        var historySection = document.getElementById('history-section');
+        var historyList = document.getElementById('history-list');
+        var newRequestButton = document.getElementById('new-request-button');
         var composeForm = document.getElementById('compose-form');
         var reviewSection = document.getElementById('review-section');
         var chatSection = document.getElementById('chat-section');
@@ -1735,6 +1786,276 @@
               root.style.setProperty('--panel-2', value);
             }
           });
+        }
+
+        function cleanHistoryKeyPart(value) {
+          var text = typeof value === 'string' ? value.trim() : '';
+          return text ? encodeURIComponent(text).slice(0, 120) : 'anonymous';
+        }
+
+        function deriveHistoryKey() {
+          var config = state.config || {};
+          var user = state.user || {};
+          return [
+            'crowdship:requests',
+            cleanHistoryKeyPart(config.project || 'unknown'),
+            cleanHistoryKeyPart(config.environment || 'production'),
+            cleanHistoryKeyPart(user.id || user.email || state.hostOrigin || 'anonymous'),
+          ].join(':');
+        }
+
+        function readRememberedContributions() {
+          if (!state.historyKey) return [];
+          try {
+            var raw = window.localStorage ? window.localStorage.getItem(state.historyKey) : '';
+            var parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed)
+              ? parsed
+                  .filter(function (item) {
+                    return item && typeof item.id === 'string' && item.id.trim();
+                  })
+                  .slice(0, 8)
+              : [];
+          } catch (error) {
+            return [];
+          }
+        }
+
+        function writeRememberedContributions(items) {
+          if (!state.historyKey) return;
+          try {
+            if (window.localStorage) {
+              window.localStorage.setItem(state.historyKey, JSON.stringify(items.slice(0, 8)));
+            }
+          } catch (error) {
+            // Some browsers block third-party iframe storage. The active request still works.
+          }
+        }
+
+        function getRequesterIdentity() {
+          var user = state.user || {};
+          return {
+            id: typeof user.id === 'string' ? user.id.trim() : '',
+            email: typeof user.email === 'string' ? user.email.trim() : '',
+          };
+        }
+
+        function buildRequesterContributionListUrl() {
+          var config = state.config || {};
+          var identity = getRequesterIdentity();
+
+          if (!config.project || (!identity.id && !identity.email)) {
+            return '';
+          }
+
+          var params = new URLSearchParams();
+          params.set('project', config.project);
+          params.set('environment', config.environment || 'production');
+          params.set('limit', '8');
+          if (identity.id) params.set('requesterUserId', identity.id);
+          if (identity.email) params.set('requesterEmail', identity.email);
+          if (state.hostOrigin) params.set('hostOrigin', state.hostOrigin);
+          return '/api/v1/contributions?' + params.toString();
+        }
+
+        function requestRequesterContributionSummaries() {
+          var url = buildRequesterContributionListUrl();
+          if (!url) {
+            return Promise.resolve([]);
+          }
+
+          return fetch(url, {
+            method: 'GET',
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+          })
+            .then(function (response) {
+              return response.text().then(function (text) {
+                return { response: response, text: text };
+              });
+            })
+            .then(function (result) {
+              if (!result.response.ok || !result.text) {
+                return [];
+              }
+
+              try {
+                var payload = JSON.parse(result.text);
+                return Array.isArray(payload.contributions) ? payload.contributions : [];
+              } catch (error) {
+                return [];
+              }
+            })
+            .catch(function () {
+              return [];
+            });
+        }
+
+        function buildRememberedContribution(detail) {
+          var contribution = detail && detail.contribution ? detail.contribution : detail || {};
+          var spec = detail && detail.spec ? detail.spec.current : null;
+          var id = typeof contribution.id === 'string' ? contribution.id : '';
+          if (!id) return null;
+          return {
+            id: id,
+            title: contribution.title || (spec && spec.goal) || 'Untitled request',
+            state: contribution.state || '',
+            updatedAt: contribution.updatedAt || contribution.createdAt || new Date().toISOString(),
+            createdAt: contribution.createdAt || '',
+          };
+        }
+
+        function mergeRememberedContributions(primary, fallback) {
+          var byId = {};
+          return primary
+            .concat(fallback)
+            .filter(function (item) {
+              if (!item || !item.id || byId[item.id]) return false;
+              byId[item.id] = true;
+              return true;
+            })
+            .slice(0, 8);
+        }
+
+        function rememberContributionDetail(detail) {
+          var remembered = buildRememberedContribution(detail);
+          if (!remembered) return;
+
+          var current = state.rememberedContributions.length
+            ? state.rememberedContributions.slice()
+            : readRememberedContributions();
+          var next = [remembered].concat(
+            current.filter(function (item) {
+              return item.id !== remembered.id;
+            })
+          ).slice(0, 8);
+
+          state.rememberedContributions = next;
+          writeRememberedContributions(next);
+        }
+
+        function formatContributionState(value) {
+          var labels = {
+            draft_chat: 'Questions open',
+            spec_pending_approval: 'Spec ready',
+            spec_approved: 'Spec approved',
+            agent_queued: 'Worker queued',
+            agent_running: 'Worker running',
+            pr_opened: 'Pull request open',
+            preview_deploying: 'Preview deploying',
+            preview_ready: 'Preview ready',
+            requester_review: 'Preview ready',
+            revision_requested: 'Changes requested',
+            ready_for_voting: 'Ready for voting',
+            voting_open: 'Voting open',
+            core_team_flagged: 'Core review queued',
+            core_review: 'Core review',
+            production_deploying: 'Production deploying',
+            merged: 'Merged',
+            completed: 'Completed',
+            rejected: 'Closed',
+            implementation_failed: 'Implementation failed',
+            preview_failed: 'Preview failed',
+          };
+          return labels[value] || value || 'Saved';
+        }
+
+        function renderHistory() {
+          if (!state.rememberedContributions.length) {
+            historyList.innerHTML = state.historyLoading
+              ? '<div class="summary-empty">Loading saved requests.</div>'
+              : '<div class="summary-empty">No saved requests in this browser yet.</div>';
+            return;
+          }
+
+          historyList.innerHTML = state.rememberedContributions
+            .map(function (item) {
+              var isOpening = state.historyOpeningId === item.id;
+              return (
+                '<div class="history-item">' +
+                '<div>' +
+                '<p class="history-title">' + escapeHtml(item.title || 'Untitled request') + '</p>' +
+                '<p class="history-meta">' +
+                escapeHtml(formatContributionState(item.state)) +
+                ' · ' +
+                escapeHtml(formatDateTime(item.updatedAt || item.createdAt)) +
+                '</p>' +
+                '</div>' +
+                '<button type="button" class="secondary-button" data-open-contribution="' +
+                escapeHtml(item.id) +
+                '"' +
+                (isOpening ? ' disabled' : '') +
+                '>' +
+                escapeHtml(isOpening ? 'Opening' : 'Open') +
+                '</button>' +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+
+        function showHistorySurface() {
+          stopContributionLiveUpdates();
+          chatSection.classList.add('hidden');
+          reviewSection.classList.add('hidden');
+          composeForm.classList.add('hidden');
+          historySection.classList.remove('hidden');
+          lifecycleSection.classList.add('hidden');
+          state.previewRequestOpen = false;
+          state.previewRequestNote = '';
+          renderHistory();
+          bannerCopy.textContent = 'Open a saved request or start a new one.';
+          setChip(state.historyLoading ? 'working' : 'ready', state.historyLoading ? 'Loading requests' : 'Requests saved');
+        }
+
+        function refreshRememberedContributions() {
+          var locallyRemembered = readRememberedContributions();
+          state.rememberedContributions = locallyRemembered;
+
+          state.historyLoading = true;
+          if (!state.contributionDetail && !state.composeRequested) {
+            showHistorySurface();
+          }
+
+          return requestRequesterContributionSummaries()
+            .then(function (databaseItems) {
+              var databaseRemembered = databaseItems
+                .map(buildRememberedContribution)
+                .filter(Boolean);
+              var merged = mergeRememberedContributions(databaseRemembered, locallyRemembered);
+
+              if (!merged.length) {
+                return [];
+              }
+
+              return Promise.all(
+                merged.map(function (item) {
+                  return requestContributionDetail(item.id)
+                    .then(function (detail) {
+                      return buildRememberedContribution(detail) || item;
+                    })
+                    .catch(function () {
+                      return item;
+                    });
+                })
+              );
+            })
+            .then(function (items) {
+              state.rememberedContributions = Array.isArray(items) ? items : [];
+              writeRememberedContributions(state.rememberedContributions);
+              return state.rememberedContributions;
+            })
+            .finally(function () {
+              state.historyLoading = false;
+              if (!state.contributionDetail && !state.composeRequested) {
+                if (state.rememberedContributions.length) {
+                  showHistorySurface();
+                } else {
+                  showComposeSurface();
+                }
+              }
+            });
         }
 
         function setPhase(phase) {
@@ -1958,6 +2279,9 @@
 
         function showContributionSurface(detail) {
           state.contributionDetail = detail;
+          state.composeRequested = false;
+          historySection.classList.add('hidden');
+          rememberContributionDetail(detail);
           if (getContributionState(state.contributionDetail) === 'draft_chat') {
             renderChat(state.contributionDetail);
           } else {
@@ -2333,6 +2657,7 @@
           var currentState = getContributionState(detail);
           var latestAgentQuestion = null;
 
+          rememberContributionDetail(detail);
           renderChatSummary(detail);
           chatThread.innerHTML = conversation.length
             ? conversation
@@ -2368,6 +2693,7 @@
           chatReply.value = state.replyDraft || chatReply.value || '';
           syncSuggestedChoiceSelection();
           setPhase(currentState === 'draft_chat' ? 'chat' : 'spec');
+          historySection.classList.add('hidden');
           chatSection.classList.remove('hidden');
           composeForm.classList.add('hidden');
           reviewSection.classList.add('hidden');
@@ -2705,6 +3031,8 @@
             return;
           }
 
+          rememberContributionDetail(detail);
+          historySection.classList.add('hidden');
           chatSection.classList.add('hidden');
           reviewSection.classList.remove('hidden');
           composeForm.classList.add('hidden');
@@ -2780,6 +3108,12 @@
         }
 
         function showComposeSurface() {
+          if (!state.composeRequested && state.rememberedContributions.length) {
+            showHistorySurface();
+            return;
+          }
+
+          historySection.classList.add('hidden');
           chatSection.classList.add('hidden');
           reviewSection.classList.add('hidden');
           composeForm.classList.remove('hidden');
@@ -2811,6 +3145,13 @@
           state.request = payload.request || state.request;
           state.open = !!payload.isOpen;
           applyTheme(state.config);
+          var nextHistoryKey = deriveHistoryKey();
+          if (nextHistoryKey !== state.historyKey) {
+            state.historyKey = nextHistoryKey;
+            state.rememberedContributions = readRememberedContributions();
+            state.composeRequested = false;
+            refreshRememberedContributions();
+          }
 
           clearTimeout(loadTimeout);
           loadingState.classList.add('hidden');
@@ -2827,6 +3168,7 @@
           state.contributionDetail = getContributionDetail(payload) || state.contributionDetail;
 
           if (state.contributionDetail) {
+            rememberContributionDetail(state.contributionDetail);
             var currentState = getContributionState(state.contributionDetail);
             if (currentState === 'draft_chat') {
               renderChat(state.contributionDetail);
@@ -3620,6 +3962,34 @@
 
         resetButton.addEventListener('click', function () {
           clearDraft();
+        });
+
+        newRequestButton.addEventListener('click', function () {
+          state.composeRequested = true;
+          showComposeSurface();
+          bodyInput.focus();
+        });
+
+        historyList.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          var contributionId = target.getAttribute('data-open-contribution');
+          if (!contributionId || state.historyOpeningId) return;
+
+          state.historyOpeningId = contributionId;
+          renderHistory();
+          setChip('working', 'Opening request');
+          requestContributionDetail(contributionId)
+            .then(function (detail) {
+              state.historyOpeningId = '';
+              showContributionSurface(detail);
+            })
+            .catch(function () {
+              state.historyOpeningId = '';
+              renderHistory();
+              setChip('error', 'Open failed');
+              bannerCopy.textContent = 'The saved request could not be opened.';
+            });
         });
 
         approveButton.addEventListener('click', function () {

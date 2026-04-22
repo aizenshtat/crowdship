@@ -2079,6 +2079,56 @@ function serializeContributionSummary(
   };
 }
 
+function normalizeQueryString(value) {
+  return normalizeOptionalString(Array.isArray(value) ? value[0] : value);
+}
+
+function normalizeQueryEmail(value) {
+  return normalizeQueryString(value).toLowerCase();
+}
+
+function getContributionRequester(contribution) {
+  const payload = isPlainObject(contribution?.payload) ? contribution.payload : {};
+  const user = isPlainObject(payload.user) ? payload.user : {};
+
+  return {
+    userId: normalizeOptionalString(user.id) || normalizeOptionalString(user.userId),
+    email: normalizeOptionalString(user.email).toLowerCase(),
+    hostOrigin: normalizeOptionalString(payload.hostOrigin),
+  };
+}
+
+function contributionMatchesListQuery(detail, query = {}) {
+  const contribution = detail?.contribution;
+  if (!contribution) return false;
+
+  const project = normalizeQueryString(query.project) || normalizeQueryString(query.projectSlug);
+  const environment = normalizeQueryString(query.environment);
+  const requesterUserId = normalizeQueryString(query.requesterUserId) || normalizeQueryString(query.userId);
+  const requesterEmail = normalizeQueryEmail(query.requesterEmail) || normalizeQueryEmail(query.email);
+  const hostOrigin = normalizeQueryString(query.hostOrigin);
+
+  if (project && contribution.projectSlug !== project) return false;
+  if (environment && contribution.environment !== environment) return false;
+  if (hostOrigin && normalizeOptionalString(contribution.payload?.hostOrigin) !== hostOrigin) return false;
+
+  if (!requesterUserId && !requesterEmail) {
+    return true;
+  }
+
+  const requester = getContributionRequester(contribution);
+  return Boolean(
+    (requesterUserId && requester.userId === requesterUserId) ||
+      (requesterEmail && requester.email === requesterEmail),
+  );
+}
+
+function clampContributionListLimit(value, fallback = 50) {
+  const parsed = Number.parseInt(normalizeQueryString(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, 100);
+}
+
 export function createHealthHandler() {
   return () =>
     buildResponse(200, {
@@ -2569,15 +2619,18 @@ export function createProjectUpdateHandler({ database } = {}) {
 }
 
 export function createContributionListHandler({ database } = {}) {
-  return async () => {
+  return async ({ query = {} } = {}) => {
     if (!hasReadyPersistence(database, 'listContributions')) {
       return notWiredResponse('Contribution persistence is not wired yet.');
     }
 
+    const limit = clampContributionListLimit(query.limit);
     const details = await database.listContributions();
     const contributions = details
       .slice()
+      .filter((detail) => contributionMatchesListQuery(detail, query))
       .sort((left, right) => String(right.contribution.createdAt).localeCompare(String(left.contribution.createdAt)))
+      .slice(0, limit)
       .map((detail) =>
         serializeContributionSummary(
           detail.contribution,

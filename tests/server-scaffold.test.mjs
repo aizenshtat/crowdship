@@ -1875,6 +1875,58 @@ test('connected contribution persistence lists created contributions with latest
   assert.equal(response.body.contributions[0].state, 'draft_chat');
 });
 
+test('contribution list can be scoped to the requester identity for widget history', async () => {
+  const ids = [
+    'requester-one',
+    'attachment-1',
+    'message-1',
+    'message-2',
+    'progress-created',
+    'progress-clarification',
+    'requester-two',
+    'attachment-2',
+    'message-3',
+    'message-4',
+    'progress-created-2',
+    'progress-clarification-2',
+  ];
+  const persistence = createInMemoryContributionPersistenceAdapter();
+  const createContribution = createContributionHandler({
+    database: persistence,
+    specService: createStubSpecService(),
+    idFactory: () => ids.shift(),
+  });
+  const listContributions = createRouteHandlers({ database: persistence }).getContributions;
+
+  await createContribution({
+    body: buildCreatePayload(),
+  });
+  await createContribution({
+    body: {
+      ...buildCreatePayload(),
+      title: 'Another customer request',
+      attachments: [],
+      user: {
+        id: 'customer-456',
+        email: 'other@example.com',
+        role: 'customer',
+      },
+    },
+  });
+
+  const response = await listContributions({
+    query: {
+      project: 'example',
+      requesterUserId: 'customer-123',
+      limit: '5',
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.contributions.length, 1);
+  assert.equal(response.body.contributions[0].id, 'requester-one');
+});
+
 test('contribution progress fails safely without persistence', async () => {
   const getContributionProgress = createContributionProgressHandler();
   const response = await getContributionProgress({

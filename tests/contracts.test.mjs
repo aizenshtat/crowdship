@@ -148,6 +148,9 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
   assert.match(frame, /Suggest a change/);
   assert.match(frame, /What should this product do better\?/);
+  assert.match(frame, /Your requests/);
+  assert.match(frame, /requestRequesterContributionSummaries/);
+  assert.match(frame, /requesterUserId/);
   assert.match(frame, /draftDirty/);
   assert.match(frame, /Delivery tracking/);
   assert.match(frame, /hostOrigin: state\.hostOrigin \|\| ''/);
@@ -170,6 +173,7 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(read('docs/widget-contract.md'), /"hostOrigin": "https:\/\/example\.aizenshtat\.eu"/);
   assert.match(read('docs/widget-contract.md'), /browser-derived host origin/i);
   assert.match(read('docs/widget-contract.md'), /POST \/api\/v1\/contributions\/:id\/messages/);
+  assert.match(read('docs/widget-contract.md'), /requesterUserId=:userId/);
   assert.match(read('docs/widget-contract.md'), /X-Crowdship-Attachment-Id: attachment_123/);
   assert.match(read('docs/widget-contract.md'), /Content-Type: text\/csv/);
   assert.match(read('docs/widget-contract.md'), /nth created row to the nth selected file/i);
