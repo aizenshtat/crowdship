@@ -1448,6 +1448,28 @@
 
               <div class="status-block hidden" id="delivery-status" aria-live="polite"></div>
 
+              <div class="review-links hidden" id="delivery-links"></div>
+
+              <div class="review-section hidden" id="preview-review-section">
+                <div class="review-label">Preview decision</div>
+                <div class="review-actions" id="preview-review-actions">
+                  <button type="button" class="primary-button" id="preview-approve-button">Approve preview</button>
+                  <button type="button" class="secondary-button" id="preview-request-changes-button">Request changes</button>
+                </div>
+                <form class="review-form hidden" id="preview-request-form" novalidate>
+                  <label class="sr-only" for="preview-request-note">Request changes</label>
+                  <textarea
+                    id="preview-request-note"
+                    maxlength="2000"
+                    placeholder="Describe what still needs to change."
+                  ></textarea>
+                  <div class="review-actions">
+                    <button type="submit" class="primary-button" id="preview-request-submit-button">Send change request</button>
+                    <button type="button" class="secondary-button" id="preview-request-cancel-button">Keep current preview</button>
+                  </div>
+                </form>
+              </div>
+
               <div class="review-section">
                 <div class="review-label">Goal</div>
                 <p class="review-text" id="spec-goal">No spec yet.</p>
@@ -1488,29 +1510,7 @@
                 <button type="button" class="secondary-button" id="refine-cancel-button">Keep current spec</button>
               </div>
 
-              <div class="review-links hidden" id="delivery-links"></div>
-
               <div class="review-metrics hidden" id="delivery-summary"></div>
-
-              <div class="review-section hidden" id="preview-review-section">
-                <div class="review-label">Preview</div>
-                <div class="review-actions" id="preview-review-actions">
-                  <button type="button" class="primary-button" id="preview-approve-button">Approve preview</button>
-                  <button type="button" class="secondary-button" id="preview-request-changes-button">Request changes</button>
-                </div>
-                <form class="review-form hidden" id="preview-request-form" novalidate>
-                  <label class="sr-only" for="preview-request-note">Request changes</label>
-                  <textarea
-                    id="preview-request-note"
-                    maxlength="2000"
-                    placeholder="Describe what still needs to change."
-                  ></textarea>
-                  <div class="review-actions">
-                    <button type="submit" class="primary-button" id="preview-request-submit-button">Send change request</button>
-                    <button type="button" class="secondary-button" id="preview-request-cancel-button">Keep current preview</button>
-                  </div>
-                </form>
-              </div>
 
               <div class="review-section hidden" id="vote-summary-section">
                 <div class="review-label">Votes</div>
@@ -2107,6 +2107,12 @@
             return;
           }
           if (active === 'delivery') {
+            var deliveryState = getContributionState(state.contributionDetail);
+            if (canReviewPreview(deliveryState)) {
+              bannerCopy.textContent = 'Open the preview, then approve it or request changes.';
+              setChip('ready', 'Preview ready');
+              return;
+            }
             bannerCopy.textContent = 'No action is needed unless a preview or review request appears.';
             setChip('working', 'Delivery tracking');
             return;
@@ -2469,14 +2475,14 @@
 
         function getContributionDetail(payload) {
           if (!payload || typeof payload !== 'object') return null;
-          if (payload.contribution) {
-            return payload;
+          if (payload.contributionDetail && payload.contributionDetail.contribution) {
+            return payload.contributionDetail;
           }
           if (payload.detail && payload.detail.contribution) {
             return payload.detail;
           }
-          if (payload.contributionDetail && payload.contributionDetail.contribution) {
-            return payload.contributionDetail;
+          if (payload.contribution) {
+            return payload;
           }
           return null;
         }
@@ -2978,7 +2984,7 @@
           setInlineStatus(deliveryStatus, statusMeta.tone, statusMeta.title, statusMeta.copy);
           setReviewChip(statusMeta.tone, statusMeta.title);
           reviewState.textContent = statusMeta.title;
-          reviewHeading.textContent = 'Follow the approved change.';
+          reviewHeading.textContent = previewReviewOpen ? 'Review the preview.' : 'Follow the approved change.';
           reviewCopy.textContent = statusMeta.copy;
           renderDeliveryLinks(model);
           renderMetricGrid(deliverySummary, metrics, 'No delivery metadata recorded yet.');
@@ -3106,6 +3112,9 @@
           }
 
           setPhase(normalizeReviewPhase(detail));
+          if (canReviewPreview(contributionState)) {
+            lifecycleSection.classList.add('hidden');
+          }
           syncContributionLiveUpdates();
         }
 

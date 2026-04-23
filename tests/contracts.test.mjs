@@ -153,8 +153,15 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(frame, /requesterUserId/);
   assert.match(frame, /requesterSessionId/);
   assert.match(widget, /readRequesterSessionId/);
+  assert.ok(
+    frame.indexOf('payload.contributionDetail && payload.contributionDetail.contribution') <
+      frame.indexOf('payload.contribution)'),
+    'stream snapshots must prefer nested full contribution detail over shallow progress summaries',
+  );
   assert.match(frame, /draftDirty/);
   assert.match(frame, /Delivery tracking/);
+  assert.match(frame, /Review the preview/);
+  assert.match(frame, /Preview decision/);
   assert.match(frame, /hostOrigin: state\.hostOrigin \|\| ''/);
   assert.match(frame, /deriveHostOrigin\(event\.origin\)/);
   assert.match(frame, /\/api\/v1\/contributions/);
