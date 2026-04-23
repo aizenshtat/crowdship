@@ -1,6 +1,7 @@
 (function () {
   var SCRIPT_ATTR = 'script[data-crowdship-project]';
   var WIDGET_PATH = '/widget/frame.html';
+  var WIDGET_BUILD_ID = '20260423-preview-actions';
 
   function getScriptElement() {
     if (document.currentScript && document.currentScript.getAttribute('data-crowdship-project')) {
@@ -167,7 +168,9 @@
     return;
   }
   var widgetOrigin = getScriptOrigin(script);
-  var widgetFrameUrl = new URL(WIDGET_PATH, widgetOrigin).toString();
+  var widgetFrame = new URL(WIDGET_PATH, widgetOrigin);
+  widgetFrame.searchParams.set('v', WIDGET_BUILD_ID);
+  var widgetFrameUrl = widgetFrame.toString();
 
   var state = {
     config: {

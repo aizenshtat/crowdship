@@ -145,7 +145,8 @@ test('phase 2 scaffold exposes real widget and admin boundaries', () => {
   assert.match(widget, /configure: function/);
   assert.match(widget, /data-crowdship-accent/);
   assert.match(widget, /data-crowdship-launcher-label/);
-  assert.match(widget, /new URL\(WIDGET_PATH, widgetOrigin\)/);
+  assert.match(widget, /WIDGET_BUILD_ID = '20260423-preview-actions'/);
+  assert.match(widget, /widgetFrame\.searchParams\.set\('v', WIDGET_BUILD_ID\)/);
   assert.match(frame, /Suggest a change/);
   assert.match(frame, /What should this product do better\?/);
   assert.match(frame, /Your requests/);
